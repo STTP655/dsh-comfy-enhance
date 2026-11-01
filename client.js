@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-comfy-status',
+  id: 'dsh-comfy-enhance',
   factory(require) {
     const React = require('react')
     const h = React.createElement
@@ -784,6 +784,7 @@ window.__ModuleLoader__.load({
       const onClose = props.onClose
       useEffect(() => {
         const onKey = (event) => {
+          if (event.isComposing) return
           if (event.key === 'Escape') onClose()
         }
         document.addEventListener('keydown', onKey)
@@ -1337,7 +1338,31 @@ window.__ModuleLoader__.load({
       padding: '14px',
       borderBottom: '1px solid var(--dsw-alias-border-l2)',
     }
-    const BOARD_WRAP = { display: 'flex', justifyContent: 'center' }
+    /** Canvas and the box list share one row. */
+    const STAGE_MAIN = { display: 'flex', gap: 10, alignItems: 'flex-start' }
+    const BOARD_WRAP = { display: 'flex', justifyContent: 'center', flex: 1, minWidth: 0 }
+    const BOX_LIST = {
+      flex: 'none',
+      width: 96,
+      maxHeight: '50vh',
+      overflowY: 'auto',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 2,
+    }
+    const BOX_LIST_INDEX = {
+      flex: 'none',
+      fontSize: 9,
+      opacity: 0.6,
+      fontVariantNumeric: 'tabular-nums',
+    }
+    const BOX_LIST_TEXT = {
+      flex: 1,
+      minWidth: 0,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    }
     const BOARD = {
       position: 'relative',
       background: 'var(--dsw-alias-bg-layer-2)',
@@ -1469,6 +1494,47 @@ window.__ModuleLoader__.load({
       width: '100%',
       boxSizing: 'border-box',
       marginBottom: 3,
+    }
+    const ZOOM_INFO = {
+      flex: 1,
+      minHeight: 0,
+      overflowY: 'auto',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 8,
+      padding: 14,
+    }
+    const ZOOM_INFO_TITLE = {
+      fontSize: 11,
+      fontWeight: 600,
+      color: 'var(--dsw-alias-label-primary)',
+    }
+    const ZOOM_INFO_BODY = {
+      fontSize: 11,
+      lineHeight: 1.6,
+      color: 'var(--dsw-alias-label-secondary)',
+      wordBreak: 'break-word',
+    }
+    const ZOOM_INFO_HINT = {
+      fontSize: 10,
+      lineHeight: 1.5,
+      color: 'var(--dsw-alias-label-secondary)',
+      opacity: 0.75,
+    }
+    const ZOOM_SEG_ROW = {
+      display: 'flex',
+      gap: 4,
+      padding: 3,
+      borderRadius: 9,
+      background: 'var(--dsw-alias-bg-layer-2)',
+    }
+    const ZOOM_CHECK_ROW = {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6,
+      fontSize: 11,
+      color: 'var(--dsw-alias-label-secondary)',
+      cursor: 'pointer',
     }
     const INSPECTOR = {
       flex: 1,
@@ -1628,6 +1694,11 @@ window.__ModuleLoader__.load({
           '.dshCanvasOption{appearance:none;display:block;width:100%;box-sizing:border-box;text-align:left;font:inherit;font-size:10px;padding:4px 6px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
           '.dshCanvasOption:hover{background:var(--dsw-alias-bg-layer-2)}',
           '.dshCanvasOption[data-on="true"]{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base)}',
+          '.dshCanvasBoxItem:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}',
+          '.dshCanvasBoxItem{appearance:none;display:flex;align-items:center;gap:5px;width:100%;box-sizing:border-box;font:inherit;font-size:10px;padding:3px 6px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;text-align:left;outline:none}',
+          '.dshCanvasBoxItem:hover{background:var(--dsw-alias-bg-layer-2)}',
+          '.dshCanvasBoxItem:focus{outline:none}',
+          '.dshCanvasBoxItem[data-on="true"]{background:var(--dsw-alias-bg-layer-1);border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}',
         ].join(''),
       )
     }
@@ -1646,6 +1717,13 @@ window.__ModuleLoader__.load({
       if (meta.type === 'text') return '文字'
       if (meta.character) return '人物'
       return '元素'
+    }
+
+    /** Leading characters of a box label, for the compact list. */
+    function shortLabel(box, max) {
+      const text = boxLabel(box) || '未命名'
+      const chars = Array.from(text)
+      return chars.length > max ? chars.slice(0, max).join('') + '…' : text
     }
 
     /** Percentage geometry so one layout serves every container width. */
@@ -1794,6 +1872,62 @@ window.__ModuleLoader__.load({
     }
 
     /** Drag a box; the pointer delta is converted back into canvas units. */
+    /**
+     * Uncontrolled in-place editor, used inside the zoom overlay.
+     *
+     * The overlay re-renders through a store on every state change, and a
+     * controlled textarea rewrites `value` each time — which kills an IME
+     * composition. Keeping the DOM as the source of truth lets Chinese input work
+     * there, where the plain (controlled) editor in the main pane does not need it.
+     */
+    function PlainEditor(props) {
+      const ref = useRef(null)
+      const closed = useRef(false)
+
+      useEffect(() => {
+        if (ref.current) ref.current.focus()
+      }, [])
+
+      const finish = (value) => {
+        if (closed.current) return
+        closed.current = true
+        props.onCommit(value)
+      }
+
+      const cancel = () => {
+        if (closed.current) return
+        closed.current = true
+        props.onCancel()
+      }
+
+      return h('textarea', {
+        ref,
+        defaultValue: props.initial,
+        style: INLINE_EDITOR,
+        onPointerDown: (event) => event.stopPropagation(),
+        onKeyDown: (event) => {
+          // Enter / Escape belong to the IME while a composition is open.
+          if (event.nativeEvent && event.nativeEvent.isComposing) return
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            cancel()
+          }
+          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault()
+            finish(ref.current ? ref.current.value : '')
+          }
+        },
+        onBlur: () => {
+          // Capture the value first: the node may unmount before the timer runs.
+          const value = ref.current ? ref.current.value : ''
+          window.setTimeout(() => {
+            if (document.activeElement && document.activeElement.tagName === 'TEXTAREA') return
+            finish(value)
+          }, 160)
+        },
+      })
+    }
+
     function Board(props) {
       const boardRef = useRef(null)
       const [drag, setDrag] = useState(null)
@@ -1916,24 +2050,33 @@ window.__ModuleLoader__.load({
               },
             },
             props.editing === index
-              ? h('textarea', {
-                  autoFocus: true,
-                  value: props.draft,
-                  style: INLINE_EDITOR,
-                  onPointerDown: (event) => event.stopPropagation(),
-                  onChange: (event) => props.onDraftChange(event.target.value),
-                  onBlur: () => props.onEditCommit(),
-                  onKeyDown: (event) => {
-                    if (event.key === 'Escape') {
-                      event.preventDefault()
-                      props.onEditCancel()
-                    }
-                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                      event.preventDefault()
-                      props.onEditCommit()
-                    }
-                  },
-                })
+              ? props.plainEditor
+                ? h(PlainEditor, {
+                    initial: props.draft,
+                    onCommit: (value) => props.onEditCommit(value),
+                    onCancel: props.onEditCancel,
+                  })
+                : h('textarea', {
+                    autoFocus: true,
+                    value: props.draft,
+                    style: INLINE_EDITOR,
+                    onPointerDown: (event) => event.stopPropagation(),
+                    onChange: (event) => props.onDraftChange(event.target.value),
+                    onBlur: () => props.onEditCommit(),
+                    onKeyDown: (event) => {
+                      // Enter/Escape during an IME composition belong to the IME.
+                      const busy = event.nativeEvent ? event.nativeEvent.isComposing : event.isComposing
+                      if (busy) return
+                      if (event.key === 'Escape') {
+                        event.preventDefault()
+                        props.onEditCancel()
+                      }
+                      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                        event.preventDefault()
+                        props.onEditCommit()
+                      }
+                    },
+                  })
               : (() => {
                   const meta = box.metadata || {}
                   // Show the same field the double click edits.
@@ -1981,6 +2124,7 @@ window.__ModuleLoader__.load({
           if (boxRef.current && !boxRef.current.contains(event.target)) setOpen(false)
         }
         const onKey = (event) => {
+          if (event.isComposing) return
           if (event.key === 'Escape') setOpen(false)
         }
         document.addEventListener('pointerdown', onDown)
@@ -2095,9 +2239,55 @@ window.__ModuleLoader__.load({
      */
     function ZoomOverlay(props) {
       const onClose = props.onClose
+      const [localEditing, setLocalEditing] = useState(null)
+      const [localDraft, setLocalDraft] = useState('')
+      const [confirmRemove, setConfirmRemove] = useState(false)
+
+      useEffect(() => {
+        if (!confirmRemove) return undefined
+        const timer = setTimeout(() => setConfirmRemove(false), 4000)
+        return () => clearTimeout(timer)
+      }, [confirmRemove])
+
+      /** Two-step delete: the second press within four seconds really removes it. */
+      const requestRemove = () => {
+        if (!confirmRemove) {
+          setConfirmRemove(true)
+          return
+        }
+        setConfirmRemove(false)
+        props.onRemove(props.selected)
+      }
+
+      /** Opens the in-place editor from the box the user just double clicked. */
+      const startLocalEdit = (index) => {
+        const box = props.boxes[index]
+        if (!box) return
+        const meta = box.metadata || {}
+        setLocalEditing(index)
+        setLocalDraft(meta.type === 'text' ? meta.text || '' : meta.desc || '')
+      }
+
+      const cancelLocalEdit = () => {
+        setLocalEditing(null)
+        setLocalDraft('')
+      }
+
+      const commitLocalEdit = (value) => {
+        const index = localEditing
+        setLocalEditing(null)
+        setLocalDraft('')
+        if (index === null) return
+        const box = props.boxes[index]
+        if (!box) return
+        const isText = Boolean((box.metadata || {}).type === 'text')
+        props.onChange(index, { metadata: isText ? { text: value } : { desc: value } })
+      }
 
       useEffect(() => {
         const onKey = (event) => {
+          // An IME uses Escape to cancel a candidate; that must not close the panel.
+          if (event.isComposing) return
           if (event.key === 'Escape') onClose()
         }
         document.addEventListener('keydown', onKey)
@@ -2139,14 +2329,20 @@ window.__ModuleLoader__.load({
                 onSelect: props.onSelect,
                 onChange: props.onChange,
                 onRemove: props.onRemove,
-                editing: props.editing,
-                draft: props.draft,
+                // The overlay owns its editing session: routing it through the
+                // store costs a publish/notify round trip, and a stale closure
+                // there makes a double click silently do nothing.
+                editing: localEditing,
+                draft: localDraft,
+                // Plain (uncontrolled) editor, so the store re-renders cannot
+                // clobber an in-flight IME composition.
+                plainEditor: true,
                 reference: props.reference,
                 onReferenceError: props.onReferenceError,
-                onEditStart: props.onEditStart,
-                onDraftChange: props.onDraftChange,
-                onEditCommit: props.onEditCommit,
-                onEditCancel: props.onEditCancel,
+                onEditStart: startLocalEdit,
+                onDraftChange: setLocalDraft,
+                onEditCommit: commitLocalEdit,
+                onEditCancel: cancelLocalEdit,
                 maxHeight: '76vh',
               }),
             ),
@@ -2187,12 +2383,71 @@ window.__ModuleLoader__.load({
                 ),
               ),
               selectedBox
-                ? h(Inspector, {
-                    box: selectedBox,
-                    index: props.selected,
-                    onChange: (patch) => props.onChange(props.selected, patch),
-                    onRemove: () => props.onRemove(props.selected),
-                  })
+                ? (() => {
+                    const meta = selectedBox.metadata || {}
+                    const isText = meta.type === 'text'
+                    const patch = (next) => props.onChange(props.selected, { metadata: { ...meta, ...next } })
+                    return h(
+                      'div',
+                      { style: ZOOM_INFO },
+                      h(
+                        'div',
+                        { style: ZOOM_INFO_TITLE },
+                        '第 ' + (props.selected + 1) + ' 个框 · ' + boxKind(selectedBox),
+                      ),
+                      h(
+                        'div',
+                        { style: ZOOM_SEG_ROW },
+                        h(
+                          'button',
+                          { type: 'button', style: isText ? SEGMENT : SEGMENT_ON, onClick: () => patch({ type: 'obj' }) },
+                          '画面元素',
+                        ),
+                        h(
+                          'button',
+                          { type: 'button', style: isText ? SEGMENT_ON : SEGMENT, onClick: () => patch({ type: 'text' }) },
+                          '文字',
+                        ),
+                      ),
+                      isText
+                        ? null
+                        : h(
+                            'label',
+                            { style: ZOOM_CHECK_ROW },
+                            h('input', {
+                              type: 'checkbox',
+                              checked: Boolean(meta.character),
+                              onChange: (event) => patch({ character: event.target.checked }),
+                            }),
+                            '标记为人物',
+                          ),
+                      h('div', { style: ZOOM_INFO_BODY }, boxLabel(selectedBox) || '未命名'),
+                      h('div', { style: ZOOM_INFO_HINT }, '双击画框可直接编辑，改完点框外保存'),
+                      h(
+                        'div',
+                        { style: { display: 'flex', gap: 6, marginTop: 4 } },
+                        h(
+                          'button',
+                          {
+                            className: 'dshCanvasBtn',
+                            onClick: () => {
+                              if (props.onAdd) props.onAdd()
+                            },
+                          },
+                          '加框',
+                        ),
+                        h(
+                          'button',
+                          {
+                            className: 'dshCanvasBtn',
+                            'data-tone': confirmRemove ? 'danger' : undefined,
+                            onClick: requestRemove,
+                          },
+                          confirmRemove ? '确认删除？' : '删除',
+                        ),
+                      ),
+                    )
+                  })()
                 : h('div', { style: EMPTY }, '点选一个框'),
             ),
           ),
@@ -2674,14 +2929,16 @@ window.__ModuleLoader__.load({
         setDraft(meta.type === 'text' ? meta.text || '' : meta.desc || '')
       }
 
-      const commitEdit = () => {
+      const commitEdit = (value) => {
         if (editing === null) return
         const index = editing
-        const value = draft
         const box = boxes[index]
         const isText = Boolean(box && (box.metadata || {}).type === 'text')
+        // The editor is uncontrolled and passes the DOM value; fall back to the
+        // stored draft when nothing was passed.
+        const finalValue = typeof value === 'string' ? value : draft
         setEditing(null)
-        changeBox(index, { metadata: isText ? { text: value } : { desc: value } })
+        changeBox(index, { metadata: isText ? { text: finalValue } : { desc: finalValue } })
       }
 
       const cancelEdit = () => {
@@ -2805,6 +3062,7 @@ window.__ModuleLoader__.load({
           onDraftChange: setDraft,
           onEditCommit: commitEdit,
           onEditCancel: cancelEdit,
+          onAdd: addBox,
           onClose: () => setZoomMode(false),
         })
       }, [zoomMode, size.width, size.height, boxes, selected, editing, draft, referenceUrl, referenceOpacity])
@@ -2914,23 +3172,48 @@ window.__ModuleLoader__.load({
               }),
               h('span', { style: RES_LABEL }, '%'),
             ),
-            h('div', { style: BOARD_WRAP }, h(Board, {
-              width: size.width,
-              height: size.height,
-              boxes,
-              selected,
-              onSelect: setSelected,
-              onChange: changeBox,
-              onRemove: removeBox,
-              editing,
-              draft,
-              reference: referenceUrl ? { url: referenceUrl, opacity: referenceOpacity / 100 } : null,
-              onReferenceError: clearReference,
-              onEditStart: startEdit,
-              onDraftChange: setDraft,
-              onEditCommit: commitEdit,
-              onEditCancel: cancelEdit,
-            })),
+            h(
+              'div',
+              { style: STAGE_MAIN },
+              h('div', { style: BOARD_WRAP }, h(Board, {
+                width: size.width,
+                height: size.height,
+                boxes,
+                selected,
+                onSelect: setSelected,
+                onChange: changeBox,
+                onRemove: removeBox,
+                editing,
+                draft,
+                reference: referenceUrl ? { url: referenceUrl, opacity: referenceOpacity / 100 } : null,
+                onReferenceError: clearReference,
+                onEditStart: startEdit,
+                onDraftChange: setDraft,
+                onEditCommit: commitEdit,
+                onEditCancel: cancelEdit,
+              })),
+              boxes.length > 0
+                ? h(
+                    'div',
+                    { style: BOX_LIST },
+                    ...boxes.map((box, index) =>
+                      h(
+                        'button',
+                        {
+                          key: index,
+                          type: 'button',
+                          className: 'dshCanvasBoxItem',
+                          'data-on': selected === index ? 'true' : 'false',
+                          title: boxLabel(box),
+                          onClick: () => setSelected(index),
+                        },
+                        h('span', { style: BOX_LIST_INDEX }, String(index + 1)),
+                        h('span', { style: BOX_LIST_TEXT }, shortLabel(box, 5)),
+                      ),
+                    ),
+                  )
+                : null,
+            ),
             h(
               'div',
               { style: STAGE_META },
@@ -3150,7 +3433,8 @@ window.__ModuleLoader__.load({
 
         // This bundle's configuration block on its plugin page.
         ctx.slots.inject('plugins.bundle.config', () =>
-          ctx.slots.register({ name: 'plugins.bundle.config', key: 'dsh-comfy-status' }, ModuleSettings),
+          // Keyed by the bundle's package name: the plugin page looks configs up by that key.
+        ctx.slots.register({ name: 'plugins.bundle.config', key: 'dsh-comfy-enhance' }, ModuleSettings),
         )
 
         // The album is an optional surface: without the right sidebar the status
