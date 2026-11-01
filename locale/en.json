@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "ComfyUI Enhance",
+    "description": "Sidebar status card, output album and bounding-box canvas, each switchable on its own."
+  }
+}

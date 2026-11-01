@@ -1,0 +1,5 @@
+- insert:
+    - id: dsh-comfy-enhance
+      name: dsh-comfy-enhance
+      config:
+        comfyUrl: http://127.0.0.1:8188
