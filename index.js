@@ -11,6 +11,8 @@
  */
 
 import { apply as applyCanvasHost } from './canvas-host.js'
+import { dirname, join } from 'node:path'
+import { readdir, stat } from 'node:fs/promises'
 
 const DEFAULT_URL = 'http://127.0.0.1:8188'
 const UPSTREAM_TIMEOUT_MS = 3000
@@ -26,6 +28,15 @@ async function getJSON(url) {
   const res = await fetch(url, { signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${url}`)
   return res.json()
+}
+
+/** ComfyUI's own output directory, derived from the running instance's argv. */
+async function resolveOutputDir(baseUrl) {
+  const stats = await getJSON(`${baseUrl}/system_stats`)
+  const argv = (stats && stats.system && stats.system.argv) || []
+  const mainPy = argv.find((entry) => typeof entry === 'string' && /main\.py$/i.test(entry))
+  if (!mainPy) throw new Error('cannot derive the ComfyUI root from system_stats.argv')
+  return join(dirname(mainPy), 'output')
 }
 
 /** Pick the discrete accelerator, not an integrated part with a larger pool. */
@@ -588,6 +599,13 @@ function createHandler(baseUrl) {
     }
   }
 
+  let cachedOutputDir = null
+  const outputDir = async () => {
+    if (cachedOutputDir !== null) return cachedOutputDir
+    cachedOutputDir = await resolveOutputDir(baseUrl)
+    return cachedOutputDir
+  }
+
   return async (req, res) => {
     let pathname = ''
     try {
@@ -651,6 +669,35 @@ function createHandler(baseUrl) {
     }
 
     if (pathname === `${PREFIX}/view`) return proxyImage(req, res)
+
+    // The engine's own output folder, so the workspace album can browse files
+    // ComfyUI wrote directly instead of only what this plugin tracked.
+    if (pathname === `${PREFIX}/outputs`) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const dir = await outputDir()
+        const entries = await readdir(dir, { withFileTypes: true })
+        const files = []
+        for (const entry of entries) {
+          if (!entry.isFile() || !/\.(png|jpe?g|webp|gif)$/i.test(entry.name)) continue
+          let info = null
+          try {
+            info = await stat(join(dir, entry.name))
+          } catch {
+            continue
+          }
+          files.push({
+            name: entry.name,
+            mtime: info.mtimeMs,
+            url: `${PREFIX}/view?filename=${encodeURIComponent(entry.name)}&type=output`,
+          })
+        }
+        files.sort((left, right) => right.mtime - left.mtime)
+        return send(200, { ok: true, dir, files: files.slice(0, 300) })
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
+    }
 
     return send(404, { ok: false, error: 'not found' })
   }

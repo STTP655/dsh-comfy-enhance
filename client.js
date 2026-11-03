@@ -7717,6 +7717,8 @@ window.__ModuleLoader__.load({
       const [referenceOpacity, setReferenceOpacity] = useState(55)
       const [albumMetaByUrl, setAlbumMetaByUrl] = useState({})
       const [albumPick, setAlbumPick] = useState('')
+      const [albumSource, setAlbumSource] = useState('plugin')
+      const [outputFiles, setOutputFiles] = useState([])
       const boardWrapRef = useRef(null)
 
       const filesEffect = (load) => load
@@ -7789,6 +7791,25 @@ window.__ModuleLoader__.load({
           if (timer) clearTimeout(timer)
         }
       }, [])
+
+      // The engine's own output folder, fetched lazily the first time it is shown.
+      useEffect(() => {
+        if (!albumOpen || albumSource !== 'output') return undefined
+        let alive = true
+        fetch('/plugin/comfy-status/outputs', { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (alive && data && data.ok && Array.isArray(data.files)) {
+              setOutputFiles(data.files.map((file) => ({ url: file.url, label: file.name })))
+            }
+          })
+          .catch(() => {
+            // The engine may be offline; the grid simply stays empty.
+          })
+        return () => {
+          alive = false
+        }
+      }, [albumOpen, albumSource])
 
       useEffect(() => {
         if (!file) return undefined
@@ -8008,6 +8029,7 @@ window.__ModuleLoader__.load({
       }
 
       const sampling = canvasModels.sampling || {}
+      const albumList = albumSource === 'output' ? outputFiles : referenceOptions
 
       if (!enabled) {
         return h('div', { style: EMPTY }, '独立画板工作台已在插件设置中关闭')
@@ -8520,8 +8542,41 @@ window.__ModuleLoader__.load({
                 },
                 albumPick
                   ? h('button', { className: 'dshCanvasBtn', onClick: () => setAlbumPick('') }, '网格')
-                  : null,
-                h('span', { style: { fontWeight: 600, fontSize: 12 } }, albumPick ? '预览' : '相册'),
+                  : h(
+                      React.Fragment,
+                      null,
+                      h(
+                        'button',
+                        {
+                          className: 'dshCanvasBtn',
+                          style:
+                            albumSource === 'plugin'
+                              ? { background: '#3b82f6', borderColor: '#3b82f6', color: '#ffffff' }
+                              : null,
+                          onClick: () => {
+                            setAlbumSource('plugin')
+                            setAlbumPick('')
+                          },
+                        },
+                        '相册',
+                      ),
+                      h(
+                        'button',
+                        {
+                          className: 'dshCanvasBtn',
+                          style:
+                            albumSource === 'output'
+                              ? { background: '#3b82f6', borderColor: '#3b82f6', color: '#ffffff' }
+                              : null,
+                          onClick: () => {
+                            setAlbumSource('output')
+                            setAlbumPick('')
+                          },
+                        },
+                        '输出目录',
+                      ),
+                    ),
+                h('span', { style: { fontWeight: 600, fontSize: 12 } }, albumPick ? '预览' : ''),
                 h('span', { style: { flex: 1 } }),
                 h(
                   'span',
@@ -8649,11 +8704,17 @@ window.__ModuleLoader__.load({
                         padding: 14,
                         display: 'grid',
                         gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-                        gap: 12,
+                        gap: 8,
                       },
                     },
-                    referenceOptions.length === 0 ? h('div', { style: EMPTY }, '相册里还没有输出图') : null,
-                    ...referenceOptions.map((option) =>
+                    albumList.length === 0
+                      ? h(
+                          'div',
+                          { style: EMPTY },
+                          albumSource === 'output' ? '输出目录里没有图片' : '相册里还没有输出图',
+                        )
+                      : null,
+                    ...albumList.map((option) =>
                       h(
                         'button',
                         {
