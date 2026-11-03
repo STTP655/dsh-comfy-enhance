@@ -6205,64 +6205,52 @@ window.__ModuleLoader__.load({
                   ),
               h(
                 'div',
-                {
-                  style: {
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
-                    gap: 6,
-                    padding: '8px 10px 10px',
-                    borderTop: '1px solid var(--dsw-alias-border-l2)',
+                { style: ZOOM_SUMMARY },
+                h(
+                  'label',
+                  {
+                    style: {
+                      display: 'block',
+                      fontSize: 10.5,
+                      color: 'var(--dsw-alias-label-secondary)',
+                      marginBottom: 4,
+                    },
                   },
-                },
-                h(
-                  'div',
-                  null,
-                  h(
-                    'label',
-                    {
-                      style: {
-                        display: 'block',
-                        fontSize: 10.5,
-                        color: 'var(--dsw-alias-label-secondary)',
-                        marginBottom: 4,
-                      },
-                    },
-                    '正面提示词',
-                  ),
-                  h('textarea', {
-                    ref: summaryRef,
-                    defaultValue: props.summary || '',
-                    style: Object.assign({}, ZOOM_SUMMARY_AREA, { height: clampZoomHeight(summaryHeight) }),
-                    onMouseUp: (event) => setSummaryHeight(clampZoomHeight(event.currentTarget.offsetHeight)),
-                    onChange: (event) => {
-                      if (props.onSummaryChange) props.onSummaryChange(event.target.value)
-                    },
-                  }),
+                  '正面提示词',
                 ),
+                h('textarea', {
+                  ref: summaryRef,
+                  defaultValue: props.summary || '',
+                  style: Object.assign({}, ZOOM_SUMMARY_AREA, { height: clampZoomHeight(summaryHeight) }),
+                  onMouseUp: (event) => setSummaryHeight(clampZoomHeight(event.currentTarget.offsetHeight)),
+                  onChange: (event) => {
+                    if (props.onSummaryChange) props.onSummaryChange(event.target.value)
+                  },
+                }),
+              ),
+              h(
+                'div',
+                { style: { padding: '0 10px 10px' } },
                 h(
-                  'div',
-                  null,
-                  h(
-                    'label',
-                    {
-                      style: {
-                        display: 'block',
-                        fontSize: 10.5,
-                        color: 'var(--dsw-alias-label-secondary)',
-                        marginBottom: 4,
-                      },
+                  'label',
+                  {
+                    style: {
+                      display: 'block',
+                      fontSize: 10.5,
+                      color: 'var(--dsw-alias-label-secondary)',
+                      marginBottom: 4,
                     },
-                    '负面提示词',
-                  ),
-                  h('textarea', {
-                    defaultValue: props.negative || '',
-                    placeholder: '留空则沿用模板',
-                    style: Object.assign({}, ZOOM_SUMMARY_AREA, { height: 64 }),
-                    onChange: (event) => {
-                      if (props.onNegativeChange) props.onNegativeChange(event.target.value)
-                    },
-                  }),
+                  },
+                  '负面提示词',
                 ),
+                h('textarea', {
+                  defaultValue: props.negative || '',
+                  placeholder: '留空则沿用模板',
+                  style: Object.assign({}, ZOOM_SUMMARY_AREA, { height: 64 }),
+                  onChange: (event) => {
+                    if (props.onNegativeChange) props.onNegativeChange(event.target.value)
+                  },
+                }),
               ),
             ),
           ),
