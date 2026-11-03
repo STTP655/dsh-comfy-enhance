@@ -4443,6 +4443,55 @@ window.__ModuleLoader__.load({
       cursor: 'default',
       boxShadow: '0 1px 3px rgba(59, 130, 246, 0.35)',
     })
+
+    /** Segmented control whose blue thumb slides between the options. */
+    function SegmentToggle(props) {
+      const options = props.options || []
+      const found = options.findIndex((option) => option.value === props.value)
+      const index = found >= 0 ? found : 0
+      const width = 'calc((100% - 6px) / ' + Math.max(1, options.length) + ')'
+      return h(
+        'div',
+        { style: Object.assign({}, SEGMENT_WRAP, { position: 'relative' }) },
+        h('div', {
+          style: {
+            position: 'absolute',
+            top: 3,
+            bottom: 3,
+            left: 3,
+            width,
+            borderRadius: 6,
+            background: '#3b82f6',
+            boxShadow: '0 1px 3px rgba(59, 130, 246, 0.35)',
+            transform: 'translateX(' + index * 100 + '%)',
+            transition: 'transform .22s cubic-bezier(0.23, 1, 0.32, 1)',
+            pointerEvents: 'none',
+          },
+        }),
+        ...options.map((option, at) =>
+          h(
+            'button',
+            {
+              key: option.value,
+              type: 'button',
+              style: Object.assign({}, SEGMENT, {
+                position: 'relative',
+                zIndex: 1,
+                background: 'transparent',
+                color: at === index ? '#ffffff' : 'var(--dsw-alias-label-secondary)',
+                fontWeight: at === index ? 600 : 500,
+                cursor: at === index ? 'default' : 'pointer',
+                transition: 'color .18s ease',
+              }),
+              onClick: () => {
+                if (at !== index) props.onChange(option.value)
+              },
+            },
+            option.label,
+          ),
+        ),
+      )
+    }
     const FIELD_LABEL = {
       display: 'block',
       fontSize: 11,
@@ -6064,20 +6113,14 @@ window.__ModuleLoader__.load({
                         { style: ZOOM_INFO_TITLE },
                         '第 ' + (props.selected + 1) + ' 个框 · ' + boxKind(selectedBox),
                       ),
-                      h(
-                        'div',
-                        { style: ZOOM_SEG_ROW },
-                        h(
-                          'button',
-                          { type: 'button', style: isText ? SEGMENT : SEGMENT_ON, onClick: () => patch({ type: 'obj' }) },
-                          '画面元素',
-                        ),
-                        h(
-                          'button',
-                          { type: 'button', style: isText ? SEGMENT_ON : SEGMENT, onClick: () => patch({ type: 'text' }) },
-                          '文字',
-                        ),
-                      ),
+                      h(SegmentToggle, {
+                        value: isText ? 'text' : 'obj',
+                        options: [
+                          { value: 'obj', label: '画面元素' },
+                          { value: 'text', label: '文字' },
+                        ],
+                        onChange: (value) => patch({ type: value }),
+                      }),
                       isText
                         ? null
                         : h(
@@ -6355,30 +6398,14 @@ window.__ModuleLoader__.load({
           'div',
           { style: { marginBottom: 16 } },
           h('span', { style: FIELD_LABEL }, '类型'),
-          h(
-            'div',
-            { style: SEGMENT_WRAP },
-            h(
-              'button',
-              {
-                className: 'dshCanvasSeg',
-                'data-on': type === 'obj' ? 'true' : 'false',
-                style: type === 'obj' ? SEGMENT_ON : SEGMENT,
-                onClick: () => patchMeta({ type: 'obj' }),
-              },
-              'obj · 画面元素',
-            ),
-            h(
-              'button',
-              {
-                className: 'dshCanvasSeg',
-                'data-on': type === 'text' ? 'true' : 'false',
-                style: type === 'text' ? SEGMENT_ON : SEGMENT,
-                onClick: () => patchMeta({ type: 'text' }),
-              },
-              'text · 文字',
-            ),
-          ),
+          h(SegmentToggle, {
+            value: type,
+            options: [
+              { value: 'obj', label: '画面元素' },
+              { value: 'text', label: '文字' },
+            ],
+            onChange: (value) => patchMeta({ type: value }),
+          }),
         ),
         type === 'text'
           ? h(
@@ -8339,31 +8366,18 @@ window.__ModuleLoader__.load({
                       ),
                       h(
                         'div',
-                        { style: { display: 'flex', gap: 4, marginBottom: 6 } },
-                        h(
-                          'button',
-                          {
-                            type: 'button',
-                            style: isText ? SEGMENT : SEGMENT_ON,
-                            onClick: () =>
-                              changeBox(selected, {
-                                metadata: Object.assign({}, meta, { type: 'obj' }),
-                              }),
-                          },
-                          '画面元素',
-                        ),
-                        h(
-                          'button',
-                          {
-                            type: 'button',
-                            style: isText ? SEGMENT_ON : SEGMENT,
-                            onClick: () =>
-                              changeBox(selected, {
-                                metadata: Object.assign({}, meta, { type: 'text' }),
-                              }),
-                          },
-                          '文字',
-                        ),
+                        { style: { marginBottom: 6 } },
+                        h(SegmentToggle, {
+                          value: isText ? 'text' : 'obj',
+                          options: [
+                            { value: 'obj', label: '画面元素' },
+                            { value: 'text', label: '文字' },
+                          ],
+                          onChange: (value) =>
+                            changeBox(selected, {
+                              metadata: Object.assign({}, meta, { type: value }),
+                            }),
+                        }),
                       ),
                       h('textarea', {
                         value: meta.desc || '',
