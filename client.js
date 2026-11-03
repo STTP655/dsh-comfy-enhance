@@ -6227,6 +6227,36 @@ window.__ModuleLoader__.load({
                   },
                 }),
               ),
+              h(
+                'div',
+                {
+                  style: {
+                    marginTop: 10,
+                    paddingTop: 10,
+                    borderTop: '1px solid var(--dsw-alias-border-l2)',
+                  },
+                },
+                h(
+                  'label',
+                  {
+                    style: {
+                      display: 'block',
+                      fontSize: 10.5,
+                      color: 'var(--dsw-alias-label-secondary)',
+                      marginBottom: 4,
+                    },
+                  },
+                  '负面提示词',
+                ),
+                h('textarea', {
+                  defaultValue: props.negative || '',
+                  placeholder: '留空则沿用模板里的负向提示词',
+                  style: Object.assign({}, ZOOM_SUMMARY_AREA, { height: 64 }),
+                  onChange: (event) => {
+                    if (props.onNegativeChange) props.onNegativeChange(event.target.value)
+                  },
+                }),
+              ),
             ),
           ),
           h(ModelSettingsDialog, {
@@ -6519,6 +6549,7 @@ window.__ModuleLoader__.load({
       const [referenceKind, setReferenceKind] = useState('')
       const [referenceName, setReferenceName] = useState('')
       const [referenceOpacity, setReferenceOpacity] = useState(55)
+      const [negative, setNegative] = useState('')
       /** Set by the polling effect so opening the dropdown can refresh on demand. */
       const refreshAlbum = useRef(null)
       const [canvasTheme, setCanvasTheme] = usePref('albumTheme')
@@ -6779,6 +6810,7 @@ window.__ModuleLoader__.load({
             if (draft && typeof draft.referenceOpacity === 'number') {
               setReferenceOpacity(clamp(draft.referenceOpacity, 0, 100))
             }
+            setNegative(draft && typeof draft.negative === 'string' ? draft.negative : '')
             setDirty(Boolean(draft))
             if (draft) setStatus('已恢复上次未发送的编辑')
           })
@@ -6809,10 +6841,11 @@ window.__ModuleLoader__.load({
             referenceKind,
             referenceName,
             referenceOpacity,
+            negative,
           })
         }, 400)
         return () => clearTimeout(timer)
-      }, [file, nodeId, dirty, size, ratio, megapixels, multiple, summary, boxes, guides, referenceUrl, referenceKind, referenceName, referenceOpacity])
+      }, [file, nodeId, dirty, size, ratio, megapixels, multiple, summary, boxes, guides, referenceUrl, referenceKind, referenceName, referenceOpacity, negative])
 
       const changeBox = (index, patch) => {
         setBoxes((current) =>
@@ -7016,6 +7049,7 @@ window.__ModuleLoader__.load({
               models,
               width: size.width,
               height: size.height,
+              negative,
             }),
           })
           const data = await res.json().catch(() => null)
@@ -7063,6 +7097,11 @@ window.__ModuleLoader__.load({
           summary,
           onSummaryChange: (value) => {
             setSummary(value)
+            setDirty(true)
+          },
+          negative,
+          onNegativeChange: (value) => {
+            setNegative(value)
             setDirty(true)
           },
           onSend: sendToAgent,
@@ -7448,6 +7487,20 @@ window.__ModuleLoader__.load({
               placeholder: '整张图讲什么：画风、光线、背景、谁在哪',
               onChange: (event) => {
                 setSummary(event.target.value)
+                setDirty(true)
+              },
+            }),
+          ),
+          h(
+            'div',
+            { style: { marginBottom: 12 } },
+            h('label', { style: FIELD_LABEL }, '负面提示词'),
+            h('textarea', {
+              value: negative,
+              style: Object.assign({}, SUMMARY_AREA, { minHeight: 60 }),
+              placeholder: '留空则沿用模板里的负向提示词',
+              onChange: (event) => {
+                setNegative(event.target.value)
                 setDirty(true)
               },
             }),
