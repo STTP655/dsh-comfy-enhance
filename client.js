@@ -8172,7 +8172,7 @@ window.__ModuleLoader__.load({
         window.addEventListener('pointercancel', onPanelUp)
       }
       // The engine's folder can hold hundreds of files; cap what the grid mounts.
-      const albumList = albumSource === 'output' ? outputFiles.slice(0, 120) : referenceOptions
+      const albumList = albumSource === 'output' ? outputFiles.slice(0, 60) : referenceOptions
       /** Close the album with its exit animation instead of snapping shut. */
       const closeAlbum = () => {
         if (albumClosing) return
@@ -8948,6 +8948,10 @@ window.__ModuleLoader__.load({
                             // only absolutely positioned children, so pin the size.
                             height: 160,
                             display: 'block',
+                            // Off-screen cards skip layout and paint entirely; a grid
+                            // of a hundred images stays smooth while scrolling.
+                            contentVisibility: 'auto',
+                            containIntrinsicSize: '160px',
                           },
                           title: option.label,
                           onClick: () => setAlbumPick(option.url),
