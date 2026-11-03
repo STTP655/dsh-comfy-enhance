@@ -8205,6 +8205,20 @@ window.__ModuleLoader__.load({
                     },
                   }),
                 ),
+                h(
+                  'button',
+                  {
+                    className: 'dshCanvasBtn',
+                    style: {
+                      flexShrink: 0,
+                      padding: '2px 8px',
+                      color: '#ff6b6b',
+                      borderColor: 'rgba(255, 90, 90, 0.5)',
+                    },
+                    onClick: cancelTrackedJob,
+                  },
+                  '停止',
+                ),
               )
             : status
               ? h(
@@ -8278,17 +8292,6 @@ window.__ModuleLoader__.load({
             },
             '快速生成',
           ),
-          jobActive
-            ? h(
-                'button',
-                {
-                  className: 'dshCanvasBtn',
-                  style: { flexShrink: 0, color: '#ff6b6b', borderColor: 'rgba(255, 90, 90, 0.5)' },
-                  onClick: cancelTrackedJob,
-                },
-                '停止',
-              )
-            : null,
         ),
         h(
           'div',
