@@ -7840,6 +7840,21 @@ window.__ModuleLoader__.load({
         }
       }, [albumPick, albumMetaByUrl])
 
+      // Esc steps back one level: preview → grid, grid → closed.
+      useEffect(() => {
+        if (!albumOpen) return undefined
+        const onKey = (event) => {
+          if (event.isComposing) return
+          if (event.key !== 'Escape') return
+          event.preventDefault()
+          event.stopPropagation()
+          if (albumPick) setAlbumPick('')
+          else setAlbumOpen(false)
+        }
+        document.addEventListener('keydown', onKey, true)
+        return () => document.removeEventListener('keydown', onKey, true)
+      }, [albumOpen, albumPick])
+
       useEffect(() => {
         if (!file) return undefined
         let alive = true
@@ -8575,7 +8590,7 @@ window.__ModuleLoader__.load({
                   },
                 },
                 albumPick
-                  ? h('button', { className: 'dshCanvasBtn', onClick: () => setAlbumPick('') }, '网格')
+                  ? h('button', { className: 'dshCanvasBtn', onClick: () => setAlbumPick('') }, '返回相册')
                   : h(
                       React.Fragment,
                       null,
@@ -8615,9 +8630,19 @@ window.__ModuleLoader__.load({
                 h(
                   'span',
                   { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
-                  '左键查看 · 右键设为参考图',
+                  albumPick ? 'Esc 返回相册' : '左键查看 · 右键设为参考图 · Esc 关闭',
                 ),
-                h('button', { className: 'dshCanvasBtn', onClick: () => setAlbumOpen(false) }, '关闭'),
+                h(
+                  'button',
+                  {
+                    className: 'dshCanvasBtn',
+                    onClick: () => {
+                      if (albumPick) setAlbumPick('')
+                      else setAlbumOpen(false)
+                    },
+                  },
+                  albumPick ? '返回' : '关闭',
+                ),
               ),
               albumPick
                 ? (() => {
