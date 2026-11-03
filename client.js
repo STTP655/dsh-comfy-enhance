@@ -7709,6 +7709,7 @@ window.__ModuleLoader__.load({
       const [preview, setPreview] = useState(false)
       const [modelPanel, setModelPanel] = useState(false)
       const [albumOpen, setAlbumOpen] = useState(false)
+      const [albumClosing, setAlbumClosing] = useState(false)
       const [quickMissing, setQuickMissing] = useState(null)
       const [job, setJob] = useState(() => jobStore.get())
       const [jobClock, setJobClock] = useState(() => Date.now())
@@ -7849,7 +7850,7 @@ window.__ModuleLoader__.load({
           event.preventDefault()
           event.stopPropagation()
           if (albumPick) setAlbumPick('')
-          else setAlbumOpen(false)
+          else closeAlbum()
         }
         document.addEventListener('keydown', onKey, true)
         return () => document.removeEventListener('keydown', onKey, true)
@@ -8075,6 +8076,16 @@ window.__ModuleLoader__.load({
       const sampling = canvasModels.sampling || {}
       // The engine's folder can hold hundreds of files; cap what the grid mounts.
       const albumList = albumSource === 'output' ? outputFiles.slice(0, 120) : referenceOptions
+      /** Close the album with its exit animation instead of snapping shut. */
+      const closeAlbum = () => {
+        if (albumClosing) return
+        setAlbumClosing(true)
+        window.setTimeout(() => {
+          setAlbumOpen(false)
+          setAlbumPick('')
+          setAlbumClosing(false)
+        }, 150)
+      }
       /** ComfyUI serves a cheap webp preview when asked; grids must not decode
        *  full-size outputs. */
       const thumbOf = (url) =>
@@ -8574,7 +8585,9 @@ window.__ModuleLoader__.load({
                   display: 'flex',
                   flexDirection: 'column',
                   background: 'var(--dsw-alias-bg-base)',
-                  animation: 'dshComfyOverlayIn 160ms ease both',
+                  animation: albumClosing
+                    ? 'dshComfyOverlayOut 140ms ease both'
+                    : 'dshComfyOverlayIn 160ms ease both',
                 },
               },
               h(
@@ -8638,7 +8651,7 @@ window.__ModuleLoader__.load({
                     className: 'dshCanvasBtn',
                     onClick: () => {
                       if (albumPick) setAlbumPick('')
-                      else setAlbumOpen(false)
+                      else closeAlbum()
                     },
                   },
                   albumPick ? '返回' : '关闭',
@@ -8653,7 +8666,14 @@ window.__ModuleLoader__.load({
                       meta && meta.positive && typeof meta.positive.text === 'string' ? meta.positive.text : ''
                     return h(
                       'div',
-                      { style: { flex: 1, minHeight: 0, display: 'flex' } },
+                      {
+                        style: {
+                          flex: 1,
+                          minHeight: 0,
+                          display: 'flex',
+                          animation: 'dshComfyPanelIn 180ms cubic-bezier(0.23, 1, 0.32, 1) both',
+                        },
+                      },
                       h(
                         'div',
                         {
@@ -8744,7 +8764,7 @@ window.__ModuleLoader__.load({
                               onClick: () => {
                                 setReferenceUrl(albumPick)
                                 setDirty(true)
-                                setAlbumOpen(false)
+                                closeAlbum()
                               },
                             },
                             '设为参考图',
@@ -8768,6 +8788,7 @@ window.__ModuleLoader__.load({
                         // few rows across all that height.
                         alignContent: 'start',
                         gap: 8,
+                        animation: 'dshComfyOverlayIn 160ms ease both',
                       },
                     },
                     albumList.length === 0
@@ -8802,7 +8823,7 @@ window.__ModuleLoader__.load({
                             event.preventDefault()
                             setReferenceUrl(option.url)
                             setDirty(true)
-                            setAlbumOpen(false)
+                            closeAlbum()
                           },
                         },
                         h('img', {
