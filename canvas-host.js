@@ -18,6 +18,8 @@ const MAX_BODY = 16 * 1024 * 1024
 /** Bundled, empty-board MOSS workflow installed on first use. */
 const TEMPLATE_NAME = 'moss-bbox-canvas.json'
 const TEMPLATE_URL = new URL('./templates/moss-bbox-canvas.json', import.meta.url)
+/** Bundled API graph for quick generate (models + sampler, positive prompt empty). */
+const TEMPLATE_IMAGE_URL = new URL('./templates/moss-image-api.json', import.meta.url)
 
 export const inject = ['webServer']
 
@@ -94,30 +96,254 @@ function findPositiveTextNode(nodes) {
   return null
 }
 
+/** The bundled API template: quick generate does not depend on history. */
+async function loadImageTemplate() {
+  try {
+    const text = await readFile(fileURLToPath(TEMPLATE_IMAGE_URL), 'utf8')
+    const parsed = JSON.parse(text)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+/** Loader node types the template can carry, and the value each one reads. */
+const MODEL_FIELDS = [
+  ['MOSSImageUNETLoader', 'unet_name', 'unet'],
+  ['MOSSImageCLIPLoader', 'clip_name', 'clip'],
+  ['VAELoader', 'vae_name', 'vae'],
+  ['LoraLoaderModelOnly', 'lora_name', 'lora'],
+]
+
+let modelOptionsCache = null
+let modelOptionsAt = 0
+const MODEL_OPTIONS_TTL = 5 * 60 * 1000
+
+/** First node of the given class_type in an API graph. */
+function findNodeByType(graph, type) {
+  for (const node of Object.values(graph || {})) {
+    if (node && node.class_type === type) return node
+  }
+  return null
+}
+
+/** The empty-latent node (class name varies by model family). */
+function findLatentNode(graph) {
+  for (const node of Object.values(graph || {})) {
+    if (!node || !node.inputs) continue
+    if (
+      typeof node.class_type === 'string' &&
+      /Latent/i.test(node.class_type) &&
+      typeof node.inputs.width === 'number' &&
+      typeof node.inputs.height === 'number'
+    ) {
+      return node
+    }
+  }
+  return null
+}
+
+/** Node id + body of the first node of the given class_type. */
+function findNodeWithId(graph, type) {
+  for (const [id, node] of Object.entries(graph || {})) {
+    if (node && node.class_type === type) return { id, node }
+  }
+  return null
+}
+
+/** Up to four LoRA entries, accepting the legacy single-LoRA fields too. */
+function normalizeLoras(models) {
+  const raw = Array.isArray(models.loras) ? models.loras : []
+  const list = raw
+    .filter((entry) => entry && typeof entry.name === 'string' && entry.name.trim())
+    .map((entry) => ({
+      name: entry.name.trim(),
+      strength: Number.isFinite(Number(entry.strength)) ? Number(entry.strength) : 1,
+    }))
+  if (list.length === 0 && typeof models.lora === 'string' && models.lora.trim()) {
+    const strength = Number(models.loraStrength)
+    return [{ name: models.lora.trim(), strength: Number.isFinite(strength) ? strength : 1 }]
+  }
+  return list.slice(0, 4)
+}
+
+/**
+ * Rebuild the LoRA chain in place: UNET → lora… → the template's downstream.
+ *
+ * The template carries one LoRA node; its consumers are re-pointed at the new
+ * chain tail (or straight at the UNET node when the list is empty).
+ */
+function rewriteLoraChain(graph, loras) {
+  const unet = findNodeWithId(graph, 'MOSSImageUNETLoader')
+  if (!unet) return
+
+  let loraId = null
+  for (const [id, node] of Object.entries(graph)) {
+    if (node && node.class_type === 'LoraLoaderModelOnly') {
+      loraId = id
+      break
+    }
+  }
+  if (!loraId) return
+
+  const consumers = []
+  for (const [id, node] of Object.entries(graph)) {
+    if (!node || !node.inputs || id === loraId) continue
+    for (const [field, value] of Object.entries(node.inputs)) {
+      if (Array.isArray(value) && String(value[0]) === String(loraId)) consumers.push([id, field])
+    }
+  }
+  delete graph[loraId]
+
+  let prevId = unet.id
+  loras.forEach((entry, index) => {
+    const id = 'dsh-lora-' + (index + 1)
+    graph[id] = {
+      class_type: 'LoraLoaderModelOnly',
+      inputs: { lora_name: entry.name, strength_model: entry.strength, model: [prevId, 0] },
+    }
+    prevId = id
+  })
+
+  for (const [consumerId, field] of consumers) {
+    graph[consumerId].inputs[field] = [prevId, 0]
+  }
+}
+
+/**
+ * ComfyUI describes a combo input in one of two shapes: `[["a","b"], meta]` for
+ * the classic list, or `["COMBO", { options: ["a","b"] }]` in newer versions.
+ */
+function readComboList(entry) {
+  if (!Array.isArray(entry)) return []
+  if (Array.isArray(entry[0])) return entry[0].filter((value) => typeof value === 'string')
+  const meta = entry[1]
+  if (meta && Array.isArray(meta.options)) return meta.options.filter((value) => typeof value === 'string')
+  if (entry[0] === 'COMBO') return []
+  return entry.filter((value) => typeof value === 'string')
+}
+
+/** Installed model files per loader, straight from ComfyUI's node definitions. */
+async function getModelOptions(baseUrl) {
+  const now = Date.now()
+  if (modelOptionsCache && now - modelOptionsAt < MODEL_OPTIONS_TTL) return modelOptionsCache
+  const result = { unet: [], clip: [], vae: [], lora: [] }
+  await Promise.all(
+    MODEL_FIELDS.map(async ([type, field, key]) => {
+      try {
+        const info = await getJSON(`${baseUrl}/object_info/${type}`)
+        const def = info && info[type]
+        const required = (def && def.input && def.input.required) || {}
+        result[key] = readComboList(required[field])
+      } catch {
+        // One loader lookup failing should not blank the others.
+      }
+    }),
+  )
+  modelOptionsCache = result
+  modelOptionsAt = now
+  return result
+}
+
 /**
  * Submit one MOSS layout JSON as a generation job.
  *
  * The canvas workflow is UI format and `/prompt` only accepts the API graph, so
- * the newest history entry that actually ran a MOSSImage node is used as the
- * template and only its positive prompt text is replaced.
+ * the bundled API template is used first; the newest history entry that ran a
+ * MOSSImage node is only the fallback for installs that predate the template.
  */
-async function submitLayout(baseUrl, layout) {
-  const history = await getJSON(`${baseUrl}/history?max_items=50`)
-  let template = null
-  for (const entry of Object.values(history || {})) {
-    const nodes = entry && entry.prompt ? (Array.isArray(entry.prompt) ? entry.prompt[2] : entry.prompt) : null
-    if (!nodes) continue
-    const isMoss = Object.values(nodes).some(
-      (node) => node && typeof node.class_type === 'string' && node.class_type.indexOf('MOSSImage') === 0,
-    )
-    if (isMoss) {
-      template = nodes
-      break
+async function submitLayout(baseUrl, layout, models, width, height) {
+  let template = await loadImageTemplate()
+  if (!template) {
+    const history = await getJSON(`${baseUrl}/history?max_items=50`)
+    for (const entry of Object.values(history || {})) {
+      const nodes = entry && entry.prompt ? (Array.isArray(entry.prompt) ? entry.prompt[2] : entry.prompt) : null
+      if (!nodes) continue
+      const isMoss = Object.values(nodes).some(
+        (node) => node && typeof node.class_type === 'string' && node.class_type.indexOf('MOSSImage') === 0,
+      )
+      if (isMoss) {
+        template = nodes
+        break
+      }
     }
   }
   if (!template) throw new Error('没有可用的 MOSS 生成模板：先在 ComfyUI 里成功生成一张 MOSS 图')
 
   const graph = JSON.parse(JSON.stringify(template))
+  const wanted = models && typeof models === 'object' ? models : {}
+
+  // The user's picks override the template; anything unset keeps its value.
+  for (const [type, field, key] of MODEL_FIELDS) {
+    if (key === 'lora') continue
+    const node = findNodeByType(graph, type)
+    if (!node || !node.inputs) continue
+    const value = typeof wanted[key] === 'string' ? wanted[key].trim() : ''
+    if (value) node.inputs[field] = value
+  }
+
+  // LoRA is a chain: rebuilt from the user's list (0–4 entries, each with its own
+  // strength). An empty list bypasses the template's LoRA node entirely.
+  const loras = normalizeLoras(wanted)
+  rewriteLoraChain(graph, loras)
+
+  // Sampling knobs ride along with the model choice so the overlay can tune a
+  // preview without touching the ComfyUI workflow.
+  const sampling = wanted.sampling && typeof wanted.sampling === 'object' ? wanted.sampling : null
+  if (sampling) {
+    const samplerNode = findNodeByType(graph, 'KSampler')
+    if (samplerNode && samplerNode.inputs) {
+      const steps = Number(sampling.steps)
+      if (Number.isFinite(steps)) samplerNode.inputs.steps = Math.max(1, Math.round(steps))
+      const cfg = Number(sampling.cfg)
+      if (Number.isFinite(cfg)) samplerNode.inputs.cfg = cfg
+      if (typeof sampling.sampler === 'string' && sampling.sampler) {
+        samplerNode.inputs.sampler_name = sampling.sampler
+      }
+      if (typeof sampling.scheduler === 'string' && sampling.scheduler) {
+        samplerNode.inputs.scheduler = sampling.scheduler
+      }
+      const seed = Number(sampling.seed)
+      if (Number.isFinite(seed)) {
+        const value = Math.max(0, Math.floor(seed))
+        if ('seed' in samplerNode.inputs) samplerNode.inputs.seed = value
+        else if ('noise_seed' in samplerNode.inputs) samplerNode.inputs.noise_seed = value
+      }
+    }
+  }
+
+  // The layout's aspect comes from the canvas, so the latent must match it —
+  // otherwise the picture comes out in the template's old resolution.
+  const canvasWidth = Number(width)
+  const canvasHeight = Number(height)
+  if (Number.isFinite(canvasWidth) && Number.isFinite(canvasHeight) && canvasWidth > 0 && canvasHeight > 0) {
+    const latentNode = findLatentNode(graph)
+    if (latentNode && latentNode.inputs) {
+      latentNode.inputs.width = Math.max(64, Math.round(canvasWidth))
+      latentNode.inputs.height = Math.max(64, Math.round(canvasHeight))
+    }
+  }
+
+  // Fail fast with a payload the UI can explain, instead of ComfyUI's node_errors.
+  const options = await getModelOptions(baseUrl)
+  const missing = []
+  for (const [type, field, key] of MODEL_FIELDS) {
+    if (key === 'lora') continue
+    const node = findNodeByType(graph, type)
+    if (!node || !node.inputs) continue
+    const value = node.inputs[field]
+    if (typeof value !== 'string' || !value) continue
+    const list = options[key] || []
+    if (list.length > 0 && list.indexOf(value) < 0) missing.push({ kind: key, file: value })
+  }
+  const loraList = options.lora || []
+  for (const entry of loras) {
+    if (loraList.length > 0 && loraList.indexOf(entry.name) < 0) {
+      missing.push({ kind: 'lora', file: entry.name })
+    }
+  }
+  if (missing.length > 0) return { ok: false, code: 'missing-models', missing, available: options }
+
   const positiveId = findPositiveTextNode(graph)
   if (!positiveId) throw new Error('模板里找不到正向提示词节点')
   graph[positiveId].inputs.text = JSON.stringify(layout)
@@ -207,6 +433,16 @@ export function apply(ctx, config = {}) {
       }
     }
 
+    if (pathname === `${PREFIX}/model-options`) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const options = await getModelOptions(baseUrl)
+        return send(200, Object.assign({ ok: true }, options))
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
+    }
+
     if (pathname === `${PREFIX}/generate`) {
       if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
       try {
@@ -214,7 +450,7 @@ export function apply(ctx, config = {}) {
         if (!body || typeof body.layout !== 'object' || body.layout === null) {
           throw new Error('缺少 layout')
         }
-        return send(200, await submitLayout(baseUrl, body.layout))
+        return send(200, await submitLayout(baseUrl, body.layout, body.models, body.width, body.height))
       } catch (error) {
         return send(502, { ok: false, error: String((error && error.message) || error) })
       }

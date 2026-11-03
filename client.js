@@ -17,6 +17,23 @@ window.__ModuleLoader__.load({
      * hidden from the grid. It never touches ComfyUI's history or the output
      * files, so anything generated past it keeps appearing.
      */
+    /** Default MOSS DiT trio; the model panel lets the user change it. */
+    const DEFAULT_CANVAS_MODELS = {
+      unet: 'moss-image-sft-dit-int8-convrot.safetensors',
+      clip: 'moss-image-sft-qwen35-int8-convrot.safetensors',
+      vae: 'moss-image-sft-vae.safetensors',
+      // Each entry: { name, strength }; empty list = no LoRA at all.
+      loras: [],
+      // Applies to the quick-generate KSampler only.
+      sampling: {
+        steps: 16,
+        cfg: 1,
+        sampler: 'euler',
+        scheduler: 'simple',
+        seed: Math.floor(Math.random() * 1e15),
+      },
+    }
+
     const pluginPrefs = (() => {
       let state = {
         status: true,
@@ -31,6 +48,7 @@ window.__ModuleLoader__.load({
         zoomSummaryHeight: 54,
         zoomDescHeight: 68,
         zoomPanelWidth: 260,
+        canvasModels: Object.assign({}, DEFAULT_CANVAS_MODELS),
       }
       try {
         const raw = localStorage.getItem(PREF_KEY)
@@ -56,6 +74,32 @@ window.__ModuleLoader__.load({
                 typeof parsed.zoomDescHeight === 'number' ? parsed.zoomDescHeight : 68,
               zoomPanelWidth:
                 typeof parsed.zoomPanelWidth === 'number' ? parsed.zoomPanelWidth : 260,
+              canvasModels: (() => {
+                const raw =
+                  parsed.canvasModels && typeof parsed.canvasModels === 'object' ? parsed.canvasModels : {}
+                const merged = Object.assign({}, DEFAULT_CANVAS_MODELS, raw)
+                if (!Array.isArray(merged.loras)) {
+                  // Migrate the old single-LoRA preference into the list form.
+                  merged.loras =
+                    typeof raw.lora === 'string' && raw.lora.trim()
+                      ? [
+                          {
+                            name: raw.lora.trim(),
+                            strength: typeof raw.loraStrength === 'number' ? raw.loraStrength : 1,
+                          },
+                        ]
+                      : []
+                }
+                delete merged.lora
+                delete merged.loraStrength
+                if (!merged.sampling || typeof merged.sampling !== 'object') {
+                  merged.sampling = Object.assign({}, DEFAULT_CANVAS_MODELS.sampling)
+                } else if (typeof merged.sampling.seed !== 'number') {
+                  // Older preferences predate the seed field.
+                  merged.sampling = Object.assign({}, DEFAULT_CANVAS_MODELS.sampling, merged.sampling)
+                }
+                return merged
+              })(),
             }
           }
         }
@@ -189,6 +233,24 @@ window.__ModuleLoader__.load({
         ['path', { d: 'M13 5h6v6' }],
         ['path', { d: 'M11 19H5v-6' }],
         ['path', { d: 'M19 5 5 19' }],
+      ],
+      'sliders-horizontal': [
+        ['line', { x1: 21, x2: 14, y1: 4, y2: 4 }],
+        ['line', { x1: 10, x2: 3, y1: 4, y2: 4 }],
+        ['line', { x1: 21, x2: 12, y1: 12, y2: 12 }],
+        ['line', { x1: 8, x2: 3, y1: 12, y2: 12 }],
+        ['line', { x1: 21, x2: 16, y1: 20, y2: 20 }],
+        ['line', { x1: 12, x2: 3, y1: 20, y2: 20 }],
+        ['line', { x1: 14, x2: 14, y1: 2, y2: 6 }],
+        ['line', { x1: 8, x2: 8, y1: 10, y2: 14 }],
+        ['line', { x1: 16, x2: 16, y1: 18, y2: 22 }],
+      ],
+      shuffle: [
+        ['path', { d: 'M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.7-1.1 2-1.7 3.3-1.7H22' }],
+        ['path', { d: 'm18 2 4 4-4 4' }],
+        ['path', { d: 'M2 6h1.9c1.5 0 2.9.9 3.6 2.2' }],
+        ['path', { d: 'M22 18h-5.9c-1.3 0-2.6-.7-3.3-1.8l-.5-.8' }],
+        ['path', { d: 'm18 14 4 4-4 4' }],
       ],
     }
 
@@ -1010,6 +1072,18 @@ window.__ModuleLoader__.load({
       overflowY: 'auto',
     }
 
+    /** Same idea for the canvas sidebar, whose board is much narrower. */
+    const RUNNING_FLOAT_SIDEBAR = {
+      position: 'absolute',
+      top: 8,
+      left: 8,
+      zIndex: 6,
+      width: 214,
+      maxWidth: 'calc(100% - 16px)',
+      maxHeight: 'calc(100% - 16px)',
+      overflowY: 'auto',
+    }
+
     function useAlbum() {
       const [album, setAlbum] = useState(null)
       const [error, setError] = useState(null)
@@ -1691,6 +1765,22 @@ window.__ModuleLoader__.load({
         ensureAudio,
       }
     })()
+
+    /** Ask ComfyUI to drop the tracked job: queue delete when pending, interrupt when running. */
+    async function cancelTrackedJob() {
+      const job = jobStore.get()
+      if (!job || !job.id) return
+      try {
+        const res = await fetch('/plugin/comfy-status/cancel', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ promptId: job.id }),
+        })
+        if (res.ok) jobStore.fail('已终止')
+      } catch {
+        // The queue poll notices the disappearance on its own.
+      }
+    }
 
     function ViewerInfoPanel(props) {
       const meta = props.meta || {}
@@ -3283,17 +3373,6 @@ window.__ModuleLoader__.load({
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
     }
-    const FILE_SELECT = {
-      flex: 1,
-      minWidth: 0,
-      fontSize: 11,
-      padding: '5px 8px',
-      borderRadius: 7,
-      border: '1px solid var(--dsw-alias-border-l2)',
-      background: 'var(--dsw-alias-bg-layer-1)',
-      color: 'var(--dsw-alias-label-primary)',
-      fontFamily: 'inherit',
-    }
     const STAGE = {
       flex: 'none',
       padding: '14px',
@@ -3383,13 +3462,30 @@ window.__ModuleLoader__.load({
       left: 0,
       right: 0,
       zIndex: 60,
-      maxHeight: 240,
-      overflowY: 'auto',
+      maxHeight: 260,
+      display: 'flex',
+      flexDirection: 'column',
       padding: 4,
       borderRadius: 8,
       border: '1px solid var(--dsw-alias-border-l2)',
       background: 'var(--dsw-alias-bg-layer-1)',
       boxShadow: '0 8px 24px rgba(0, 0, 0, 0.18)',
+    }
+
+    /** Filter row shown on long lists (model pickers) at the top of the menu. */
+    const DROPDOWN_SEARCH = {
+      flex: 'none',
+      width: '100%',
+      boxSizing: 'border-box',
+      marginBottom: 4,
+      fontSize: 10.5,
+      padding: '5px 7px',
+      borderRadius: 6,
+      border: '1px solid var(--dsw-alias-border-l2)',
+      background: 'var(--dsw-alias-bg-layer-2)',
+      color: 'var(--dsw-alias-label-primary)',
+      fontFamily: 'inherit',
+      outline: 'none',
     }
 
     // Full-screen working view ---------------------------------------------------
@@ -3546,6 +3642,464 @@ window.__ModuleLoader__.load({
       if (!Number.isFinite(n)) return 260
       return Math.min(480, Math.max(200, Math.round(n)))
     }
+
+    /** Inline red progress banner for the canvas sidebar (album-style, with stop). */
+    const RUNNING_BANNER = {
+      flex: 'none',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      padding: '7px 14px',
+      borderBottom: '1px solid var(--dsw-alias-border-l2)',
+      background: 'var(--dsw-alias-bg-layer-1)',
+    }
+
+    const MODAL_BACKDROP = {
+      position: 'fixed',
+      inset: 0,
+      zIndex: 60,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 16,
+      background: 'rgba(0, 0, 0, 0.45)',
+    }
+    const MODAL_PANEL = {
+      width: 380,
+      maxWidth: 'calc(100vw - 32px)',
+      // No overflow clipping: the dropdown menus open beyond this panel and must
+      // not be cut off by it.
+      overflow: 'visible',
+      boxSizing: 'border-box',
+      padding: 16,
+      borderRadius: 12,
+      background: 'var(--dsw-alias-bg-base)',
+      color: 'var(--dsw-alias-label-primary)',
+      border: '1px solid var(--dsw-alias-border-l2)',
+      boxShadow: '0 18px 48px rgba(0, 0, 0, 0.4)',
+    }
+
+    /** Model + LoRA picker, shared by the canvas tab and the zoom overlay. */
+    function ModelSettingsDialog(props) {
+      const [options, setOptions] = useState(null)
+      const [samplerChoices, setSamplerChoices] = useState(null)
+      const models = props.models || {}
+      const night = Boolean(props.night)
+      const open = Boolean(props.open)
+
+      useEffect(() => {
+        if (!open || options) return undefined
+        let alive = true
+        fetch('/plugin/comfy-canvas/model-options', { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (alive && data && data.ok) setOptions(data)
+          })
+          .catch(() => {
+            // The pickers still show whatever is stored.
+          })
+        return () => {
+          alive = false
+        }
+      }, [open, options])
+
+      useEffect(() => {
+        if (!open || samplerChoices) return undefined
+        let alive = true
+        fetch('/plugin/comfy-status/sampler-options', { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (alive && data && Array.isArray(data.samplers) && data.samplers.length > 0) {
+              setSamplerChoices(data)
+            }
+          })
+          .catch(() => {
+            // Keep the stored values; the dropdowns still show them.
+          })
+        return () => {
+          alive = false
+        }
+      }, [open, samplerChoices])
+
+      // The dialog keeps rendering through its exit animation; the parent only
+      // flips `open`, so closing stays smooth instead of snapping away.
+      const [visible, setVisible] = useState(open)
+      const [closing, setClosing] = useState(false)
+      const visibleRef = useRef(open)
+
+      useEffect(() => {
+        if (open) {
+          visibleRef.current = true
+          setVisible(true)
+          setClosing(false)
+          return undefined
+        }
+        if (!visibleRef.current) return undefined
+        setClosing(true)
+        const timer = setTimeout(() => {
+          visibleRef.current = false
+          setVisible(false)
+          setClosing(false)
+        }, 190)
+        return () => clearTimeout(timer)
+      }, [open])
+
+      if (!visible) return null
+
+      const overlayAnimation = closing
+        ? 'dshComfyOverlayOut 160ms ease-out both'
+        : 'dshComfyOverlayIn 200ms ease-out both'
+      const panelAnimation = closing
+        ? 'dshComfyPanelOut 160ms ease-out both'
+        : 'dshComfyPanelIn 220ms cubic-bezier(0.23, 1, 0.32, 1) both'
+
+      const rows = [
+        ['unet', 'UNET'],
+        ['clip', 'CLIP'],
+        ['vae', 'VAE'],
+      ]
+      const update = (patch) => {
+        if (props.onChange) props.onChange(Object.assign({}, models, patch))
+      }
+      const sampling = models.sampling || {}
+      const setSampling = (patch) => update({ sampling: Object.assign({}, sampling, patch) })
+      return h(
+        'div',
+        {
+          style: Object.assign({}, MODAL_BACKDROP, { animation: overlayAnimation }),
+          onClick: (event) => {
+            if (event.target === event.currentTarget) props.onClose()
+          },
+        },
+        h(
+          'div',
+          {
+            className: night ? 'dshComfySurface-dark' : 'dshComfySurface-light',
+            style: Object.assign({}, MODAL_PANEL, { animation: panelAnimation }),
+            onClick: (event) => event.stopPropagation(),
+          },
+          h('div', { style: { fontWeight: 600, fontSize: 12.5, marginBottom: 4 } }, '生成设置'),
+          h(
+            'div',
+            { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)', marginBottom: 12 } },
+            '只影响画板的快速生成；未安装的模型会在提交前被拦下。',
+          ),
+          h(
+            'div',
+            { style: { display: 'flex', justifyContent: 'flex-end', marginBottom: 10 } },
+            h(
+              'button',
+              {
+                className: 'dshCanvasBtn',
+                disabled: !props.referenceMeta,
+                title: props.referenceMeta
+                  ? '用参考图的生成参数填写模型与 LoRA'
+                  : '当前没有参考图',
+                onClick: () => {
+                  const meta = props.referenceMeta
+                  if (!meta || !Array.isArray(meta.models)) return
+                  const next = Object.assign({}, models)
+                  meta.models.forEach((entry) => {
+                    const role = String(entry.role || '').toLowerCase()
+                    if (role === 'unet') next.unet = entry.name
+                    else if (role === 'clip') next.clip = entry.name
+                    else if (role === 'vae') next.vae = entry.name
+                  })
+                  next.loras = meta.models
+                    .filter((entry) => entry.role === 'LoRA')
+                    .slice(0, 4)
+                    .map((entry) => ({
+                      name: entry.name,
+                      strength: typeof entry.strength === 'number' ? entry.strength : 1,
+                    }))
+                  update(next)
+                },
+              },
+              '读取参考图',
+            ),
+          ),
+          options === null
+            ? h(
+                'div',
+                { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)', marginBottom: 10 } },
+                '正在读取 ComfyUI 的模型列表…',
+              )
+            : null,
+          ...rows.map(([key, label]) => {
+            const list = (options && options[key]) || []
+            const value = models[key] || ''
+            const missing = list.length > 0 && value && list.indexOf(value) < 0
+            return h(
+              'div',
+              { key, style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 } },
+              h(
+                'span',
+                {
+                  style: {
+                    flex: 'none',
+                    width: 44,
+                    fontSize: 10.5,
+                    color: 'var(--dsw-alias-label-secondary)',
+                  },
+                },
+                label,
+              ),
+              h(
+                'div',
+                { style: { flex: 1, minWidth: 0 } },
+                h(Dropdown, {
+                  title: label + ' 模型',
+                  placeholder: '选择模型',
+                  value,
+                  options: list.map((entry) => ({ value: entry, label: entry })),
+                  onPick: (next) => update({ [key]: next }),
+                  dark: night,
+                }),
+              ),
+              missing
+                ? h(
+                    'span',
+                    { style: { flex: 'none', fontSize: 9.5, color: 'var(--dsw-alias-state-error-primary)' } },
+                    '未安装',
+                  )
+                : null,
+            )
+          }),
+          ...(Array.isArray(models.loras) ? models.loras : []).map((entry, index) =>
+            h(
+              'div',
+              { key: 'lora-' + index, style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 } },
+              h(
+                'span',
+                {
+                  style: {
+                    flex: 'none',
+                    width: 44,
+                    fontSize: 10.5,
+                    color: 'var(--dsw-alias-label-secondary)',
+                  },
+                },
+                index === 0 ? 'LoRA' : '',
+              ),
+              h(
+                'div',
+                { style: { flex: 1, minWidth: 0 } },
+                h(Dropdown, {
+                  title: 'LoRA ' + (index + 1),
+                  placeholder: '选择 LoRA',
+                  value: entry.name || '',
+                  options: ((options && options.lora) || []).map((value) => ({ value, label: value })),
+                  onPick: (next) => {
+                    const copy = (Array.isArray(models.loras) ? models.loras : []).slice()
+                    copy[index] = Object.assign({}, copy[index], { name: next })
+                    update({ loras: copy })
+                  },
+                  dark: night,
+                }),
+              ),
+              h('input', {
+                type: 'number',
+                step: 0.05,
+                value: entry.strength,
+                title: 'LoRA 强度',
+                style: {
+                  flex: 'none',
+                  width: 62,
+                  boxSizing: 'border-box',
+                  fontSize: 10.5,
+                  padding: '5px 7px',
+                  borderRadius: 6,
+                  border: '1px solid var(--dsw-alias-border-l2)',
+                  background: 'var(--dsw-alias-bg-layer-1)',
+                  color: 'var(--dsw-alias-label-primary)',
+                  fontFamily: 'inherit',
+                },
+                onChange: (event) => {
+                  const next = Number(event.target.value)
+                  if (!Number.isFinite(next)) return
+                  const copy = (Array.isArray(models.loras) ? models.loras : []).slice()
+                  copy[index] = Object.assign({}, copy[index], { strength: next })
+                  update({ loras: copy })
+                },
+              }),
+              h(
+                'button',
+                {
+                  className: 'dshCanvasBtn',
+                  title: '移除这个 LoRA',
+                  onClick: () => {
+                    const copy = (Array.isArray(models.loras) ? models.loras : []).slice()
+                    copy.splice(index, 1)
+                    update({ loras: copy })
+                  },
+                },
+                '删除',
+              ),
+            ),
+          ),
+          (Array.isArray(models.loras) ? models.loras.length : 0) < 4
+            ? h(
+                'div',
+                { style: { marginBottom: 8 } },
+                h(
+                  'button',
+                  {
+                    className: 'dshCanvasBtn',
+                    onClick: () =>
+                      update({
+                        loras: [...(Array.isArray(models.loras) ? models.loras : []), { name: '', strength: 1 }],
+                      }),
+                  },
+                  '+ 添加 LoRA',
+                ),
+              )
+            : null,
+          h('div', { style: { borderTop: '1px solid var(--dsw-alias-border-l2)', margin: '2px 0 10px' } }),
+          h('div', { style: { fontWeight: 600, fontSize: 11, marginBottom: 8 } }, '采样'),
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 } },
+            h(
+              'span',
+              {
+                style: {
+                  flex: 'none',
+                  width: 44,
+                  fontSize: 10.5,
+                  color: 'var(--dsw-alias-label-secondary)',
+                },
+              },
+              '步数',
+            ),
+            h('input', {
+              type: 'number',
+              min: 1,
+              max: 100,
+              step: 1,
+              value: sampling.steps,
+              style: {
+                flex: 'none',
+                width: 64,
+                boxSizing: 'border-box',
+                fontSize: 10.5,
+                padding: '5px 7px',
+                borderRadius: 6,
+                border: '1px solid var(--dsw-alias-border-l2)',
+                background: 'var(--dsw-alias-bg-layer-1)',
+                color: 'var(--dsw-alias-label-primary)',
+                fontFamily: 'inherit',
+              },
+              onChange: (event) => {
+                const next = Number(event.target.value)
+                if (Number.isFinite(next)) setSampling({ steps: next })
+              },
+            }),
+            h(
+              'span',
+              {
+                style: {
+                  flex: 'none',
+                  width: 44,
+                  fontSize: 10.5,
+                  color: 'var(--dsw-alias-label-secondary)',
+                },
+              },
+              'CFG',
+            ),
+            h('input', {
+              type: 'number',
+              min: 0,
+              max: 30,
+              step: 0.1,
+              value: sampling.cfg,
+              style: {
+                flex: 'none',
+                width: 64,
+                boxSizing: 'border-box',
+                fontSize: 10.5,
+                padding: '5px 7px',
+                borderRadius: 6,
+                border: '1px solid var(--dsw-alias-border-l2)',
+                background: 'var(--dsw-alias-bg-layer-1)',
+                color: 'var(--dsw-alias-label-primary)',
+                fontFamily: 'inherit',
+              },
+              onChange: (event) => {
+                const next = Number(event.target.value)
+                if (Number.isFinite(next)) setSampling({ cfg: next })
+              },
+            }),
+          ),
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 } },
+            h(
+              'span',
+              {
+                style: {
+                  flex: 'none',
+                  width: 44,
+                  fontSize: 10.5,
+                  color: 'var(--dsw-alias-label-secondary)',
+                },
+              },
+              '采样器',
+            ),
+            h(
+              'div',
+              { style: { flex: 1, minWidth: 0 } },
+              h(Dropdown, {
+                title: '采样器',
+                placeholder: sampling.sampler || '采样器',
+                value: sampling.sampler || '',
+                options: ((samplerChoices && samplerChoices.samplers) || []).map((value) => ({
+                  value,
+                  label: value,
+                })),
+                onPick: (next) => setSampling({ sampler: next }),
+                dark: night,
+              }),
+            ),
+          ),
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 } },
+            h(
+              'span',
+              {
+                style: {
+                  flex: 'none',
+                  width: 44,
+                  fontSize: 10.5,
+                  color: 'var(--dsw-alias-label-secondary)',
+                },
+              },
+              '调度',
+            ),
+            h(
+              'div',
+              { style: { flex: 1, minWidth: 0 } },
+              h(Dropdown, {
+                title: '调度',
+                placeholder: sampling.scheduler || '调度',
+                value: sampling.scheduler || '',
+                options: ((samplerChoices && samplerChoices.schedulers) || []).map((value) => ({
+                  value,
+                  label: value,
+                })),
+                onPick: (next) => setSampling({ scheduler: next }),
+                dark: night,
+              }),
+            ),
+          ),
+          h(
+            'div',
+            { style: { display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 4 } },
+            h('button', { className: 'dshCanvasBtn', onClick: props.onClose }, '完成'),
+          ),
+        ),
+      )
+    }
     const ZOOM_CHECK_ROW = {
       display: 'flex',
       alignItems: 'center',
@@ -3698,6 +4252,9 @@ window.__ModuleLoader__.load({
         null,
         [
           '.dshCanvasBtn{appearance:none;flex:none;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10.5px;line-height:1.5;padding:4px 11px;border-radius:7px;cursor:pointer;white-space:nowrap}',
+          '.dshCanvasBtn{transition:transform 160ms cubic-bezier(0.23,1,0.32,1)}',
+          '.dshCanvasBtn:active:not(:disabled){transform:scale(.97) translateY(1px)}',
+          '@media (prefers-reduced-motion:reduce){.dshCanvasBtn{transition:none}.dshCanvasBtn:active:not(:disabled){transform:none}}',
           '.dshCanvasBtn:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
           '.dshCanvasBtn:disabled{opacity:.4;cursor:default}',
           '.dshCanvasBtn[data-tone="primary"]{background:var(--dsw-alias-brand-primary);color:var(--dshcomfy-on-brand);border-color:var(--dsw-alias-brand-primary)}',
@@ -3724,6 +4281,14 @@ window.__ModuleLoader__.load({
           '@keyframes dshComfyDropIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}',
           '@keyframes dshComfyJobSlide{0%{transform:translateX(-110%)}100%{transform:translateX(360%)}}',
           '@keyframes dshComfyJobPulse{0%,100%{opacity:.45}50%{opacity:1}}',
+          '@keyframes dshComfyGlowInBlue{from{box-shadow:0 0 0 rgba(59,130,246,0)}to{box-shadow:0 0 18px rgba(59,130,246,.72)}}',
+          '@keyframes dshComfyGlowBreatheBlue{0%,100%{box-shadow:0 0 18px rgba(59,130,246,.72)}50%{box-shadow:0 0 8px rgba(59,130,246,.35)}}',
+          '@keyframes dshComfyGlowInRed{from{box-shadow:0 0 0 rgba(239,68,68,0)}to{box-shadow:0 0 18px rgba(239,68,68,.68)}}',
+          '@keyframes dshComfyGlowBreatheRed{0%,100%{box-shadow:0 0 18px rgba(239,68,68,.68)}50%{box-shadow:0 0 8px rgba(239,68,68,.3)}}',
+          '.dshComfyGenBlue:hover:not(:disabled){animation:dshComfyGlowInBlue .28s ease-out forwards,dshComfyGlowBreatheBlue 2.4s ease-in-out .28s infinite}',
+          '.dshComfyGenRed:hover:not(:disabled){animation:dshComfyGlowInRed .28s ease-out forwards,dshComfyGlowBreatheRed 2.4s ease-in-out .28s infinite}',
+          '@media (prefers-reduced-motion:reduce){.dshComfyGenBlue:hover,.dshComfyGenRed:hover{animation:none!important}}',
+          '.dshCanvasBtn:hover:not(:disabled){filter:brightness(1.08)}',
           SURFACE_LIGHT_CSS,
           SURFACE_DARK_CSS,
           THEME_ICON_CSS,
@@ -4176,6 +4741,7 @@ window.__ModuleLoader__.load({
           window.matchMedia('(prefers-reduced-motion: reduce)').matches,
       )
       const boxRef = useRef(null)
+      const [query, setQuery] = useState('')
 
       useEffect(() => {
         if (!open) return undefined
@@ -4194,7 +4760,12 @@ window.__ModuleLoader__.load({
         }
       }, [open])
 
-      const current = props.options.find((option) => option.value === props.value)
+      const choices = props.options || []
+      const normalized = query.trim().toLowerCase()
+      const filtered = normalized
+        ? choices.filter((option) => String(option.label).toLowerCase().indexOf(normalized) >= 0)
+        : choices
+      const current = choices.find((option) => option.value === props.value)
       const menuSkin = dark
         ? {
             border: '1px solid rgba(255, 255, 255, 0.14)',
@@ -4217,7 +4788,10 @@ window.__ModuleLoader__.load({
             // trigger at a usable height even before a value is picked.
             style: { minHeight: 22 },
             onClick: () => {
-              if (!open && props.onOpen) props.onOpen()
+              if (!open) {
+                setQuery('')
+                if (props.onOpen) props.onOpen()
+              }
               setOpen(!open)
             },
           },
@@ -4232,27 +4806,62 @@ window.__ModuleLoader__.load({
               'div',
               {
                 style: Object.assign({}, DROPDOWN, menuSkin, {
+                  // Long names (workflow files, model files) need a wider menu
+                  // than the trigger can afford.
+                  minWidth: props.menuMinWidth || undefined,
                   animation: reducedMotion
                     ? 'dshComfyOverlayIn 120ms ease both'
                     : 'dshComfyDropIn 140ms cubic-bezier(0.23, 1, 0.32, 1) both',
                 }),
               },
-              ...props.options.map((option) =>
-                h(
-                  'button',
-                  {
-                    key: option.value,
-                    type: 'button',
-                    className: 'dshCanvasOption',
-                    'data-on': option.value === props.value ? 'true' : 'false',
-                    'data-dark': dark ? 'true' : undefined,
-                    title: option.label,
-                    onClick: () => {
-                      props.onPick(option.value)
-                      setOpen(false)
+              choices.length > 8
+                ? h('input', {
+                    type: 'search',
+                    value: query,
+                    placeholder: '搜索…',
+                    autoFocus: true,
+                    style: DROPDOWN_SEARCH,
+                    onChange: (event) => setQuery(event.target.value),
+                    onKeyDown: (event) => {
+                      if (event.isComposing) return
+                      if (event.key === 'Enter' && filtered.length > 0) {
+                        event.preventDefault()
+                        props.onPick(filtered[0].value)
+                        setOpen(false)
+                      }
                     },
+                  })
+                : null,
+              h(
+                'div',
+                {
+                  style: {
+                    overflowY: 'auto',
+                    minHeight: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
                   },
-                  option.label,
+                },
+                ...filtered.map((option) =>
+                  h(
+                    'button',
+                    {
+                      key: option.value,
+                      type: 'button',
+                      className: 'dshCanvasOption',
+                      'data-on': option.value === props.value ? 'true' : 'false',
+                      'data-dark': dark ? 'true' : undefined,
+                      title: option.label,
+                      // The flex column would otherwise shrink every row and
+                      // squeeze the labels together.
+                      style: { flex: 'none' },
+                      onClick: () => {
+                        props.onPick(option.value)
+                        setOpen(false)
+                      },
+                    },
+                    option.label,
+                  ),
                 ),
               ),
             )
@@ -4339,6 +4948,8 @@ window.__ModuleLoader__.load({
       const liveSideRef = useRef(null)
       const sideHandlersRef = useRef(null)
       const [preview, setPreview] = useState(false)
+      const [canvasModels, setCanvasModels] = usePref('canvasModels')
+      const [modelPanel, setModelPanel] = useState(false)
       const [job, setJob] = useState(() => jobStore.get())
       const [jobClock, setJobClock] = useState(() => Date.now())
       const jobActive = job !== null && (job.status === 'queued' || job.status === 'running')
@@ -4376,6 +4987,8 @@ window.__ModuleLoader__.load({
       }, [jobActive])
 
       const jobElapsed = job && job.at && jobClock ? Math.max(0, Math.floor((jobClock - job.at) / 1000)) : 0
+
+      const missingModels = Array.isArray(props.missingModels) ? props.missingModels : null
 
       // Native textarea resize does not reliably fire mouseup on the element, so
       // the settled height is read off the box itself instead of the event.
@@ -4527,7 +5140,11 @@ window.__ModuleLoader__.load({
         'div',
         {
           style: Object.assign({}, OVERLAY, { animation: overlayAnimation, zoom: UI_SCALE }),
-          onClick: requestClose,
+          // Only a click on the backdrop itself closes the overlay. Clicks that
+          // bubble out of the panel (or a floating dialog) must not.
+          onClick: (event) => {
+            if (event.target === event.currentTarget) requestClose()
+          },
           role: 'presentation',
         },
         h(
@@ -4606,6 +5223,21 @@ window.__ModuleLoader__.load({
                       },
                     }),
                   ),
+                  h(
+                    'button',
+                    {
+                      className: 'dshCanvasBtn',
+                      style: {
+                        flexShrink: 0,
+                        padding: '2px 8px',
+                        color: '#ff6b6b',
+                        borderColor: 'rgba(255, 90, 90, 0.5)',
+                      },
+                      title: '停止任务',
+                      onClick: cancelTrackedJob,
+                    },
+                    '停止',
+                  ),
                 )
               : props.status
                 ? h(
@@ -4678,10 +5310,85 @@ window.__ModuleLoader__.load({
               },
             }),
             h('span', { style: ZOOM_TOOL_LABEL }, 'MP'),
+            h('span', { style: ZOOM_TOOL_LABEL }, '种子'),
+            h('input', {
+              type: 'number',
+              value: (canvasModels.sampling && canvasModels.sampling.seed) || 0,
+              style: {
+                flex: 'none',
+                width: 92,
+                boxSizing: 'border-box',
+                fontSize: 10.5,
+                padding: '5px 7px',
+                borderRadius: 6,
+                border: '1px solid var(--dsw-alias-border-l2)',
+                background: 'var(--dsw-alias-bg-layer-1)',
+                color: 'var(--dsw-alias-label-primary)',
+                fontFamily: 'inherit',
+              },
+              onChange: (event) => {
+                const next = Number(event.target.value)
+                if (!Number.isFinite(next)) return
+                const sampling = Object.assign({}, canvasModels.sampling, {
+                  seed: Math.max(0, Math.floor(next)),
+                })
+                setCanvasModels(Object.assign({}, canvasModels, { sampling }))
+              },
+            }),
+            h(
+              'button',
+              {
+                className: 'dshCanvasBtn',
+                title: '随机种子',
+                style: { flexShrink: 0 },
+                onClick: () => {
+                  const sampling = Object.assign({}, canvasModels.sampling, {
+                    seed: Math.floor(Math.random() * 1e15),
+                  })
+                  setCanvasModels(Object.assign({}, canvasModels, { sampling }))
+                },
+              },
+              h(Icon, { name: 'shuffle', size: 12 }),
+            ),
+            h(
+              'button',
+              {
+                className: 'dshCanvasBtn',
+                title: '从参考图读取种子',
+                style: { flexShrink: 0 },
+                disabled: !props.referenceMeta,
+                onClick: () => {
+                  const meta = props.referenceMeta
+                  const seed =
+                    meta && meta.sampler && typeof meta.sampler.seed === 'number' ? meta.sampler.seed : null
+                  if (seed === null) return
+                  const sampling = Object.assign({}, canvasModels.sampling, { seed })
+                  setCanvasModels(Object.assign({}, canvasModels, { sampling }))
+                },
+              },
+              '读取',
+            ),
             h(
               'span',
               { style: Object.assign({}, CANVAS_SUB, { fontSize: 10.5, whiteSpace: 'nowrap' }) },
               props.boxes.length + ' 个框',
+            ),
+            h(
+              'button',
+              {
+                className: 'dshCanvasBtn',
+                title: '生成设置：模型 / LoRA / 采样',
+                style: {
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
+                },
+                onClick: () => setModelPanel(true),
+              },
+              h(Icon, { name: 'sliders-horizontal', size: 12 }),
+              h('span', null, '模型'),
             ),
             h(
               'button',
@@ -4696,9 +5403,16 @@ window.__ModuleLoader__.load({
             h(
               'button',
               {
-                className: 'dshCanvasBtn',
+                className: 'dshCanvasBtn dshComfyGenBlue',
                 disabled: props.boxes.length === 0,
                 title: '不经过 agent，直接把当前版式提交给 ComfyUI',
+                style: {
+                  background: '#3b82f6',
+                  borderColor: '#3b82f6',
+                  color: '#ffffff',
+                  fontWeight: 600,
+                  opacity: props.boxes.length === 0 ? 0.45 : 1,
+                },
                 onClick: () => {
                   if (props.onGenerate) props.onGenerate()
                 },
@@ -4708,9 +5422,15 @@ window.__ModuleLoader__.load({
             h(
               'button',
               {
-                className: 'dshCanvasBtn',
-                'data-tone': 'primary',
+                className: 'dshCanvasBtn dshComfyGenRed',
                 disabled: props.boxes.length === 0,
+                style: {
+                  background: '#ef4444',
+                  borderColor: '#ef4444',
+                  color: '#ffffff',
+                  fontWeight: 600,
+                  opacity: props.boxes.length === 0 ? 0.45 : 1,
+                },
                 onClick: () => {
                   if (props.onSend) props.onSend()
                 },
@@ -4797,7 +5517,7 @@ window.__ModuleLoader__.load({
                     padding: 0,
                     boxSizing: 'border-box',
                     whiteSpace: 'nowrap',
-                    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.28)',
+                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.08), 0 3px 10px rgba(0, 0, 0, 0.07)',
                   },
                   title: preview ? '退出预览，显示画框' : '隐藏画框，按实际画面预览',
                   onClick: () => setPreview(!preview),
@@ -4970,6 +5690,111 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
+          h(ModelSettingsDialog, {
+            open: modelPanel,
+            models: canvasModels,
+            onChange: setCanvasModels,
+            onClose: () => setModelPanel(false),
+            night: overlayNight,
+            referenceMeta: props.referenceMeta,
+          }),
+          missingModels && missingModels.length > 0
+            ? h(
+                'div',
+                {
+                  style: {
+                    position: 'fixed',
+                    inset: 0,
+                    zIndex: 61,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'rgba(0, 0, 0, 0.45)',
+                  },
+                  onClick: (event) => {
+                    if (event.target !== event.currentTarget) return
+                    if (props.onClearMissing) props.onClearMissing()
+                  },
+                },
+                h(
+                  'div',
+                  {
+                    className: overlayNight ? 'dshComfySurface-dark' : 'dshComfySurface-light',
+                    style: {
+                      width: 400,
+                      maxWidth: 'calc(100vw - 32px)',
+                      boxSizing: 'border-box',
+                      padding: 16,
+                      borderRadius: 12,
+                      background: 'var(--dsw-alias-bg-base)',
+                      color: 'var(--dsw-alias-label-primary)',
+                      border: '1px solid var(--dsw-alias-border-l2)',
+                      boxShadow: '0 18px 48px rgba(0, 0, 0, 0.4)',
+                    },
+                    onClick: (event) => event.stopPropagation(),
+                  },
+                  h(
+                    'div',
+                    {
+                      style: {
+                        fontWeight: 600,
+                        fontSize: 12.5,
+                        marginBottom: 8,
+                        color: 'var(--dsw-alias-state-error-primary)',
+                      },
+                    },
+                    '缺少模型，无法生成',
+                  ),
+                  ...missingModels.map((entry, index) =>
+                    h(
+                      'div',
+                      { key: index, style: { fontSize: 11, marginBottom: 4 } },
+                      String(entry && entry.kind ? entry.kind.toUpperCase() : '模型') +
+                        '：' +
+                        String((entry && entry.file) || ''),
+                    ),
+                  ),
+                  h(
+                    'div',
+                    {
+                      style: {
+                        fontSize: 10.5,
+                        color: 'var(--dsw-alias-label-secondary)',
+                        lineHeight: 1.5,
+                        margin: '8px 0 12px',
+                      },
+                    },
+                    '把这些文件放进 ComfyUI 的 models 对应目录，或在「模型」里换一个已安装的模型。',
+                  ),
+                  h(
+                    'div',
+                    { style: { display: 'flex', justifyContent: 'flex-end', gap: 6 } },
+                    h(
+                      'button',
+                      {
+                        className: 'dshCanvasBtn',
+                        onClick: () => {
+                          if (props.onClearMissing) props.onClearMissing()
+                          setModelPanel(true)
+                        },
+                      },
+                      '去设置',
+                    ),
+                    h(
+                      'button',
+                      {
+                        className: 'dshCanvasBtn',
+                        'data-tone': 'primary',
+                        onClick: () => {
+                          if (props.onClearMissing) props.onClearMissing()
+                        },
+                      },
+                      '知道了',
+                    ),
+                  ),
+                ),
+              )
+            : null,
         ),
       )
     }
@@ -5154,6 +5979,9 @@ window.__ModuleLoader__.load({
       const [editing, setEditing] = useState(null)
       const [draft, setDraft] = useState('')
       const [referenceOptions, setReferenceOptions] = useState([])
+      // Album item meta keyed by image URL, so the canvas can read the settings
+      // (seed, models, LoRA) of whatever picture it is tracing.
+      const [albumMetaByUrl, setAlbumMetaByUrl] = useState({})
       const [referenceUrl, setReferenceUrl] = useState('')
       const [referenceKind, setReferenceKind] = useState('')
       const [referenceName, setReferenceName] = useState('')
@@ -5162,9 +5990,29 @@ window.__ModuleLoader__.load({
       const refreshAlbum = useRef(null)
       const [canvasTheme, setCanvasTheme] = usePref('albumTheme')
       const canvasNight = canvasTheme !== 'light'
+      const [canvasModels, setCanvasModels] = usePref('canvasModels')
+      const [modelPanel, setModelPanel] = useState(false)
+      const [preview, setPreview] = useState(false)
       const [trackedJob, setTrackedJob] = useState(() => jobStore.get())
+      const [quickMissing, setQuickMissing] = useState(null)
+      // Generation meta of the picture currently used as the reference.
+      const referenceMeta = referenceUrl && albumMetaByUrl[referenceUrl] ? albumMetaByUrl[referenceUrl] : null
 
       useEffect(() => jobStore.subscribe(() => setTrackedJob(jobStore.get())), [])
+
+      const [jobClock, setJobClock] = useState(() => Date.now())
+      const trackedActive =
+        trackedJob !== null && (trackedJob.status === 'queued' || trackedJob.status === 'running')
+
+      useEffect(() => {
+        if (!trackedActive) return undefined
+        setJobClock(Date.now())
+        const timer = setInterval(() => setJobClock(Date.now()), 1000)
+        return () => clearInterval(timer)
+      }, [trackedActive])
+
+      const trackedElapsed =
+        trackedJob && trackedJob.at ? Math.max(0, Math.floor((jobClock - trackedJob.at) / 1000)) : 0
 
       // A canvas-initiated render replaces the reference with its own result, so
       // the next iteration starts from what just came out.
@@ -5193,13 +6041,16 @@ window.__ModuleLoader__.load({
             if (!alive || !data) return
             const items = Array.isArray(data.items) ? data.items : []
             const options = []
+            const metaByUrl = {}
             for (const item of items) {
               for (const image of item.images || []) {
                 if (image && image.url) {
                   options.push({ url: image.url, label: image.filename || image.url })
+                  metaByUrl[image.url] = item.meta || null
                 }
               }
             }
+            setAlbumMetaByUrl(metaByUrl)
             const signature = options.map((option) => option.url).join('|')
             setReferenceOptions((previous) => {
               // Keep the same array when nothing changed, so the panel does not
@@ -5271,7 +6122,14 @@ window.__ModuleLoader__.load({
         }
         setConfirmReset(false)
         clearDraft(file)
-        setReloadNonce((value) => value + 1)
+        // Reset means a blank board. Reloading the workflow would pull its sample
+        // caption and preset boxes straight back in, so clear the working copy.
+        setBoxes([])
+        setSelected(null)
+        setEditing(null)
+        setSummary('')
+        setDirty(false)
+        setStatus('已重置为空白画板')
       }
 
       useEffect(() => {
@@ -5598,17 +6456,29 @@ window.__ModuleLoader__.load({
           return
         }
         const layout = buildMossLayout(summary, size.width, size.height, boxes)
+        const models = pluginPrefs.get().canvasModels || {}
         setStatus('正在提交…')
         try {
           const res = await fetch('/plugin/comfy-canvas/generate', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ layout }),
+            body: JSON.stringify({
+              layout,
+              models,
+              width: size.width,
+              height: size.height,
+            }),
           })
           const data = await res.json().catch(() => null)
+          if (data && data.code === 'missing-models') {
+            setQuickMissing(Array.isArray(data.missing) ? data.missing : [])
+            setStatus('缺少模型，查看提示')
+            return
+          }
           if (!res.ok || !data || !data.ok) {
             throw new Error((data && data.error) || 'HTTP ' + res.status)
           }
+          setQuickMissing(null)
           jobStore.start(data.promptId, 'canvas')
           setStatus('已提交，正在生成')
         } catch (error) {
@@ -5664,6 +6534,9 @@ window.__ModuleLoader__.load({
           mpMeta,
           onRatioChange: (value) => applyResolution(value, megapixels),
           onMegapixelsChange: (value) => applyResolution(ratio || ratioOptions[0], value),
+          missingModels: quickMissing,
+          onClearMissing: () => setQuickMissing(null),
+          referenceMeta,
         })
       }, [
         zoomMode,
@@ -5685,6 +6558,8 @@ window.__ModuleLoader__.load({
         ratio,
         megapixels,
         mpMeta,
+        quickMissing,
+        referenceMeta,
       ])
 
       useEffect(() => () => zoomStore.set(null), [])
@@ -5796,7 +6671,7 @@ window.__ModuleLoader__.load({
             ),
             h(
               'div',
-              { style: STAGE_MAIN },
+              { style: Object.assign({}, STAGE_MAIN, { position: 'relative' }) },
               h('div', { style: BOARD_WRAP }, h(Board, {
                 width: size.width,
                 height: size.height,
@@ -5814,6 +6689,7 @@ window.__ModuleLoader__.load({
                 onDraftChange: setDraft,
                 onEditCommit: commitEdit,
                 onEditCancel: cancelEdit,
+                preview,
               })),
               boxes.length > 0
                 ? h(
@@ -5836,6 +6712,115 @@ window.__ModuleLoader__.load({
                     ),
                   )
                 : null,
+              trackedActive
+                ? h(
+                    'div',
+                    { style: RUNNING_FLOAT_SIDEBAR },
+                    h(
+                      'div',
+                      { style: RUNNING_BOX },
+                      h(
+                        'div',
+                        { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+                        h('span', {
+                          style: {
+                            width: 7,
+                            height: 7,
+                            borderRadius: '50%',
+                            flex: 'none',
+                            background: '#ff5a5a',
+                            animation: 'dshComfyJobPulse 1.1s ease-in-out infinite',
+                          },
+                        }),
+                        h(
+                          'span',
+                          {
+                            style: {
+                              fontSize: 10.5,
+                              fontWeight: 600,
+                              color: '#ff6b6b',
+                              whiteSpace: 'nowrap',
+                            },
+                          },
+                          trackedJob.status === 'running' ? '正在生成' : '排队中',
+                        ),
+                        h(
+                          'span',
+                          {
+                            style: {
+                              fontSize: 10,
+                              color: 'rgba(255, 107, 107, 0.85)',
+                              fontVariantNumeric: 'tabular-nums',
+                            },
+                          },
+                          trackedElapsed + 's',
+                        ),
+                        h('span', { style: { flex: 1 } }),
+                        h(
+                          'button',
+                          {
+                            className: 'dshCanvasBtn',
+                            style: {
+                              flexShrink: 0,
+                              padding: '2px 8px',
+                              color: '#ff6b6b',
+                              borderColor: 'rgba(255, 90, 90, 0.5)',
+                            },
+                            onClick: cancelTrackedJob,
+                          },
+                          '停止',
+                        ),
+                      ),
+                      h(
+                        'div',
+                        {
+                          style: {
+                            marginTop: 6,
+                            height: 3,
+                            borderRadius: 99,
+                            background: 'var(--dsw-alias-bg-layer-2)',
+                            overflow: 'hidden',
+                          },
+                        },
+                        h('div', {
+                          style: {
+                            width: '40%',
+                            height: '100%',
+                            borderRadius: 99,
+                            background: 'linear-gradient(90deg, #ff4d4d, #ff9a4a)',
+                            animation: 'dshComfyJobSlide 1.15s ease-in-out infinite',
+                          },
+                        }),
+                      ),
+                    ),
+                  )
+                : null,
+              h(
+                'button',
+                {
+                  className: 'dshCanvasBtn',
+                  style: {
+                    position: 'absolute',
+                    right: 8,
+                    bottom: 8,
+                    zIndex: 6,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    width: 84,
+                    height: 26,
+                    padding: 0,
+                    boxSizing: 'border-box',
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.08), 0 3px 10px rgba(0, 0, 0, 0.07)',
+                  },
+                  title: preview ? '退出预览，显示画框' : '隐藏画框，按实际画面预览',
+                  onClick: () => setPreview(!preview),
+                },
+                h(Icon, { name: preview ? 'eye-off' : 'eye', size: 12 }),
+                h('span', null, preview ? '退出预览' : '预览'),
+              ),
             ),
             h(
               'div',
@@ -5928,15 +6913,21 @@ window.__ModuleLoader__.load({
           'div',
           { style: HEAD },
           h(
-            'select',
-            {
-              value: file,
-              style: FILE_SELECT,
-              onChange: (event) => setFile(event.target.value),
-              disabled: !files || files.length === 0,
-            },
-            ...(files || []).map((item) => h('option', { key: item.name, value: item.name }, item.name)),
+            'div',
+            { style: { flex: '0 1 150px', minWidth: 84 } },
+            h(Dropdown, {
+              title: '选择工作流',
+              placeholder: files && files.length > 0 ? '选择工作流' : '无工作流',
+              value: file || '',
+              options: (files || []).map((item) => ({ value: item.name, label: item.name })),
+              onPick: (value) => setFile(value),
+              dark: canvasNight,
+              menuMinWidth: 260,
+            }),
           ),
+          // Everything after this spacer sits flush right; the file picker keeps
+          // the left edge.
+          h('span', { style: { flex: 1 } }),
           status || dirty || lastRemoved
             ? h('span', { style: STATUS_TEXT, title: status || '未发送' }, status || '未发送')
             : null,
@@ -5955,8 +6946,55 @@ window.__ModuleLoader__.load({
           ),
           h(
             'button',
-            { className: 'dshCanvasBtn', 'data-tone': 'primary', onClick: sendToAgent, disabled: !hasNode },
+            {
+              className: 'dshCanvasBtn dshComfyGenBlue',
+              disabled: !hasNode || boxes.length === 0,
+              title: '不经过 agent，直接把当前版式提交给 ComfyUI',
+              style: {
+                background: '#3b82f6',
+                borderColor: '#3b82f6',
+                color: '#ffffff',
+                fontWeight: 600,
+                flexShrink: 0,
+                opacity: !hasNode || boxes.length === 0 ? 0.45 : 1,
+              },
+              onClick: quickGenerate,
+            },
+            '快速生成',
+          ),
+          h(
+            'button',
+            {
+              className: 'dshCanvasBtn dshComfyGenRed',
+              disabled: !hasNode,
+              style: {
+                background: '#ef4444',
+                borderColor: '#ef4444',
+                color: '#ffffff',
+                fontWeight: 600,
+                flexShrink: 0,
+                opacity: !hasNode ? 0.45 : 1,
+              },
+              onClick: sendToAgent,
+            },
             confirmSend ? '确认发送？' : '发给 agent',
+          ),
+          h(
+            'button',
+            {
+              className: 'dshCanvasBtn',
+              title: '生成设置：模型 / LoRA / 采样',
+              style: {
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                flexShrink: 0,
+                whiteSpace: 'nowrap',
+              },
+              onClick: () => setModelPanel(true),
+            },
+            h(Icon, { name: 'sliders-horizontal', size: 12 }),
+            h('span', null, '模型'),
           ),
           h(
             'button',
@@ -5976,6 +7014,14 @@ window.__ModuleLoader__.load({
           ),
         ),
         body,
+        h(ModelSettingsDialog, {
+          open: modelPanel,
+          models: canvasModels,
+          onChange: setCanvasModels,
+          onClose: () => setModelPanel(false),
+          night: canvasNight,
+          referenceMeta,
+        }),
       )
     }
 
