@@ -8704,6 +8704,10 @@ window.__ModuleLoader__.load({
                         padding: 14,
                         display: 'grid',
                         gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+                        // Rows must pack at the top: the container is a stretched
+                        // flex child, so the default `stretch` would spread the
+                        // few rows across all that height.
+                        alignContent: 'start',
                         gap: 8,
                       },
                     },
