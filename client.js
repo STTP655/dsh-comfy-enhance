@@ -8588,25 +8588,6 @@ window.__ModuleLoader__.load({
             'div',
             { style: WORKSPACE_STAGE },
             stageContent,
-            h(
-              'button',
-              {
-                className: 'dshCanvasBtn',
-                style: {
-                  position: 'absolute',
-                  right: 18,
-                  bottom: 18,
-                  zIndex: 20,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                },
-                title: '相册',
-                onClick: () => setAlbumOpen(true),
-              },
-              h(Icon, { name: 'images', size: 14 }),
-              h('span', null, '相册'),
-            ),
           ),
           h(
             'div',
@@ -8739,10 +8720,32 @@ window.__ModuleLoader__.load({
               {
                 style: {
                   flex: 'none',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
                   padding: '8px 10px',
                   borderTop: '1px solid var(--dsw-alias-border-l2)',
                 },
               },
+              h(
+                'button',
+                {
+                  className: 'dshCanvasBtn',
+                  style: {
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 5,
+                    width: '100%',
+                    height: 28,
+                    boxSizing: 'border-box',
+                  },
+                  title: '相册',
+                  onClick: () => setAlbumOpen(true),
+                },
+                h(Icon, { name: 'images', size: 13 }),
+                h('span', null, '相册'),
+              ),
               h(
                 'button',
                 {
