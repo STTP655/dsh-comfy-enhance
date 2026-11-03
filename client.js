@@ -3570,6 +3570,7 @@ window.__ModuleLoader__.load({
       display: 'flex',
       flexDirection: 'column',
       minHeight: 0,
+      overflowY: 'auto',
       borderLeft: '1px solid var(--dsw-alias-border-l2)',
     }
     const PANEL_LIST = {
@@ -6204,58 +6205,64 @@ window.__ModuleLoader__.load({
                   ),
               h(
                 'div',
-                { style: ZOOM_SUMMARY },
-                h(
-                  'label',
-                  {
-                    style: {
-                      display: 'block',
-                      fontSize: 10.5,
-                      color: 'var(--dsw-alias-label-secondary)',
-                      marginBottom: 4,
-                    },
-                  },
-                  '整图描述',
-                ),
-                h('textarea', {
-                  ref: summaryRef,
-                  defaultValue: props.summary || '',
-                  style: Object.assign({}, ZOOM_SUMMARY_AREA, { height: clampZoomHeight(summaryHeight) }),
-                  onMouseUp: (event) => setSummaryHeight(clampZoomHeight(event.currentTarget.offsetHeight)),
-                  onChange: (event) => {
-                    if (props.onSummaryChange) props.onSummaryChange(event.target.value)
-                  },
-                }),
-              ),
-              h(
-                'div',
                 {
                   style: {
-                    marginTop: 10,
-                    paddingTop: 10,
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 6,
+                    padding: '8px 10px 10px',
                     borderTop: '1px solid var(--dsw-alias-border-l2)',
                   },
                 },
                 h(
-                  'label',
-                  {
-                    style: {
-                      display: 'block',
-                      fontSize: 10.5,
-                      color: 'var(--dsw-alias-label-secondary)',
-                      marginBottom: 4,
+                  'div',
+                  null,
+                  h(
+                    'label',
+                    {
+                      style: {
+                        display: 'block',
+                        fontSize: 10.5,
+                        color: 'var(--dsw-alias-label-secondary)',
+                        marginBottom: 4,
+                      },
                     },
-                  },
-                  '负面提示词',
+                    '正面提示词',
+                  ),
+                  h('textarea', {
+                    ref: summaryRef,
+                    defaultValue: props.summary || '',
+                    style: Object.assign({}, ZOOM_SUMMARY_AREA, { height: clampZoomHeight(summaryHeight) }),
+                    onMouseUp: (event) => setSummaryHeight(clampZoomHeight(event.currentTarget.offsetHeight)),
+                    onChange: (event) => {
+                      if (props.onSummaryChange) props.onSummaryChange(event.target.value)
+                    },
+                  }),
                 ),
-                h('textarea', {
-                  defaultValue: props.negative || '',
-                  placeholder: '留空则沿用模板里的负向提示词',
-                  style: Object.assign({}, ZOOM_SUMMARY_AREA, { height: 64 }),
-                  onChange: (event) => {
-                    if (props.onNegativeChange) props.onNegativeChange(event.target.value)
-                  },
-                }),
+                h(
+                  'div',
+                  null,
+                  h(
+                    'label',
+                    {
+                      style: {
+                        display: 'block',
+                        fontSize: 10.5,
+                        color: 'var(--dsw-alias-label-secondary)',
+                        marginBottom: 4,
+                      },
+                    },
+                    '负面提示词',
+                  ),
+                  h('textarea', {
+                    defaultValue: props.negative || '',
+                    placeholder: '留空则沿用模板',
+                    style: Object.assign({}, ZOOM_SUMMARY_AREA, { height: 64 }),
+                    onChange: (event) => {
+                      if (props.onNegativeChange) props.onNegativeChange(event.target.value)
+                    },
+                  }),
+                ),
               ),
             ),
           ),
@@ -8626,46 +8633,65 @@ window.__ModuleLoader__.load({
                   })()
                 : null,
               h(
-                'label',
+                'div',
                 {
                   style: {
-                    display: 'block',
-                    fontSize: 10.5,
-                    color: 'var(--dsw-alias-label-secondary)',
-                    margin: '8px 0 4px',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 8,
+                    marginTop: 8,
                   },
                 },
-                '整图描述',
+                h(
+                  'div',
+                  null,
+                  h(
+                    'label',
+                    {
+                      style: {
+                        display: 'block',
+                        fontSize: 10.5,
+                        color: 'var(--dsw-alias-label-secondary)',
+                        marginBottom: 4,
+                      },
+                    },
+                    '正面提示词',
+                  ),
+                  h('textarea', {
+                    value: summary,
+                    style: WORKSPACE_AREA_INPUT,
+                    onChange: (event) => {
+                      setSummary(event.target.value)
+                      setDirty(true)
+                    },
+                  }),
+                ),
+                h(
+                  'div',
+                  null,
+                  h(
+                    'label',
+                    {
+                      style: {
+                        display: 'block',
+                        fontSize: 10.5,
+                        color: 'var(--dsw-alias-label-secondary)',
+                        marginBottom: 4,
+                      },
+                    },
+                    '负面提示词',
+                  ),
+                  h('textarea', {
+                    value: negative,
+                    style: Object.assign({}, WORKSPACE_AREA_INPUT, { minHeight: 60 }),
+                    placeholder: '留空则沿用模板',
+                    onChange: (event) => {
+                      setNegative(event.target.value)
+                      setDirty(true)
+                    },
+                  }),
+                ),
               ),
-              h('textarea', {
-                value: summary,
-                style: WORKSPACE_AREA_INPUT,
-                onChange: (event) => {
-                  setSummary(event.target.value)
-                  setDirty(true)
-                },
-              }),
-              h(
-                'label',
-                {
-                  style: {
-                    display: 'block',
-                    fontSize: 10.5,
-                    color: 'var(--dsw-alias-label-secondary)',
-                    margin: '10px 0 4px',
-                  },
-                },
-                '负面提示词',
-              ),
-              h('textarea', {
-                value: negative,
-                style: Object.assign({}, WORKSPACE_AREA_INPUT, { minHeight: 60 }),
-                placeholder: '留空则沿用模板里的负向提示词',
-                onChange: (event) => {
-                  setNegative(event.target.value)
-                  setDirty(true)
-                },
-              }),
             ),
             h(
               'div',
