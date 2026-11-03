@@ -4840,6 +4840,20 @@ window.__ModuleLoader__.load({
      * Build the exact layout prompt JSON MOSSImageLayoutPrompt would emit:
      * 0-1000 normalised boxes become canvas-centred pixels as [y0, x0, y1, x1].
      */
+    /** Axis-aligned bounds of a box that may carry a rotation (degrees). */
+    function aabbOf(box) {
+      const rotation = Number(box.rotation) || 0
+      if (rotation % 360 === 0) return { x: box.x, y: box.y, width: box.width, height: box.height }
+      const rad = (rotation * Math.PI) / 180
+      const cos = Math.abs(Math.cos(rad))
+      const sin = Math.abs(Math.sin(rad))
+      const width = box.width * cos + box.height * sin
+      const height = box.width * sin + box.height * cos
+      const cx = box.x + box.width / 2
+      const cy = box.y + box.height / 2
+      return { x: cx - width / 2, y: cy - height / 2, width, height }
+    }
+
     function buildMossLayout(summary, width, height, boxes) {
       const halfW = Math.floor(width / 2)
       const halfH = Math.floor(height / 2)
@@ -4853,12 +4867,15 @@ window.__ModuleLoader__.load({
         if (isText) item.text = String(meta.text || '')
         const palette = Array.isArray(meta.palette) ? meta.palette.filter(Boolean) : []
         if (palette.length > 0) item.palette = palette.slice(0, 5)
+        // A rotated box is sent as its axis-aligned bounds: MOSS bboxes carry no
+        // rotation field.
+        const bounds = aabbOf(box)
         // Mirrors nodes_moss_image.py: floor the near edge, ceil the far edge.
         item.bbox = [
-          Math.floor((box.y / height) * 1000 * (height / 1000)) - halfH,
-          Math.floor((box.x / width) * 1000 * (width / 1000)) - halfW,
-          Math.ceil(((box.y + box.height) / height) * 1000 * (height / 1000)) - halfH,
-          Math.ceil(((box.x + box.width) / width) * 1000 * (width / 1000)) - halfW,
+          Math.floor((bounds.y / height) * 1000 * (height / 1000)) - halfH,
+          Math.floor((bounds.x / width) * 1000 * (width / 1000)) - halfW,
+          Math.ceil(((bounds.y + bounds.height) / height) * 1000 * (height / 1000)) - halfH,
+          Math.ceil(((bounds.x + bounds.width) / width) * 1000 * (width / 1000)) - halfW,
         ]
         return item
       })
@@ -4948,6 +4965,52 @@ window.__ModuleLoader__.load({
       const boardRef = useRef(null)
       const [drag, setDrag] = useState(null)
       const [snapLines, setSnapLines] = useState(null)
+      const [rotating, setRotating] = useState(null)
+
+      /** Start rotating the box around its own centre. */
+      const onRotateStart = (event, index, box) => {
+        if (event.button !== 0) return
+        event.preventDefault()
+        event.stopPropagation()
+        const rect = boardRef.current ? boardRef.current.getBoundingClientRect() : null
+        if (!rect || rect.width === 0) return
+        const scale = rect.width / Math.max(1, props.width)
+        const centerX = box.x + box.width / 2
+        const centerY = box.y + box.height / 2
+        const cx = rect.left + centerX * scale
+        const cy = rect.top + centerY * scale
+        setRotating({
+          index,
+          centerX,
+          centerY,
+          startAngle: (Math.atan2(event.clientY - cy, event.clientX - cx) * 180) / Math.PI,
+          startRotation: Number(box.rotation) || 0,
+        })
+      }
+
+      useEffect(() => {
+        if (!rotating) return undefined
+        const onMove = (event) => {
+          const rect = boardRef.current ? boardRef.current.getBoundingClientRect() : null
+          if (!rect || rect.width === 0) return
+          const scale = rect.width / Math.max(1, props.width)
+          const cx = rect.left + rotating.centerX * scale
+          const cy = rect.top + rotating.centerY * scale
+          const angle = (Math.atan2(event.clientY - cy, event.clientX - cx) * 180) / Math.PI
+          props.onChange(rotating.index, {
+            rotation: Math.round(rotating.startRotation + (angle - rotating.startAngle)),
+          })
+        }
+        const onUp = () => setRotating(null)
+        window.addEventListener('pointermove', onMove)
+        window.addEventListener('pointerup', onUp)
+        window.addEventListener('pointercancel', onUp)
+        return () => {
+          window.removeEventListener('pointermove', onMove)
+          window.removeEventListener('pointerup', onUp)
+          window.removeEventListener('pointercancel', onUp)
+        }
+      }, [rotating, props])
 
       useEffect(() => {
         if (!drag) return undefined
@@ -5124,7 +5187,11 @@ window.__ModuleLoader__.load({
               style: Object.assign(
                 {},
                 boxStyle(box, props.width, props.height, props.selected === index),
-                { zIndex: props.selected === index ? 20 : 1 },
+                {
+                  zIndex: props.selected === index ? 20 : 1,
+                  transform: box.rotation ? 'rotate(' + box.rotation + 'deg)' : undefined,
+                  transformOrigin: '50% 50%',
+                },
               ),
               onPointerDown: (event) => {
                 if (event.button !== 0) return
@@ -5209,6 +5276,26 @@ window.__ModuleLoader__.load({
                   },
                   h(Icon, { name: 'move-diagonal', size: 10 }),
                 )
+              : null,
+            props.rotatable && props.selected === index && props.editing !== index
+              ? h('div', {
+                  style: {
+                    position: 'absolute',
+                    left: '50%',
+                    top: -17,
+                    width: 10,
+                    height: 10,
+                    marginLeft: -5,
+                    borderRadius: '50%',
+                    background: '#3b82f6',
+                    border: '2px solid #ffffff',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.35)',
+                    cursor: 'grab',
+                    zIndex: 7,
+                  },
+                  title: '拖动旋转',
+                  onPointerDown: (event) => onRotateStart(event, index, box),
+                })
               : null,
           ),
         )),
@@ -8296,6 +8383,7 @@ window.__ModuleLoader__.load({
                 preview,
                 fill: true,
                 guides,
+                rotatable: true,
                 reference: referenceUrl ? { url: referenceUrl, opacity: referenceOpacity / 100 } : null,
               }),
             )
