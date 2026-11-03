@@ -8152,9 +8152,56 @@ window.__ModuleLoader__.load({
           ),
           jobActive
             ? h(
-                'span',
-                { style: { fontSize: 10.5, fontWeight: 600, color: '#ff6b6b', whiteSpace: 'nowrap' } },
-                (job.status === 'running' ? '正在生成' : '排队中') + ' ' + jobElapsed + 's',
+                'div',
+                { style: { display: 'flex', alignItems: 'center', gap: 6, flex: 'none' } },
+                h('span', {
+                  style: {
+                    width: 7,
+                    height: 7,
+                    borderRadius: '50%',
+                    flex: 'none',
+                    background: '#ff5a5a',
+                    animation: 'dshComfyJobPulse 1.1s ease-in-out infinite',
+                  },
+                }),
+                h(
+                  'span',
+                  { style: { fontSize: 10.5, fontWeight: 600, color: '#ff6b6b', whiteSpace: 'nowrap' } },
+                  job.status === 'running' ? '正在生成' : '排队中',
+                ),
+                h(
+                  'span',
+                  {
+                    style: {
+                      fontSize: 10,
+                      color: 'rgba(255, 107, 107, 0.85)',
+                      fontVariantNumeric: 'tabular-nums',
+                    },
+                  },
+                  jobElapsed + 's',
+                ),
+                h(
+                  'div',
+                  {
+                    style: {
+                      width: 64,
+                      height: 3,
+                      borderRadius: 99,
+                      background: 'var(--dsw-alias-bg-layer-2)',
+                      overflow: 'hidden',
+                      flex: 'none',
+                    },
+                  },
+                  h('div', {
+                    style: {
+                      width: '40%',
+                      height: '100%',
+                      borderRadius: 99,
+                      background: 'linear-gradient(90deg, #ff4d4d, #ff9a4a)',
+                      animation: 'dshComfyJobSlide 1.15s ease-in-out infinite',
+                    },
+                  }),
+                ),
               )
             : status
               ? h(
