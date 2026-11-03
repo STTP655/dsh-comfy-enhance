@@ -7811,6 +7811,35 @@ window.__ModuleLoader__.load({
         }
       }, [albumOpen, albumSource])
 
+      // Output-folder images carry their parameters in the PNG itself; read them
+      // lazily when one is opened in the preview.
+      useEffect(() => {
+        if (!albumPick || albumMetaByUrl[albumPick]) return undefined
+        if (albumPick.indexOf('type=output') < 0) return undefined
+        let parsed = null
+        try {
+          parsed = new URL(albumPick, window.location.origin)
+        } catch {
+          return undefined
+        }
+        const filename = parsed.searchParams.get('filename')
+        if (!filename) return undefined
+        let alive = true
+        fetch('/plugin/comfy-status/output-meta?filename=' + encodeURIComponent(filename), { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (alive && data && data.ok && data.meta) {
+              setAlbumMetaByUrl((current) => Object.assign({}, current, { [albumPick]: data.meta }))
+            }
+          })
+          .catch(() => {
+            // No embedded prompt (e.g. JPEG output); the panel just stays empty.
+          })
+        return () => {
+          alive = false
+        }
+      }, [albumPick, albumMetaByUrl])
+
       useEffect(() => {
         if (!file) return undefined
         let alive = true

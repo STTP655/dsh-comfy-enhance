@@ -12,7 +12,7 @@
 
 import { apply as applyCanvasHost } from './canvas-host.js'
 import { dirname, join } from 'node:path'
-import { readdir, stat } from 'node:fs/promises'
+import { readdir, stat, readFile } from 'node:fs/promises'
 
 const DEFAULT_URL = 'http://127.0.0.1:8188'
 const UPSTREAM_TIMEOUT_MS = 3000
@@ -37,6 +37,46 @@ async function resolveOutputDir(baseUrl) {
   const mainPy = argv.find((entry) => typeof entry === 'string' && /main\.py$/i.test(entry))
   if (!mainPy) throw new Error('cannot derive the ComfyUI root from system_stats.argv')
   return join(dirname(mainPy), 'output')
+}
+
+/** Text chunks of a PNG (ComfyUI stores the API prompt in `tEXt:prompt`). */
+function readPngText(buffer) {
+  const result = {}
+  let offset = 8
+  while (offset + 8 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset)
+    const type = buffer.toString('ascii', offset + 4, offset + 8)
+    const dataStart = offset + 8
+    if (type === 'tEXt') {
+      const data = buffer.subarray(dataStart, dataStart + length)
+      const separator = data.indexOf(0)
+      if (separator > 0) {
+        const key = data.toString('latin1', 0, separator)
+        const value = data.toString('latin1', separator + 1)
+        result[key] = value
+      }
+    } else if (type === 'IEND') {
+      break
+    }
+    offset = dataStart + length + 4
+  }
+  return result
+}
+
+/** Summarized generation parameters of one output file, when it carries them. */
+async function readOutputMeta(dir, filename) {
+  const buffer = await readFile(join(dir, filename))
+  const text = readPngText(buffer)
+  let prompt = null
+  if (typeof text.prompt === 'string') {
+    try {
+      prompt = JSON.parse(text.prompt)
+    } catch {
+      prompt = null
+    }
+  }
+  if (!prompt) return null
+  return summarizeWorkflow(prompt)
 }
 
 /** Pick the discrete accelerator, not an integrated part with a larger pool. */
@@ -698,6 +738,23 @@ function createHandler(baseUrl) {
         return send(200, { ok: true, dir, files: files.slice(0, 300) })
       } catch (error) {
         return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
+    }
+
+    // Generation parameters embedded in one output PNG, for the workspace preview.
+    if (pathname === `${PREFIX}/output-meta`) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const query = new URL(req.url || '/', 'http://localhost').searchParams
+        const filename = query.get('filename') || ''
+        if (!filename || filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
+          throw new Error('invalid filename')
+        }
+        const dir = await outputDir()
+        const meta = await readOutputMeta(dir, filename)
+        return send(200, { ok: true, meta })
+      } catch (error) {
+        return send(404, { ok: false, error: String((error && error.message) || error) })
       }
     }
 
