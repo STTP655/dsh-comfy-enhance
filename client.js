@@ -7788,8 +7788,12 @@ window.__ModuleLoader__.load({
       const panelDragRef = useRef(null)
       const [albumMetaByUrl, setAlbumMetaByUrl] = useState({})
       const [albumPick, setAlbumPick] = useState('')
+      const [albumScale, setAlbumScale] = useState(1)
+      const albumZoomRef = useRef(null)
       const [albumSource, setAlbumSource] = useState('plugin')
       const [outputFiles, setOutputFiles] = useState([])
+      // The engine's folder can hold hundreds of files; cap what the grid mounts.
+      const albumList = albumSource === 'output' ? outputFiles.slice(0, 60) : referenceOptions
       const boardWrapRef = useRef(null)
 
       const filesEffect = (load) => load
@@ -7911,11 +7915,42 @@ window.__ModuleLoader__.load({
         }
       }, [albumPick, albumMetaByUrl])
 
+      // Wheel zooms the preview; opening another image resets it.
+      useEffect(() => {
+        setAlbumScale(1)
+      }, [albumPick])
+      useEffect(() => {
+        if (!albumOpen || !albumPick) return undefined
+        const node = albumZoomRef.current
+        if (!node) return undefined
+        const onWheel = (event) => {
+          event.preventDefault()
+          setAlbumScale((current) => clamp(current * (event.deltaY < 0 ? 1.12 : 0.89), 0.5, 5))
+        }
+        node.addEventListener('wheel', onWheel, { passive: false })
+        return () => node.removeEventListener('wheel', onWheel)
+      }, [albumOpen, albumPick])
+
       // Esc steps back one level: preview → grid, grid → closed.
       useEffect(() => {
         if (!albumOpen) return undefined
         const onKey = (event) => {
           if (event.isComposing) return
+          if (
+            (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
+            albumPick &&
+            albumList.length > 1
+          ) {
+            event.preventDefault()
+            event.stopPropagation()
+            const direction = event.key === 'ArrowLeft' ? -1 : 1
+            const at = albumList.findIndex((option) => option.url === albumPick)
+            if (at >= 0) {
+              const next = (at + direction + albumList.length) % albumList.length
+              setAlbumPick(albumList[next].url)
+            }
+            return
+          }
           if (event.key !== 'Escape') return
           event.preventDefault()
           event.stopPropagation()
@@ -7924,7 +7959,7 @@ window.__ModuleLoader__.load({
         }
         document.addEventListener('keydown', onKey, true)
         return () => document.removeEventListener('keydown', onKey, true)
-      }, [albumOpen, albumPick])
+      }, [albumOpen, albumPick, albumList])
 
       useEffect(() => {
         if (!file) return undefined
@@ -8185,7 +8220,6 @@ window.__ModuleLoader__.load({
         window.addEventListener('pointercancel', onPanelUp)
       }
       // The engine's folder can hold hundreds of files; cap what the grid mounts.
-      const albumList = albumSource === 'output' ? outputFiles.slice(0, 60) : referenceOptions
       /** Close the album with its exit animation instead of snapping shut. */
       const closeAlbum = () => {
         if (albumClosing) return
@@ -8788,7 +8822,7 @@ window.__ModuleLoader__.load({
                 h(
                   'span',
                   { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
-                  albumPick ? 'Esc 返回相册' : '左键查看 · 右键设为参考图 · Esc 关闭',
+                  albumPick ? 'Esc 返回 · ←/→ 切换 · 滚轮缩放' : '左键查看 · 右键设为参考图 · Esc 关闭',
                 ),
                 h(
                   'button',
@@ -8828,6 +8862,7 @@ window.__ModuleLoader__.load({
                       h(
                         'div',
                         {
+                          ref: albumZoomRef,
                           style: {
                             flex: 1,
                             minWidth: 0,
@@ -8835,6 +8870,8 @@ window.__ModuleLoader__.load({
                             alignItems: 'center',
                             justifyContent: 'center',
                             padding: 16,
+                            overflow: 'hidden',
+                            cursor: 'zoom-in',
                             background: 'var(--dsw-alias-bg-layer-1)',
                           },
                         },
@@ -8847,6 +8884,9 @@ window.__ModuleLoader__.load({
                             objectFit: 'contain',
                             borderRadius: 8,
                             boxShadow: '0 8px 30px rgba(0, 0, 0, 0.25)',
+                            transform: 'scale(' + albumScale + ')',
+                            transformOrigin: 'center',
+                            transition: 'transform .12s ease-out',
                           },
                         }),
                       ),
