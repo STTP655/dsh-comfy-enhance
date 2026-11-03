@@ -9,11 +9,15 @@
 
 import { dirname, join, extname, resolve } from 'node:path'
 import { readFile, writeFile, readdir, stat, copyFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 
 const DEFAULT_URL = 'http://127.0.0.1:8188'
 const TIMEOUT_MS = 4000
 const PREFIX = '/plugin/comfy-canvas'
 const MAX_BODY = 16 * 1024 * 1024
+/** Bundled, empty-board MOSS workflow installed on first use. */
+const TEMPLATE_NAME = 'moss-bbox-canvas.json'
+const TEMPLATE_URL = new URL('./templates/moss-bbox-canvas.json', import.meta.url)
 
 export const inject = ['webServer']
 
@@ -30,6 +34,27 @@ async function resolveWorkflowDir(baseUrl) {
   const mainPy = argv.find((entry) => typeof entry === 'string' && /main\.py$/i.test(entry))
   if (!mainPy) throw new Error('cannot derive the ComfyUI root from system_stats.argv')
   return join(dirname(mainPy), 'user', 'default', 'workflows')
+}
+
+/**
+ * Install the bundled empty-board workflow on first use.
+ *
+ * A file with the same name is never overwritten, so a user's own edits and an
+ * existing setup survive; a read-only workflows directory just means no default.
+ */
+async function ensureTemplate(dir) {
+  const target = join(dir, TEMPLATE_NAME)
+  try {
+    await stat(target)
+    return
+  } catch {
+    // Not installed yet: fall through.
+  }
+  try {
+    await copyFile(fileURLToPath(TEMPLATE_URL), target)
+  } catch {
+    // Read-only directory: the canvas simply has no default entry.
+  }
 }
 
 /** Reject anything that is not a plain workflow file name. */
@@ -164,6 +189,7 @@ export function apply(ctx, config = {}) {
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(405, { ok: false, error: 'method not allowed' })
       try {
         const dir = await dirOf()
+        await ensureTemplate(dir)
         const names = (await readdir(dir)).filter((name) => /\.json$/i.test(name))
         const files = []
         for (const name of names) {

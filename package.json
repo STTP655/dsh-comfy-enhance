@@ -16,6 +16,7 @@
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",
+    "templates/*.json",
     "icon.svg"
   ],
   "dsh": {

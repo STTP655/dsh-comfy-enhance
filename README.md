@@ -103,6 +103,8 @@ cmd /c mklink /J "%USERPROFILE%\.dsh\profiles\<profile>\node_modules\dsh-comfy-e
 
 画框模块直接读写 ComfyUI 的 `user/default/workflows` 目录，路径从运行中实例的 `/system_stats.argv` 自动推导，不需要手填。
 
+首次打开画板时，如果目录里还没有 `moss-bbox-canvas.json`，插件会把内置的空白版画板工作流复制进去（已存在则绝不覆盖）；这样新安装的用户不用自己准备模板就能直接画框。
+
 读取和保存都会做路径校验（拒绝 `..`、非 `.json`、目录外路径），保存前自动留一份 `.bak`。
 
 ## 内部路由
