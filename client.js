@@ -7613,6 +7613,23 @@ window.__ModuleLoader__.load({
       fontFamily: 'inherit',
       outline: 'none',
     }
+    const WORKSPACE_LABEL = {
+      flex: 'none',
+      fontSize: 10,
+      color: 'var(--dsw-alias-label-secondary)',
+    }
+    const WORKSPACE_FIELD = {
+      flex: 'none',
+      boxSizing: 'border-box',
+      fontSize: 10.5,
+      padding: '4px 7px',
+      borderRadius: 6,
+      border: '1px solid var(--dsw-alias-border-l2)',
+      background: 'var(--dsw-alias-bg-layer-1)',
+      color: 'var(--dsw-alias-label-primary)',
+      fontFamily: 'inherit',
+      outline: 'none',
+    }
 
     /**
      * Full-screen canvas workspace opened from the left sidebar entry.
@@ -7647,6 +7664,9 @@ window.__ModuleLoader__.load({
       const [quickMissing, setQuickMissing] = useState(null)
       const [job, setJob] = useState(() => jobStore.get())
       const [jobClock, setJobClock] = useState(() => Date.now())
+      const [referenceUrl, setReferenceUrl] = useState('')
+      const [referenceOptions, setReferenceOptions] = useState([])
+      const [referenceOpacity] = useState(55)
       const boardWrapRef = useRef(null)
 
       const filesEffect = (load) => load
@@ -7682,6 +7702,38 @@ window.__ModuleLoader__.load({
           })
         return () => {
           alive = false
+        }
+      }, [])
+
+      // Album images for the reference underlay, refreshed on the same cadence as
+      // the canvas tab so the two surfaces stay in sync.
+      useEffect(() => {
+        let alive = true
+        let timer = null
+        const load = async () => {
+          try {
+            const res = await fetch('/plugin/comfy-status/album', { cache: 'no-store' })
+            const data = await res.json()
+            if (!alive || !data) return
+            const options = []
+            for (const item of data.items || []) {
+              for (const image of item.images || []) {
+                if (image && image.url) {
+                  options.push({ url: image.url, label: image.filename || image.url })
+                }
+              }
+            }
+            setReferenceOptions(options)
+          } catch {
+            // The album plugin may be off; the reference picker just stays empty.
+          } finally {
+            if (alive) timer = setTimeout(load, 15000)
+          }
+        }
+        load()
+        return () => {
+          alive = false
+          if (timer) clearTimeout(timer)
         }
       }, [])
 
@@ -7895,6 +7947,8 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const sampling = canvasModels.sampling || {}
+
       if (!enabled) {
         return h('div', { style: EMPTY }, '独立画板工作台已在插件设置中关闭')
       }
@@ -7944,6 +7998,7 @@ window.__ModuleLoader__.load({
                 preview,
                 fill: true,
                 guides,
+                reference: referenceUrl ? { url: referenceUrl, opacity: referenceOpacity / 100 } : null,
               }),
               h(
                 'button',
@@ -7985,7 +8040,7 @@ window.__ModuleLoader__.load({
           { style: WORKSPACE_TOOLBAR },
           h(
             'div',
-            { style: { flex: 'none', width: 190 } },
+            { style: { flex: 'none', width: 180 } },
             h(Dropdown, {
               title: '选择工作流',
               placeholder: files && files.length > 0 ? '选择工作流' : '无工作流',
@@ -7996,20 +8051,99 @@ window.__ModuleLoader__.load({
               menuMinWidth: 260,
             }),
           ),
+          h('span', { style: WORKSPACE_LABEL }, '参考'),
+          h(
+            'div',
+            { style: { flex: 'none', width: 160 } },
+            h(Dropdown, {
+              title: '参考图（来自 ComfyUI 相册）',
+              placeholder: '参考图',
+              value: referenceUrl || '',
+              options: [
+                { value: '', label: '无' },
+                ...referenceOptions.map((option) => ({ value: option.url, label: option.label })),
+              ],
+              onPick: (value) => setReferenceUrl(value),
+              dark: canvasNight,
+            }),
+          ),
           ratioOptions.length > 0
             ? h(
-                'div',
-                { style: { flex: 'none', width: 150 } },
-                h(Dropdown, {
-                  title: '画布比例',
-                  placeholder: '选择比例',
-                  value: ratio || ratioOptions[0] || '',
-                  options: ratioOptions.map((option) => ({ value: option, label: option })),
-                  onPick: (value) => applyResolution(value, megapixels),
-                  dark: canvasNight,
+                React.Fragment,
+                null,
+                h('span', { style: WORKSPACE_LABEL }, '比例'),
+                h(
+                  'div',
+                  { style: { flex: 'none', width: 140 } },
+                  h(Dropdown, {
+                    title: '画布比例',
+                    placeholder: '选择比例',
+                    value: ratio || ratioOptions[0] || '',
+                    options: ratioOptions.map((option) => ({ value: option, label: option })),
+                    onPick: (value) => applyResolution(value, megapixels),
+                    dark: canvasNight,
+                  }),
+                ),
+                h('span', { style: WORKSPACE_LABEL }, 'MP'),
+                h('input', {
+                  type: 'number',
+                  value: megapixels,
+                  min: 0.1,
+                  max: 16,
+                  step: 0.1,
+                  style: Object.assign({}, WORKSPACE_FIELD, { width: 52 }),
+                  onChange: (event) => {
+                    const next = Number(event.target.value)
+                    if (Number.isFinite(next) && next > 0) applyResolution(ratio || ratioOptions[0], next)
+                  },
                 }),
               )
             : null,
+          h('span', { style: WORKSPACE_LABEL }, '种子'),
+          h('input', {
+            type: 'number',
+            value: sampling.seed || 0,
+            disabled: sampling.seedMode === 'random',
+            style: Object.assign({}, WORKSPACE_FIELD, {
+              width: 92,
+              opacity: sampling.seedMode === 'random' ? 0.55 : 1,
+            }),
+            onChange: (event) => {
+              const next = Number(event.target.value)
+              if (!Number.isFinite(next)) return
+              setCanvasModels(
+                Object.assign({}, canvasModels, {
+                  sampling: Object.assign({}, sampling, { seed: Math.max(0, Math.floor(next)) }),
+                }),
+              )
+            },
+          }),
+          h(
+            'button',
+            {
+              className: 'dshCanvasBtn',
+              title:
+                sampling.seedMode === 'random'
+                  ? '随机模式已开启：每次快速生成换一个种子'
+                  : '开启随机模式：每次快速生成自动换种子',
+              style: Object.assign(
+                { flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4 },
+                sampling.seedMode === 'random'
+                  ? { background: '#3b82f6', borderColor: '#3b82f6', color: '#ffffff', fontWeight: 600 }
+                  : null,
+              ),
+              onClick: () => {
+                const nextMode = sampling.seedMode === 'random' ? 'fixed' : 'random'
+                const patch = { seedMode: nextMode }
+                if (nextMode === 'random') patch.seed = Math.floor(Math.random() * 1e15)
+                setCanvasModels(
+                  Object.assign({}, canvasModels, { sampling: Object.assign({}, sampling, patch) }),
+                )
+              },
+            },
+            h(Icon, { name: 'shuffle', size: 12 }),
+            h('span', null, '随机'),
+          ),
           jobActive
             ? h(
                 'span',
@@ -8023,7 +8157,7 @@ window.__ModuleLoader__.load({
                     style: {
                       fontSize: 10.5,
                       color: 'var(--dsw-alias-label-secondary)',
-                      maxWidth: 240,
+                      maxWidth: 200,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
@@ -8033,6 +8167,11 @@ window.__ModuleLoader__.load({
                 )
               : null,
           h('span', { style: { flex: 1 } }),
+          h(
+            'span',
+            { style: Object.assign({}, WORKSPACE_LABEL, { fontSize: 10.5 }) },
+            boxes.length + ' 个框',
+          ),
           h(
             'button',
             {
@@ -8115,6 +8254,63 @@ window.__ModuleLoader__.load({
                       ),
                     ),
                   ),
+              selected !== null && boxes[selected]
+                ? (() => {
+                    const meta = boxes[selected].metadata || {}
+                    const isText = meta.type === 'text'
+                    return h(
+                      'div',
+                      {
+                        style: {
+                          marginBottom: 10,
+                          paddingBottom: 10,
+                          borderBottom: '1px solid var(--dsw-alias-border-l2)',
+                        },
+                      },
+                      h(
+                        'div',
+                        { style: { fontSize: 10.5, fontWeight: 600, marginBottom: 6 } },
+                        '第 ' + (selected + 1) + ' 个框',
+                      ),
+                      h(
+                        'div',
+                        { style: { display: 'flex', gap: 4, marginBottom: 6 } },
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            style: isText ? SEGMENT : SEGMENT_ON,
+                            onClick: () =>
+                              changeBox(selected, {
+                                metadata: Object.assign({}, meta, { type: 'obj' }),
+                              }),
+                          },
+                          '画面元素',
+                        ),
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            style: isText ? SEGMENT_ON : SEGMENT,
+                            onClick: () =>
+                              changeBox(selected, {
+                                metadata: Object.assign({}, meta, { type: 'text' }),
+                              }),
+                          },
+                          '文字',
+                        ),
+                      ),
+                      h('textarea', {
+                        value: meta.desc || '',
+                        style: Object.assign({}, WORKSPACE_AREA_INPUT, { minHeight: 60 }),
+                        onChange: (event) =>
+                          changeBox(selected, {
+                            metadata: Object.assign({}, meta, { desc: event.target.value }),
+                          }),
+                      }),
+                    )
+                  })()
+                : null,
               h(
                 'label',
                 {
