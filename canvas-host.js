@@ -96,6 +96,21 @@ function findPositiveTextNode(nodes) {
   return null
 }
 
+/** The text encoder a sampler's negative input points at, when it has one. */
+function findNegativeTextNode(nodes) {
+  let sampler = null
+  for (const node of Object.values(nodes || {})) {
+    const inputs = node && node.inputs
+    if (inputs && 'steps' in inputs && ('cfg' in inputs || 'sampler_name' in inputs)) {
+      sampler = node
+      break
+    }
+  }
+  const ref = sampler && Array.isArray(sampler.inputs.negative) ? String(sampler.inputs.negative[0]) : ''
+  if (ref && nodes[ref] && nodes[ref].inputs && typeof nodes[ref].inputs.text === 'string') return ref
+  return null
+}
+
 /** The bundled API template: quick generate does not depend on history. */
 async function loadImageTemplate() {
   try {
@@ -252,7 +267,7 @@ async function getModelOptions(baseUrl) {
  * the bundled API template is used first; the newest history entry that ran a
  * MOSSImage node is only the fallback for installs that predate the template.
  */
-async function submitLayout(baseUrl, layout, models, width, height) {
+async function submitLayout(baseUrl, layout, models, width, height, negative) {
   let template = await loadImageTemplate()
   if (!template) {
     const history = await getJSON(`${baseUrl}/history?max_items=50`)
@@ -347,6 +362,13 @@ async function submitLayout(baseUrl, layout, models, width, height) {
   const positiveId = findPositiveTextNode(graph)
   if (!positiveId) throw new Error('模板里找不到正向提示词节点')
   graph[positiveId].inputs.text = JSON.stringify(layout)
+
+  // An explicit negative prompt replaces whatever the template carried; blank
+  // keeps the template's own negative untouched.
+  if (typeof negative === 'string' && negative.trim() !== '') {
+    const negativeId = findNegativeTextNode(graph)
+    if (negativeId) graph[negativeId].inputs.text = negative.trim()
+  }
 
   const clientId = 'dsh-canvas-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
   const res = await fetch(`${baseUrl}/prompt`, {
@@ -450,7 +472,7 @@ export function apply(ctx, config = {}) {
         if (!body || typeof body.layout !== 'object' || body.layout === null) {
           throw new Error('缺少 layout')
         }
-        return send(200, await submitLayout(baseUrl, body.layout, body.models, body.width, body.height))
+        return send(200, await submitLayout(baseUrl, body.layout, body.models, body.width, body.height, body.negative))
       } catch (error) {
         return send(502, { ok: false, error: String((error && error.message) || error) })
       }

@@ -50,6 +50,7 @@ window.__ModuleLoader__.load({
         zoomSummaryHeight: 54,
         zoomDescHeight: 68,
         zoomPanelWidth: 260,
+        workspacePanelWidth: 280,
         canvasRuler: false,
         canvasWorkspace: true,
         canvasModels: Object.assign({}, DEFAULT_CANVAS_MODELS),
@@ -78,6 +79,8 @@ window.__ModuleLoader__.load({
                 typeof parsed.zoomDescHeight === 'number' ? parsed.zoomDescHeight : 68,
               zoomPanelWidth:
                 typeof parsed.zoomPanelWidth === 'number' ? parsed.zoomPanelWidth : 260,
+              workspacePanelWidth:
+                typeof parsed.workspacePanelWidth === 'number' ? parsed.workspacePanelWidth : 280,
               canvasRuler: parsed.canvasRuler === true,
               canvasWorkspace: parsed.canvasWorkspace !== false,
               canvasModels: (() => {
@@ -7716,6 +7719,10 @@ window.__ModuleLoader__.load({
       const [referenceUrl, setReferenceUrl] = useState('')
       const [referenceOptions, setReferenceOptions] = useState([])
       const [referenceOpacity, setReferenceOpacity] = useState(55)
+      const [negative, setNegative] = useState('')
+      const [panelWidth, setPanelWidthPref] = usePref('workspacePanelWidth')
+      const [livePanelWidth, setLivePanelWidth] = useState(null)
+      const panelDragRef = useRef(null)
       const [albumMetaByUrl, setAlbumMetaByUrl] = useState({})
       const [albumPick, setAlbumPick] = useState('')
       const [albumSource, setAlbumSource] = useState('plugin')
@@ -7904,6 +7911,7 @@ window.__ModuleLoader__.load({
             setReferenceOpacity(
               stored && typeof stored.referenceOpacity === 'number' ? clamp(stored.referenceOpacity, 0, 100) : 55,
             )
+            setNegative(stored && typeof stored.negative === 'string' ? stored.negative : '')
             setSelected(null)
             setDirty(Boolean(stored))
             if (stored) setStatus('已恢复上次未发送的编辑')
@@ -7930,10 +7938,11 @@ window.__ModuleLoader__.load({
             guides,
             referenceUrl,
             referenceOpacity,
+            negative,
           })
         }, 400)
         return () => clearTimeout(timer)
-      }, [file, dirty, size, ratio, megapixels, multiple, summary, boxes, guides, referenceUrl, referenceOpacity])
+      }, [file, dirty, size, ratio, megapixels, multiple, summary, boxes, guides, referenceUrl, referenceOpacity, negative])
 
       useEffect(() => jobStore.subscribe(() => setJob(jobStore.get())), [])
 
@@ -8053,6 +8062,7 @@ window.__ModuleLoader__.load({
               models: Object.assign({}, stored, { sampling }),
               width: size.width,
               height: size.height,
+              negative,
             }),
           })
           const data = await res.json().catch(() => null)
@@ -8074,6 +8084,32 @@ window.__ModuleLoader__.load({
       }
 
       const sampling = canvasModels.sampling || {}
+      // Sidebar can be dragged wider; the value persists as a preference.
+      const sidePx = clamp(livePanelWidth === null ? panelWidth : livePanelWidth, 220, 560)
+      const onPanelMove = (event) => {
+        const drag = panelDragRef.current
+        if (!drag) return
+        setLivePanelWidth(clamp(drag.startWidth + (drag.startX - event.clientX), 220, 560))
+      }
+      const onPanelUp = () => {
+        if (!panelDragRef.current) return
+        panelDragRef.current = null
+        window.removeEventListener('pointermove', onPanelMove)
+        window.removeEventListener('pointerup', onPanelUp)
+        window.removeEventListener('pointercancel', onPanelUp)
+        setLivePanelWidth((current) => {
+          if (current !== null) setPanelWidthPref(clamp(current, 220, 560))
+          return null
+        })
+      }
+      const onPanelDown = (event) => {
+        event.preventDefault()
+        panelDragRef.current = { startX: event.clientX, startWidth: sidePx }
+        setLivePanelWidth(sidePx)
+        window.addEventListener('pointermove', onPanelMove)
+        window.addEventListener('pointerup', onPanelUp)
+        window.addEventListener('pointercancel', onPanelUp)
+      }
       // The engine's folder can hold hundreds of files; cap what the grid mounts.
       const albumList = albumSource === 'output' ? outputFiles.slice(0, 120) : referenceOptions
       /** Close the album with its exit animation instead of snapping shut. */
@@ -8454,7 +8490,21 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
-            { style: WORKSPACE_SIDE },
+            { style: Object.assign({}, WORKSPACE_SIDE, { width: sidePx, position: 'relative' }) },
+            h('div', {
+              style: {
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: 4,
+                cursor: 'col-resize',
+                zIndex: 5,
+              },
+              title: '拖动调整宽度（双击恢复默认）',
+              onPointerDown: onPanelDown,
+              onDoubleClick: () => setPanelWidthPref(280),
+            }),
             h(
               'div',
               { style: WORKSPACE_AREA },
@@ -8539,6 +8589,27 @@ window.__ModuleLoader__.load({
                 style: WORKSPACE_AREA_INPUT,
                 onChange: (event) => {
                   setSummary(event.target.value)
+                  setDirty(true)
+                },
+              }),
+              h(
+                'label',
+                {
+                  style: {
+                    display: 'block',
+                    fontSize: 10.5,
+                    color: 'var(--dsw-alias-label-secondary)',
+                    margin: '10px 0 4px',
+                  },
+                },
+                '负面提示词',
+              ),
+              h('textarea', {
+                value: negative,
+                style: Object.assign({}, WORKSPACE_AREA_INPUT, { minHeight: 60 }),
+                placeholder: '留空则沿用模板里的负向提示词',
+                onChange: (event) => {
+                  setNegative(event.target.value)
                   setDirty(true)
                 },
               }),
