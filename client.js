@@ -7493,11 +7493,11 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
-            { style: { marginBottom: 12 } },
+            { style: SUMMARY_BLOCK },
             h('label', { style: FIELD_LABEL }, '负面提示词'),
             h('textarea', {
               value: negative,
-              style: Object.assign({}, SUMMARY_AREA, { minHeight: 60 }),
+              style: SUMMARY_AREA,
               placeholder: '留空则沿用模板里的负向提示词',
               onChange: (event) => {
                 setNegative(event.target.value)
