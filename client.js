@@ -8032,32 +8032,6 @@ window.__ModuleLoader__.load({
                 guides,
                 reference: referenceUrl ? { url: referenceUrl, opacity: referenceOpacity / 100 } : null,
               }),
-              h(
-                'button',
-                {
-                  className: 'dshCanvasBtn',
-                  style: {
-                    position: 'absolute',
-                    right: 18,
-                    bottom: 18,
-                    zIndex: 20,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 5,
-                    width: 96,
-                    height: 30,
-                    padding: 0,
-                    boxSizing: 'border-box',
-                    whiteSpace: 'nowrap',
-                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.08), 0 3px 10px rgba(0, 0, 0, 0.07)',
-                  },
-                  title: preview ? '退出预览，显示画框' : '隐藏画框，按实际画面预览',
-                  onClick: () => setPreview(!preview),
-                },
-                h(Icon, { name: preview ? 'eye-off' : 'eye', size: 14 }),
-                h('span', null, preview ? '退出预览' : '预览'),
-              ),
             )
 
       return h(
@@ -8410,6 +8384,35 @@ window.__ModuleLoader__.load({
                   setDirty(true)
                 },
               }),
+            ),
+            h(
+              'div',
+              {
+                style: {
+                  flex: 'none',
+                  padding: '8px 10px',
+                  borderTop: '1px solid var(--dsw-alias-border-l2)',
+                },
+              },
+              h(
+                'button',
+                {
+                  className: 'dshCanvasBtn',
+                  style: {
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 5,
+                    width: '100%',
+                    height: 28,
+                    boxSizing: 'border-box',
+                  },
+                  title: preview ? '退出预览，显示画框' : '隐藏画框，按实际画面预览',
+                  onClick: () => setPreview(!preview),
+                },
+                h(Icon, { name: preview ? 'eye-off' : 'eye', size: 13 }),
+                h('span', null, preview ? '退出预览' : '预览'),
+              ),
             ),
           ),
         ),
