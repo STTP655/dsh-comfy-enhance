@@ -7777,6 +7777,8 @@ window.__ModuleLoader__.load({
       const [quickMissing, setQuickMissing] = useState(null)
       const [job, setJob] = useState(() => jobStore.get())
       const [jobClock, setJobClock] = useState(() => Date.now())
+      /** Prompt id this workspace submitted; its result becomes the new reference. */
+      const pendingJobRef = useRef('')
       const [referenceUrl, setReferenceUrl] = useState('')
       const [referenceOptions, setReferenceOptions] = useState([])
       const [referenceOpacity, setReferenceOpacity] = useState(55)
@@ -8007,6 +8009,16 @@ window.__ModuleLoader__.load({
 
       useEffect(() => jobStore.subscribe(() => setJob(jobStore.get())), [])
 
+      // The picture this workspace just produced becomes the reference underlay,
+      // so the next pass can trace the result it got.
+      useEffect(() => {
+        if (!job || job.status !== 'done' || !job.imageUrl) return
+        if (!job.id || pendingJobRef.current !== job.id) return
+        pendingJobRef.current = ''
+        setReferenceUrl(job.imageUrl)
+        setDirty(true)
+      }, [job])
+
       const jobActive = job !== null && (job.status === 'queued' || job.status === 'running')
       useEffect(() => {
         if (!jobActive) return undefined
@@ -8137,6 +8149,7 @@ window.__ModuleLoader__.load({
             throw new Error((data && data.error) || 'HTTP ' + res.status)
           }
           setQuickMissing(null)
+          pendingJobRef.current = data.promptId || ''
           jobStore.start(data.promptId, 'canvas')
           setStatus('已提交，正在生成')
         } catch (err) {
