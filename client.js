@@ -7695,7 +7695,7 @@ window.__ModuleLoader__.load({
       const [jobClock, setJobClock] = useState(() => Date.now())
       const [referenceUrl, setReferenceUrl] = useState('')
       const [referenceOptions, setReferenceOptions] = useState([])
-      const [referenceOpacity] = useState(55)
+      const [referenceOpacity, setReferenceOpacity] = useState(55)
       const boardWrapRef = useRef(null)
 
       const filesEffect = (load) => load
@@ -7811,6 +7811,9 @@ window.__ModuleLoader__.load({
             setGuides(Array.isArray(stored && stored.guides) ? stored.guides.map(normalizeGuide).filter(Boolean) : [])
             // Whatever picture was being traced comes back with the draft.
             setReferenceUrl(stored && typeof stored.referenceUrl === 'string' ? stored.referenceUrl : '')
+            setReferenceOpacity(
+              stored && typeof stored.referenceOpacity === 'number' ? clamp(stored.referenceOpacity, 0, 100) : 55,
+            )
             setSelected(null)
             setDirty(Boolean(stored))
             if (stored) setStatus('已恢复上次未发送的编辑')
@@ -7836,10 +7839,11 @@ window.__ModuleLoader__.load({
             boxes,
             guides,
             referenceUrl,
+            referenceOpacity,
           })
         }, 400)
         return () => clearTimeout(timer)
-      }, [file, dirty, size, ratio, megapixels, multiple, summary, boxes, guides, referenceUrl])
+      }, [file, dirty, size, ratio, megapixels, multiple, summary, boxes, guides, referenceUrl, referenceOpacity])
 
       useEffect(() => jobStore.subscribe(() => setJob(jobStore.get())), [])
 
@@ -8076,6 +8080,28 @@ window.__ModuleLoader__.load({
               dark: canvasNight,
             }),
           ),
+          referenceUrl
+            ? h(
+                React.Fragment,
+                null,
+                h('span', { style: WORKSPACE_LABEL }, '不透明'),
+                h('input', {
+                  type: 'number',
+                  value: referenceOpacity,
+                  min: 0,
+                  max: 100,
+                  step: 5,
+                  style: Object.assign({}, WORKSPACE_FIELD, { width: 48 }),
+                  onChange: (event) => {
+                    const next = Number(event.target.value)
+                    if (!Number.isFinite(next)) return
+                    setReferenceOpacity(clamp(next, 0, 100))
+                    setDirty(true)
+                  },
+                }),
+                h('span', { style: WORKSPACE_LABEL }, '%'),
+              )
+            : null,
           ratioOptions.length > 0
             ? h(
                 React.Fragment,
