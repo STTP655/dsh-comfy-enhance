@@ -4423,23 +4423,25 @@ window.__ModuleLoader__.load({
       flex: 1,
       appearance: 'none',
       border: 0,
-      borderRadius: 7,
-      padding: '7px 0',
-      fontSize: 12,
+      borderRadius: 6,
+      padding: '5px 8px',
+      fontSize: 10.5,
       fontWeight: 500,
       lineHeight: 1.35,
       fontFamily: 'inherit',
       cursor: 'pointer',
       background: 'transparent',
       color: 'var(--dsw-alias-label-secondary)',
-      transition: 'background .12s ease, color .12s ease',
+      transition: 'background .15s ease, color .15s ease, box-shadow .15s ease',
     }
-    // The selected segment must read as selected: layer-1 and layer-2 are the same
-    // #fff in light mode, so the previous paint-the-background trick was invisible.
+    // The selected segment reads as a filled blue pill: the wrapper supplies the
+    // inset track, so the active half needs its own colour, not a background swap.
     const SEGMENT_ON = Object.assign({}, SEGMENT, {
-      background: 'var(--dsw-alias-brand-primary)',
-      color: 'var(--dshcomfy-on-brand)',
+      background: '#3b82f6',
+      color: '#ffffff',
+      fontWeight: 600,
       cursor: 'default',
+      boxShadow: '0 1px 3px rgba(59, 130, 246, 0.35)',
     })
     const FIELD_LABEL = {
       display: 'block',
