@@ -8809,6 +8809,12 @@ window.__ModuleLoader__.load({
                     const sampler = (meta && meta.sampler) || null
                     const prompt =
                       meta && meta.positive && typeof meta.positive.text === 'string' ? meta.positive.text : ''
+                    const negativeText =
+                      meta && meta.negative && typeof meta.negative.text === 'string' ? meta.negative.text : ''
+                    const sizeText =
+                      meta && meta.size && typeof meta.size.width === 'number' && typeof meta.size.height === 'number'
+                        ? meta.size.width + ' × ' + meta.size.height
+                        : ''
                     return h(
                       'div',
                       {
@@ -8858,6 +8864,10 @@ window.__ModuleLoader__.load({
                         },
                         h('div', { style: WORKSPACE_PARAM_TITLE }, '提示词'),
                         h('div', { style: WORKSPACE_PARAM_BODY }, prompt || '（没有记录）'),
+                        h('div', { style: WORKSPACE_PARAM_TITLE }, '负面提示词'),
+                        h('div', { style: WORKSPACE_PARAM_BODY }, negativeText || '（没有记录）'),
+                        h('div', { style: WORKSPACE_PARAM_TITLE }, '分辨率'),
+                        h('div', { style: WORKSPACE_PARAM_BODY }, sizeText || '（没有记录）'),
                         h('div', { style: WORKSPACE_PARAM_TITLE }, '模型'),
                         models.length === 0
                           ? h('div', { style: WORKSPACE_PARAM_BODY }, '（没有记录）')
