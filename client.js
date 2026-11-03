@@ -8029,7 +8029,8 @@ window.__ModuleLoader__.load({
       }
 
       const sampling = canvasModels.sampling || {}
-      const albumList = albumSource === 'output' ? outputFiles : referenceOptions
+      // The engine's folder can hold hundreds of files; cap what the grid mounts.
+      const albumList = albumSource === 'output' ? outputFiles.slice(0, 120) : referenceOptions
 
       if (!enabled) {
         return h('div', { style: EMPTY }, '独立画板工作台已在插件设置中关闭')
@@ -8732,7 +8733,9 @@ window.__ModuleLoader__.load({
                             borderRadius: 10,
                             cursor: 'pointer',
                             background: 'var(--dsw-alias-bg-layer-2)',
-                            aspectRatio: '1',
+                            // A button does not derive height from aspect-ratio with
+                            // only absolutely positioned children, so pin the size.
+                            height: 160,
                             display: 'block',
                           },
                           title: option.label,
