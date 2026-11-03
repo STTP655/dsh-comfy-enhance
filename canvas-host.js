@@ -51,6 +51,67 @@ async function readBody(req) {
   return Buffer.concat(chunks).toString('utf8')
 }
 
+/** The text encoder a sampler's positive input points at, with a fallback. */
+function findPositiveTextNode(nodes) {
+  let sampler = null
+  for (const node of Object.values(nodes || {})) {
+    const inputs = node && node.inputs
+    if (inputs && 'steps' in inputs && ('cfg' in inputs || 'sampler_name' in inputs)) {
+      sampler = node
+      break
+    }
+  }
+  const ref = sampler && Array.isArray(sampler.inputs.positive) ? String(sampler.inputs.positive[0]) : ''
+  if (ref && nodes[ref] && nodes[ref].inputs && typeof nodes[ref].inputs.text === 'string') return ref
+  for (const [id, node] of Object.entries(nodes || {})) {
+    if (node && node.inputs && typeof node.inputs.text === 'string') return id
+  }
+  return null
+}
+
+/**
+ * Submit one MOSS layout JSON as a generation job.
+ *
+ * The canvas workflow is UI format and `/prompt` only accepts the API graph, so
+ * the newest history entry that actually ran a MOSSImage node is used as the
+ * template and only its positive prompt text is replaced.
+ */
+async function submitLayout(baseUrl, layout) {
+  const history = await getJSON(`${baseUrl}/history?max_items=50`)
+  let template = null
+  for (const entry of Object.values(history || {})) {
+    const nodes = entry && entry.prompt ? (Array.isArray(entry.prompt) ? entry.prompt[2] : entry.prompt) : null
+    if (!nodes) continue
+    const isMoss = Object.values(nodes).some(
+      (node) => node && typeof node.class_type === 'string' && node.class_type.indexOf('MOSSImage') === 0,
+    )
+    if (isMoss) {
+      template = nodes
+      break
+    }
+  }
+  if (!template) throw new Error('没有可用的 MOSS 生成模板：先在 ComfyUI 里成功生成一张 MOSS 图')
+
+  const graph = JSON.parse(JSON.stringify(template))
+  const positiveId = findPositiveTextNode(graph)
+  if (!positiveId) throw new Error('模板里找不到正向提示词节点')
+  graph[positiveId].inputs.text = JSON.stringify(layout)
+
+  const clientId = 'dsh-canvas-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
+  const res = await fetch(`${baseUrl}/prompt`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ prompt: graph, client_id: clientId }),
+    signal: AbortSignal.timeout(15000),
+  })
+  const payload = await res.json().catch(() => null)
+  if (!res.ok) {
+    const detail = payload && payload.error ? JSON.stringify(payload.error) : `HTTP ${res.status}`
+    throw new Error('ComfyUI 拒绝了这个任务：' + detail)
+  }
+  return { ok: true, promptId: (payload && payload.prompt_id) || '' }
+}
+
 export function apply(ctx, config = {}) {
   const configured = config && typeof config.comfyUrl === 'string' ? config.comfyUrl.trim() : ''
   const envUrl = typeof process !== 'undefined' && process.env ? process.env.DSH_COMFY_URL : ''
@@ -115,6 +176,19 @@ export function apply(ctx, config = {}) {
         }
         files.sort((left, right) => right.mtime - left.mtime)
         return send(200, { ok: true, dir, files })
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
+    }
+
+    if (pathname === `${PREFIX}/generate`) {
+      if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const body = JSON.parse((await readBody(req)) || '{}')
+        if (!body || typeof body.layout !== 'object' || body.layout === null) {
+          throw new Error('缺少 layout')
+        }
+        return send(200, await submitLayout(baseUrl, body.layout))
       } catch (error) {
         return send(502, { ok: false, error: String((error && error.message) || error) })
       }

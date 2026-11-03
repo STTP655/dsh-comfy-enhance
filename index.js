@@ -186,7 +186,19 @@ function summarizeWorkflow(nodes) {
       const marker = `${role}\u0000${value}`
       if (seen.has(marker)) continue
       seen.add(marker)
-      models.push({ role, name: value })
+      const entry = { role, name: value }
+      // LoRA strength is what makes a weight meaningful: 0.8 and 0.3 are
+      // different pictures. Loaders use strength_model / strength_clip, and some
+      // custom nodes a single strength.
+      if (role === 'LoRA') {
+        const modelStrength = typeof inputs.strength_model === 'number'
+          ? inputs.strength_model
+          : (typeof inputs.strength === 'number' ? inputs.strength : null)
+        const clipStrength = typeof inputs.strength_clip === 'number' ? inputs.strength_clip : null
+        if (modelStrength !== null) entry.strength = modelStrength
+        if (clipStrength !== null && clipStrength !== modelStrength) entry.strengthClip = clipStrength
+      }
+      models.push(entry)
     }
     if (samplerNode === null && 'steps' in inputs && ('cfg' in inputs || 'sampler_name' in inputs)) {
       samplerNode = { id, inputs }
@@ -232,6 +244,181 @@ function summarizeWorkflow(nodes) {
   }
 
   return result
+}
+
+/**
+ * Resolve the sampler and the two text-encoder nodes in an API prompt graph.
+ *
+ * Regenerating edits text in place, so the node ids matter. Graphs that route
+ * conditioning through intermediate nodes fall back to the first two text
+ * encoders, matching what summarizeWorkflow reports.
+ */
+function resolvePromptNodes(nodes) {
+  let samplerId = null
+  for (const [id, node] of Object.entries(nodes || {})) {
+    const inputs = node && node.inputs
+    if (!inputs) continue
+    if ('steps' in inputs && ('cfg' in inputs || 'sampler_name' in inputs)) {
+      samplerId = id
+      break
+    }
+  }
+  const sampler = samplerId !== null ? nodes[samplerId] : null
+  const textNodes = []
+  for (const [id, node] of Object.entries(nodes || {})) {
+    if (node && node.inputs && typeof node.inputs.text === 'string') textNodes.push(id)
+  }
+  const isText = (id) =>
+    id !== null && id !== undefined && nodes[id] && nodes[id].inputs && typeof nodes[id].inputs.text === 'string'
+  const positiveRef = sampler ? nodeRef(sampler.inputs.positive) : null
+  const negativeRef = sampler ? nodeRef(sampler.inputs.negative) : null
+  const positiveId = isText(positiveRef) ? positiveRef : (textNodes[0] || null)
+  const negativeId = isText(negativeRef) ? negativeRef : (textNodes.find((id) => id !== positiveId) || null)
+  return { samplerId, positiveId, negativeId }
+}
+
+/**
+ * Re-submit one history prompt with edited prompts, optionally on a fresh seed.
+ *
+ * The graph is cloned before touching it: the history entry is shared with the
+ * album cache, and mutating it would corrupt every later read of that record.
+ */
+async function regeneratePrompt(baseUrl, body) {
+  const promptId = body && typeof body.promptId === 'string' ? body.promptId : ''
+  if (!promptId) throw new Error('缺少 promptId')
+
+  const res = await fetch(`${baseUrl}/history/${encodeURIComponent(promptId)}`, {
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+  })
+  if (!res.ok) throw new Error(`ComfyUI 返回 ${res.status}`)
+  const history = await res.json()
+  const entry = history && history[promptId]
+  if (!entry) throw new Error('这条记录已不在 ComfyUI 历史里，可能被清理了')
+
+  const source = Array.isArray(entry.prompt) ? entry.prompt[2] : entry.prompt
+  if (!source || typeof source !== 'object') throw new Error('无法读取原始工作流')
+
+  const graph = JSON.parse(JSON.stringify(source))
+  const target = resolvePromptNodes(graph)
+  if (!target.positiveId) throw new Error('这套工作流里找不到文本编码节点')
+
+  if (typeof body.positive === 'string') graph[target.positiveId].inputs.text = body.positive
+  if (typeof body.negative === 'string' && target.negativeId) graph[target.negativeId].inputs.text = body.negative
+
+  if (target.samplerId !== null) {
+    const inputs = graph[target.samplerId].inputs
+    // Only write keys the node actually has: KSampler uses sampler_name/steps,
+    // other sampler nodes may expose a different field set.
+    const write = (key, value) => {
+      if (key in inputs) inputs[key] = value
+    }
+    if (typeof body.sampler === 'string' && body.sampler) write('sampler_name', body.sampler)
+    if (typeof body.scheduler === 'string' && body.scheduler) write('scheduler', body.scheduler)
+    if (typeof body.steps === 'number' && Number.isFinite(body.steps)) {
+      write('steps', Math.max(1, Math.round(body.steps)))
+    }
+    if (typeof body.cfg === 'number' && Number.isFinite(body.cfg)) write('cfg', body.cfg)
+    if (body.seed === 'random') {
+      const next = Math.floor(Math.random() * 1125899906842624)
+      if ('seed' in inputs) inputs.seed = next
+      else if ('noise_seed' in inputs) inputs.noise_seed = next
+    }
+  }
+
+  const clientId = 'dsh-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
+  const submit = await fetch(`${baseUrl}/prompt`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ prompt: graph, client_id: clientId }),
+    signal: AbortSignal.timeout(15000),
+  })
+  const payload = await submit.json().catch(() => null)
+  if (!submit.ok) {
+    const detail = payload && payload.error
+      ? (typeof payload.error === 'string' ? payload.error : JSON.stringify(payload.error))
+      : `HTTP ${submit.status}`
+    throw new Error('ComfyUI 拒绝了这个任务：' + detail)
+  }
+  return {
+    ok: true,
+    promptId: (payload && payload.prompt_id) || '',
+    number: payload && payload.number,
+  }
+}
+
+/**
+ * The sampler and scheduler choices ComfyUI advertises for its KSampler node.
+ *
+ * Reading them from the engine instead of hardcoding means a custom node pack
+ * (or a newer ComfyUI) never offers a value the server would reject.
+ */
+async function samplerOptions(baseUrl) {
+  const info = await getJSON(`${baseUrl}/object_info/KSampler`)
+  const required = (info && info.KSampler && info.KSampler.input && info.KSampler.input.required) || {}
+  const list = (key) =>
+    Array.isArray(required[key]) && Array.isArray(required[key][0]) ? required[key][0].map(String) : []
+  return { samplers: list('sampler_name'), schedulers: list('scheduler') }
+}
+
+/** Read and parse a small JSON request body. */
+function readJson(req) {
+  return new Promise((resolve) => {
+    let raw = ''
+    req.on('data', (chunk) => {
+      raw += chunk
+      if (raw.length > 2000000) req.destroy()
+    })
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(raw || '{}'))
+      } catch {
+        resolve({})
+      }
+    })
+    req.on('error', () => resolve({}))
+  })
+}
+
+/**
+ * Stop one job: drop it from the pending queue, or interrupt the running one.
+ *
+ * /interrupt has no job argument — it stops whatever is executing — so it is
+ * only called when the queue says the running job is the one being cancelled.
+ */
+async function cancelPrompt(baseUrl, body) {
+  const promptId = body && typeof body.promptId === 'string' ? body.promptId : ''
+  if (!promptId) throw new Error('缺少 promptId')
+
+  const queue = await getJSON(`${baseUrl}/queue`)
+  const ids = (list) =>
+    (Array.isArray(list) ? list : [])
+      .map((item) => (Array.isArray(item) ? String(item[1] || '') : ''))
+      .filter(Boolean)
+  const running = ids(queue && queue.queue_running)
+  const pending = ids(queue && queue.queue_pending)
+
+  const removed = []
+  if (pending.indexOf(promptId) >= 0) {
+    const res = await fetch(`${baseUrl}/queue`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ delete: [promptId] }),
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    })
+    if (!res.ok) throw new Error(`删除排队任务失败：HTTP ${res.status}`)
+    removed.push('pending')
+  }
+  if (running.indexOf(promptId) >= 0) {
+    const res = await fetch(`${baseUrl}/interrupt`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    })
+    if (!res.ok) throw new Error(`中断任务失败：HTTP ${res.status}`)
+    removed.push('running')
+  }
+  return { ok: true, removed }
 }
 
 /** One history entry as an album card: its outputs plus everything the detail panel shows. */
@@ -331,6 +518,16 @@ function createHandler(baseUrl) {
   let albumCache = { at: 0, value: null }
   let albumInflight = null
 
+  let optionsCache = { at: 0, value: null }
+  const OPTIONS_CACHE_MS = 300000
+
+  async function options() {
+    if (optionsCache.value && Date.now() - optionsCache.at < OPTIONS_CACHE_MS) return optionsCache.value
+    const value = await samplerOptions(baseUrl)
+    optionsCache = { at: Date.now(), value }
+    return value
+  }
+
   async function album() {
     if (albumCache.value && Date.now() - albumCache.at < ALBUM_CACHE_MS) return albumCache.value
     if (albumInflight) return albumInflight
@@ -417,6 +614,40 @@ function createHandler(baseUrl) {
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(405, { ok: false, error: 'method not allowed' })
       const value = await album()
       return send(200, value)
+    }
+
+    if (pathname === `${PREFIX}/regenerate`) {
+      if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
+      const body = await readJson(req)
+      try {
+        const value = await regeneratePrompt(baseUrl, body)
+        // The next album read must see the new job, not the cached list.
+        albumCache = { at: 0, value: null }
+        return send(200, value)
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
+    }
+
+    if (pathname === `${PREFIX}/cancel`) {
+      if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
+      const body = await readJson(req)
+      try {
+        const value = await cancelPrompt(baseUrl, body)
+        albumCache = { at: 0, value: null }
+        return send(200, value)
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
+    }
+
+    if (pathname === `${PREFIX}/sampler-options`) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        return send(200, await options())
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
     }
 
     if (pathname === `${PREFIX}/view`) return proxyImage(req, res)

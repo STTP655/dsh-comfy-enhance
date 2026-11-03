@@ -18,7 +18,20 @@ window.__ModuleLoader__.load({
      * files, so anything generated past it keeps appearing.
      */
     const pluginPrefs = (() => {
-      let state = { status: true, album: true, canvas: true, clearedBefore: 0 }
+      let state = {
+        status: true,
+        album: true,
+        canvas: true,
+        clearedBefore: 0,
+        sound: true,
+        editorPositiveHeight: 96,
+        editorNegativeHeight: 96,
+        viewerPanelWidth: 360,
+        albumTheme: 'dark',
+        zoomSummaryHeight: 54,
+        zoomDescHeight: 68,
+        zoomPanelWidth: 260,
+      }
       try {
         const raw = localStorage.getItem(PREF_KEY)
         if (raw) {
@@ -29,6 +42,20 @@ window.__ModuleLoader__.load({
               album: parsed.album !== false,
               canvas: parsed.canvas !== false,
               clearedBefore: typeof parsed.clearedBefore === 'number' ? parsed.clearedBefore : 0,
+              sound: parsed.sound !== false,
+              editorPositiveHeight:
+                typeof parsed.editorPositiveHeight === 'number' ? parsed.editorPositiveHeight : 96,
+              editorNegativeHeight:
+                typeof parsed.editorNegativeHeight === 'number' ? parsed.editorNegativeHeight : 96,
+              viewerPanelWidth:
+                typeof parsed.viewerPanelWidth === 'number' ? parsed.viewerPanelWidth : 360,
+              albumTheme: parsed.albumTheme === 'light' ? 'light' : 'dark',
+              zoomSummaryHeight:
+                typeof parsed.zoomSummaryHeight === 'number' ? parsed.zoomSummaryHeight : 54,
+              zoomDescHeight:
+                typeof parsed.zoomDescHeight === 'number' ? parsed.zoomDescHeight : 68,
+              zoomPanelWidth:
+                typeof parsed.zoomPanelWidth === 'number' ? parsed.zoomPanelWidth : 260,
             }
           }
         }
@@ -53,6 +80,142 @@ window.__ModuleLoader__.load({
         },
       }
     })()
+
+    /**
+     * The surfaces draw in fixed CSS px, which reads small on a 2K panel running
+     * at 100% OS scaling. Scale them up on wide screens, but never on top of a
+     * high devicePixelRatio — the OS already scaled everything there.
+     */
+    const UI_SCALE = (() => {
+      try {
+        const screenWidth = (window.screen && window.screen.width) || window.innerWidth || 0
+        const dpr = window.devicePixelRatio || 1
+        let scale = 1
+        if (screenWidth >= 2400) scale = 1.16
+        else if (screenWidth >= 1900) scale = 1.08
+        if (dpr >= 1.5) scale = Math.min(scale, 1.03)
+        return Math.round(scale * 100) / 100
+      } catch {
+        return 1
+      }
+    })()
+
+    /**
+     * Lucide icon paths (24×24, stroke 2). Stored as data so the plugin keeps no
+     * icon dependency and every glyph shares the same geometry and stroke.
+     */
+    const LUCIDE = {
+      x: [
+        ['path', { d: 'M18 6 6 18' }],
+        ['path', { d: 'm6 6 12 12' }],
+      ],
+      info: [
+        ['circle', { cx: 12, cy: 12, r: 10 }],
+        ['path', { d: 'M12 16v-4' }],
+        ['path', { d: 'M12 8h.01' }],
+      ],
+      'external-link': [
+        ['path', { d: 'M15 3h6v6' }],
+        ['path', { d: 'M10 14 21 3' }],
+        ['path', { d: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6' }],
+      ],
+      bell: [
+        ['path', { d: 'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9' }],
+        ['path', { d: 'M10.3 21a1.94 1.94 0 0 0 3.4 0' }],
+      ],
+      'bell-off': [
+        ['path', { d: 'M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5' }],
+        ['path', { d: 'M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7' }],
+        ['path', { d: 'M10.3 21a1.94 1.94 0 0 0 3.4 0' }],
+        ['path', { d: 'm2 2 20 20' }],
+      ],
+      maximize: [
+        ['path', { d: 'M8 3H5a2 2 0 0 0-2 2v3' }],
+        ['path', { d: 'M21 8V5a2 2 0 0 0-2-2h-3' }],
+        ['path', { d: 'M3 16v3a2 2 0 0 0 2 2h3' }],
+        ['path', { d: 'M16 21h3a2 2 0 0 0 2-2v-3' }],
+      ],
+      'layout-grid': [
+        ['rect', { width: 7, height: 7, x: 3, y: 3, rx: 1 }],
+        ['rect', { width: 7, height: 7, x: 14, y: 3, rx: 1 }],
+        ['rect', { width: 7, height: 7, x: 14, y: 14, rx: 1 }],
+        ['rect', { width: 7, height: 7, x: 3, y: 14, rx: 1 }],
+      ],
+      'columns-2': [
+        ['rect', { width: 18, height: 18, x: 3, y: 3, rx: 2 }],
+        ['path', { d: 'M12 3v18' }],
+      ],
+      cpu: [
+        ['rect', { width: 16, height: 16, x: 4, y: 4, rx: 2 }],
+        ['rect', { width: 6, height: 6, x: 9, y: 9, rx: 1 }],
+        ['path', { d: 'M15 2v2' }],
+        ['path', { d: 'M15 20v2' }],
+        ['path', { d: 'M2 15h2' }],
+        ['path', { d: 'M2 9h2' }],
+        ['path', { d: 'M20 15h2' }],
+        ['path', { d: 'M20 9h2' }],
+        ['path', { d: 'M9 2v2' }],
+        ['path', { d: 'M9 20v2' }],
+      ],
+      scan: [
+        ['path', { d: 'M3 7V5a2 2 0 0 1 2-2h2' }],
+        ['path', { d: 'M17 3h2a2 2 0 0 1 2 2v2' }],
+        ['path', { d: 'M21 17v2a2 2 0 0 1-2 2h-2' }],
+        ['path', { d: 'M7 21H5a2 2 0 0 1-2-2v-2' }],
+      ],
+      sun: [
+        ['circle', { cx: 12, cy: 12, r: 4 }],
+        ['path', { d: 'M12 2v2' }],
+        ['path', { d: 'M12 20v2' }],
+        ['path', { d: 'm4.93 4.93 1.41 1.41' }],
+        ['path', { d: 'm17.66 17.66 1.41 1.41' }],
+        ['path', { d: 'M2 12h2' }],
+        ['path', { d: 'M20 12h2' }],
+        ['path', { d: 'm6.34 17.66-1.41 1.41' }],
+        ['path', { d: 'm19.07 4.93-1.41 1.41' }],
+      ],
+      moon: [['path', { d: 'M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z' }]],
+      eye: [
+        ['path', { d: 'M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0' }],
+        ['circle', { cx: 12, cy: 12, r: 3 }],
+      ],
+      'eye-off': [
+        ['path', { d: 'M10.73 5.08a10.74 10.74 0 0 1 11.21 6.57 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-1.44 2.49' }],
+        ['path', { d: 'M14.08 14.16a3 3 0 0 1-4.24-4.24' }],
+        ['path', { d: 'M17.48 17.5a10.75 10.75 0 0 1-15.42-5.15 1 1 0 0 1 0-.7 10.75 10.75 0 0 1 4.45-5.14' }],
+        ['path', { d: 'm2 2 20 20' }],
+      ],
+      'move-diagonal': [
+        ['path', { d: 'M13 5h6v6' }],
+        ['path', { d: 'M11 19H5v-6' }],
+        ['path', { d: 'M19 5 5 19' }],
+      ],
+    }
+
+    function lucideParts(name) {
+      return (LUCIDE[name] || []).map((part, index) => h(part[0], Object.assign({ key: index }, part[1])))
+    }
+
+    /** One Lucide glyph. Every icon in the plugin goes through here. */
+    function Icon(props) {
+      const size = props.size || 14
+      return h(
+        'svg',
+        {
+          width: size,
+          height: size,
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: props.stroke || 2,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+          'aria-hidden': true,
+          style: Object.assign({ display: 'block' }, props.style || null),
+        },
+        ...lucideParts(props.name),
+      )
+    }
 
     function usePref(key) {
       const [value, setValue] = useState(pluginPrefs.get()[key])
@@ -130,6 +293,7 @@ window.__ModuleLoader__.load({
     }
 
     const CARD = {
+      zoom: UI_SCALE,
       display: 'flex',
       flexDirection: 'column',
       gap: 4,
@@ -154,8 +318,48 @@ window.__ModuleLoader__.load({
         'style',
         null,
         '@keyframes dsh-comfy-status-pulse{0%,100%{opacity:1}50%{opacity:.4}}' +
+          '@keyframes dsh-comfy-status-job{0%{transform:translateX(-110%)}100%{transform:translateX(360%)}}' +
           '@media (prefers-reduced-motion:reduce){@keyframes dsh-comfy-status-pulse{0%,100%{opacity:.85}50%{opacity:.5}}}',
       )
+    }
+
+    /** Running-job banner in the sidebar card, matching the viewer's one. */
+    const STATUS_JOB = {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 6,
+      padding: '7px 9px',
+      borderRadius: 9,
+      border: '1px solid rgba(255, 90, 90, 0.24)',
+      background: 'rgba(255, 86, 86, 0.08)',
+    }
+    const STATUS_JOB_DOT = {
+      width: 6,
+      height: 6,
+      flex: 'none',
+      borderRadius: '50%',
+      background: '#ff5a5a',
+      animation: 'dsh-comfy-status-pulse 1.1s ease-in-out infinite',
+    }
+    const STATUS_JOB_TEXT = { fontSize: 10.5, fontWeight: 600, color: '#ff6b6b' }
+    const STATUS_JOB_ELAPSED = {
+      fontSize: 10,
+      color: 'rgba(255, 107, 107, 0.8)',
+      fontVariantNumeric: 'tabular-nums',
+      fontFeatureSettings: '"tnum"',
+    }
+    const STATUS_JOB_TRACK = {
+      height: 3,
+      borderRadius: 99,
+      background: 'var(--dsw-alias-bg-layer-2)',
+      overflow: 'hidden',
+    }
+    const STATUS_JOB_BAR = {
+      width: '35%',
+      height: '100%',
+      borderRadius: 99,
+      background: 'linear-gradient(90deg, #ff4d4d, #ff9a4a)',
+      animation: 'dsh-comfy-status-job 1.15s ease-in-out infinite',
     }
 
     function ComfyStatus(props) {
@@ -166,6 +370,42 @@ window.__ModuleLoader__.load({
       const queue = (snap && snap.queue) || {}
       const running = queue.running || 0
       const pending = queue.pending || 0
+      const queuedJob = up && (running > 0 || pending > 0)
+
+      // The banner counts from the first poll that saw the queue busy; ComfyUI
+      // has a start time of its own, but it costs a second request per tick.
+      const [busySince, setBusySince] = useState(null)
+      const [now, setNow] = useState(0)
+      const [done, setDone] = useState(null)
+      const busyRef = useRef(null)
+      useEffect(() => {
+        if (!queuedJob) {
+          const since = busyRef.current
+          busyRef.current = null
+          if (since) {
+            setDone({ seconds: Math.max(1, Math.round((Date.now() - since) / 1000)), at: Date.now() })
+          }
+          setBusySince(null)
+          return undefined
+        }
+        const since = Date.now()
+        busyRef.current = since
+        setBusySince((value) => (value === null ? since : value))
+        setNow(Date.now())
+        const timer = setInterval(() => setNow(Date.now()), 1000)
+        return () => clearInterval(timer)
+      }, [queuedJob])
+
+      // These jobs can finish in a few seconds — shorter than a poll interval —
+      // so the finished state stays on screen briefly instead of vanishing.
+      useEffect(() => {
+        if (!done) return undefined
+        const timer = setTimeout(() => setDone(null), 6000)
+        return () => clearTimeout(timer)
+      }, [done])
+
+      const elapsed = busySince ? Math.max(0, Math.floor((now - busySince) / 1000)) : 0
+
       const busy = up && running > 0
       const device = up ? (snap && snap.device) || null : null
       const last = up ? (snap && snap.last) || null : null
@@ -215,27 +455,14 @@ window.__ModuleLoader__.load({
             },
           },
           h(PulseKeyframes),
-          h(
-            'svg',
-            {
-              width: 15,
-              height: 15,
-              viewBox: '0 0 16 16',
-              'aria-hidden': true,
-              style: {
-                display: 'block',
-                color: tone,
-                animation: busy ? 'dsh-comfy-status-pulse 1.4s ease-in-out infinite' : 'none',
-              },
+          h(Icon, {
+            name: 'cpu',
+            size: 15,
+            style: {
+              color: tone,
+              animation: busy ? 'dsh-comfy-status-pulse 1.4s ease-in-out infinite' : 'none',
             },
-            h(
-              'g',
-              { fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' },
-              h('rect', { x: 1.6, y: 5.6, width: 4.6, height: 4.8, rx: 1.3 }),
-              h('rect', { x: 9.8, y: 5.6, width: 4.6, height: 4.8, rx: 1.3 }),
-              h('path', { d: 'M6.2 8h3.6' }),
-            ),
-          ),
+          }),
           h(
             'span',
             {
@@ -243,11 +470,33 @@ window.__ModuleLoader__.load({
                 fontSize: 10,
                 lineHeight: 1.15,
                 fontWeight: 500,
-                color: up ? 'var(--dsw-alias-label-secondary)' : TONE.down,
+                color: queuedJob ? '#ff5a5a' : up ? 'var(--dsw-alias-label-secondary)' : TONE.down,
               }),
             },
             railLabel,
           ),
+          queuedJob
+            ? h(
+                'div',
+                {
+                  style: {
+                    width: 18,
+                    height: 2,
+                    borderRadius: 1,
+                    background: 'var(--dsw-alias-bg-layer-2)',
+                    overflow: 'hidden',
+                  },
+                },
+                h('div', {
+                  style: {
+                    width: '45%',
+                    height: '100%',
+                    background: '#ff5a5a',
+                    animation: 'dsh-comfy-status-job 1.15s ease-in-out infinite',
+                  },
+                }),
+              )
+            : null,
         )
       }
 
@@ -265,17 +514,82 @@ window.__ModuleLoader__.load({
           h('span', { style: Object.assign({}, SUB, { fontSize: 10.5 }) }, stateText),
         ),
         up
-          ? h(
-              'div',
-              { style: Object.assign({}, ROW, { gap: 10 }) },
-              h(
-                'span',
-                { style: Object.assign({}, SUB, NUM) },
-                '运行 ',
-                h('span', { style: { color: running > 0 ? 'var(--dsw-alias-label-primary)' : 'inherit', fontWeight: running > 0 ? 600 : 400 } }, String(running)),
-              ),
-              h('span', { style: Object.assign({}, SUB, NUM) }, '等待 ', h('span', { style: { color: pending > 0 ? 'var(--dsw-alias-label-primary)' : 'inherit' } }, String(pending))),
-            )
+          ? queuedJob
+            ? h(
+                'div',
+                { style: STATUS_JOB },
+                h(
+                  'div',
+                  { style: Object.assign({}, ROW, { gap: 6 }) },
+                  h('span', { style: STATUS_JOB_DOT }),
+                  h('span', { style: STATUS_JOB_TEXT }, running > 0 ? '正在生成' : '排队中'),
+                  h('span', { style: STATUS_JOB_ELAPSED }, elapsed + 's'),
+                  h('span', { style: { flex: 1 } }),
+                  h(
+                    'span',
+                    { style: Object.assign({}, SUB, NUM) },
+                    '运行 ' + running + ' / 等待 ' + pending,
+                  ),
+                ),
+                h('div', { style: STATUS_JOB_TRACK }, h('div', { style: STATUS_JOB_BAR })),
+              )
+            : done
+              ? h(
+                  'div',
+                  { style: Object.assign({}, ROW, { gap: 6 }) },
+                  h('span', {
+                    style: {
+                      width: 6,
+                      height: 6,
+                      flex: 'none',
+                      borderRadius: '50%',
+                      background: 'var(--dsw-alias-state-success-primary)',
+                    },
+                  }),
+                  h(
+                    'span',
+                    {
+                      style: {
+                        fontSize: 10.5,
+                        fontWeight: 600,
+                        color: 'var(--dsw-alias-state-success-primary)',
+                      },
+                    },
+                    '生成完成',
+                  ),
+                  h('span', { style: Object.assign({}, SUB, NUM) }, done.seconds + 's'),
+                  h('span', { style: { flex: 1 } }),
+                  h('span', { style: Object.assign({}, SUB, NUM) }, '运行 0 / 等待 0'),
+                )
+              : h(
+                  'div',
+                  { style: Object.assign({}, ROW, { gap: 10 }) },
+                  h(
+                    'span',
+                    { style: Object.assign({}, SUB, NUM) },
+                    '运行 ',
+                    h(
+                      'span',
+                      {
+                        style: {
+                          color: running > 0 ? 'var(--dsw-alias-label-primary)' : 'inherit',
+                          fontWeight: running > 0 ? 600 : 400,
+                        },
+                      },
+                      String(running),
+                    ),
+                  ),
+                  h(
+                    'span',
+                    { style: Object.assign({}, SUB, NUM) },
+                    '等待 ',
+                    h(
+                      'span',
+                      { style: { color: pending > 0 ? 'var(--dsw-alias-label-primary)' : 'inherit' } },
+                      String(pending),
+                    ),
+                  ),
+                )
           : null,
         up && device
           ? h(
@@ -337,6 +651,7 @@ window.__ModuleLoader__.load({
     const ALBUM_POLL_MS = 15000
 
     const ALBUM_SHELL = {
+      zoom: UI_SCALE,
       display: 'flex',
       flexDirection: 'column',
       height: '100%',
@@ -493,6 +808,16 @@ window.__ModuleLoader__.load({
       return pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes())
     }
 
+    /** Full date and time, for the viewer's metadata strip. */
+    function fmtDateTime(ms) {
+      const value = Number(ms) || 0
+      if (value <= 0) return ''
+      const date = new Date(value)
+      const pad = (n) => String(n).padStart(2, '0')
+      return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+        + ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes())
+    }
+
     function dayKeyOf(ms) {
       const date = new Date(ms)
       const pad = (n) => String(n).padStart(2, '0')
@@ -530,20 +855,75 @@ window.__ModuleLoader__.load({
     }
 
     function AlbumIcon(props) {
-      const size = (props && props.size) || 16
+      return h(Icon, {
+        name: 'layout-grid',
+        size: (props && props.size) || 16,
+        style: { flex: 'none' },
+      })
+    }
+
+    /** Two panels side by side: "compare this one with another". */
+    function CompareIcon(props) {
+      return h(Icon, { name: 'columns-2', size: (props && props.size) || 12 })
+    }
+
+    /** Sun or crescent, depending on which theme the album is showing. */
+    /**
+     * Lucide sun/moon, stacked on top of each other so the swap can animate:
+     * the leaving glyph spins out and fades while the entering one spins in.
+     */
+    function ThemeIcon(props) {
+      const night = Boolean(props.night)
       return h(
-        'svg',
-        { width: size, height: size, viewBox: '0 0 16 16', 'aria-hidden': true, style: { display: 'block', flex: 'none' } },
+        'span',
+        { className: 'dshComfyAlbum-theme', 'aria-hidden': true },
         h(
-          'g',
-          { fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinejoin: 'round' },
-          h('rect', { x: 1.6, y: 2.4, width: 5.6, height: 5.6, rx: 1.4 }),
-          h('rect', { x: 8.8, y: 2.4, width: 5.6, height: 5.6, rx: 1.4 }),
-          h('rect', { x: 1.6, y: 8.8, width: 5.6, height: 5.6, rx: 1.4 }),
-          h('circle', { cx: 11.6, cy: 11.6, r: 2.8 }),
+          'svg',
+          {
+            className: 'dshComfyAlbum-theme-sun',
+            viewBox: '0 0 24 24',
+            fill: 'none',
+            stroke: 'currentColor',
+            strokeWidth: 2,
+            strokeLinecap: 'round',
+            strokeLinejoin: 'round',
+            'data-on': night ? 'false' : 'true',
+          },
+          ...lucideParts('sun'),
+        ),
+        h(
+          'svg',
+          {
+            className: 'dshComfyAlbum-theme-moon',
+            viewBox: '0 0 24 24',
+            fill: 'none',
+            stroke: 'currentColor',
+            strokeWidth: 2,
+            strokeLinecap: 'round',
+            strokeLinejoin: 'round',
+            'data-on': night ? 'true' : 'false',
+          },
+          ...lucideParts('moon'),
         ),
       )
     }
+
+    /**
+     * Theme surfaces shared by the album page and the canvas page. Only the token
+     * values are redefined here; every inner style keeps reading the same names.
+     */
+    const SURFACE_DARK_CSS =
+      '.dshComfySurface-dark{color-scheme:dark;color:var(--dsw-alias-label-primary);--dsw-alias-label-primary:#e9e9ec;--dsw-alias-label-secondary:#9b9ba3;--dsw-alias-bg-base:#141416;--dsw-alias-bg-layer-1:#1b1b1e;--dsw-alias-bg-layer-2:#232327;--dsw-alias-bg-overlay:#0f0f11;--dsw-alias-border-l1:rgba(255,255,255,.07);--dsw-alias-border-l2:rgba(255,255,255,.12);--dsw-alias-state-error-primary:#ff8a8a;--dsw-alias-state-success-primary:#6fd08c;--dsw-alias-state-warn-primary:#f0c060;--dsw-alias-state-idle-primary:#7a7a82;--dsw-specific-sidebar-fill:#1a1a1d;--dshcomfy-on-brand:#ffffff;background:#141416}'
+    const SURFACE_LIGHT_CSS =
+      '.dshComfySurface-light{color-scheme:light;--dsw-alias-label-primary:#1e1e22;--dsw-alias-label-secondary:#6b6b74;--dsw-alias-bg-base:#ffffff;--dsw-alias-bg-layer-1:#f5f5f7;--dsw-alias-bg-layer-2:#ececef;--dsw-alias-bg-overlay:#fafafb;--dsw-alias-border-l1:rgba(0,0,0,.07);--dsw-alias-border-l2:rgba(0,0,0,.12);--dsw-alias-state-error-primary:#c0392b;--dsw-alias-state-success-primary:#2e9e57;--dsw-alias-state-warn-primary:#b07d1a;--dsw-alias-state-idle-primary:#8a8a92;--dsw-specific-sidebar-fill:#f0f0f3;--dshcomfy-on-brand:#ffffff;background:#ffffff;color:#1e1e22}'
+
+    /** Theme switch glyph sizing; both style sheets need it, the canvas lacks it otherwise. */
+    const THEME_ICON_CSS =
+      '.dshComfyAlbum-theme{position:relative;display:inline-block;width:12px;height:12px;vertical-align:middle}' +
+      '.dshComfyAlbum-theme svg{position:absolute;inset:0;width:12px;height:12px;transition:opacity .2s ease,transform .32s cubic-bezier(0.23,1,0.32,1)}' +
+      '.dshComfyAlbum-theme-sun[data-on="false"]{opacity:0;transform:rotate(-60deg) scale(.5)}' +
+      '.dshComfyAlbum-theme-moon[data-on="false"]{opacity:0;transform:rotate(60deg) scale(.5)}' +
+      '@media (prefers-reduced-motion:reduce){.dshComfyAlbum-theme svg{transition:none!important}}'
 
     function AlbumStyles() {
       return h(
@@ -551,10 +931,53 @@ window.__ModuleLoader__.load({
         null,
         [
           '.dshComfyAlbum-btn{appearance:none;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10.5px;line-height:1.4;padding:2px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}',
+          SURFACE_LIGHT_CSS,
+          SURFACE_DARK_CSS,
+          // Switching themes cross-fades the token-driven colors instead of
+          // hard-cutting the whole page.
+          '.dshComfySurface-dark,.dshComfySurface-light{transition:background-color .3s ease,color .3s ease}',
+          '.dshComfySurface-dark *,.dshComfySurface-light *{transition:background-color .26s ease,color .26s ease,border-color .26s ease}',
+          '@media (prefers-reduced-motion:reduce){.dshComfySurface-dark,.dshComfySurface-light,.dshComfySurface-dark *,.dshComfySurface-light *{transition:none!important}}',
+          THEME_ICON_CSS,
           '.dshComfyAlbum-btn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
+          '.dshComfyAlbum-btn[data-dark="true"]{border-color:rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:rgba(255,255,255,.72)}',
+          '.dshComfyAlbum-btn[data-dark="true"]:hover{background:rgba(255,255,255,.13);color:#fff}',
+          '.dshComfyAlbum-btn[data-dark="true"][data-on="true"]{background:rgba(255,255,255,.18);color:#fff}',
+          '.dshComfyAlbum-btn[data-dark="true"][data-tone="primary"]{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);color:var(--dshcomfy-on-brand)}',
+          '.dshComfyAlbum-btn[data-dark="true"][data-tone="primary"]:disabled{opacity:.45}',
+          '.dshComfyViewer-generate{appearance:none;width:100%;box-sizing:border-box;margin-top:12px;padding:10px 12px;border:0;border-radius:10px;background:linear-gradient(135deg,#ff5c7a,#ff8a3d);color:#fff;font:inherit;font-size:12.5px;font-weight:600;line-height:1.4;cursor:pointer;box-shadow:0 0 20px rgba(255,92,122,.28),0 4px 14px rgba(0,0,0,.25);transition:transform .16s ease,box-shadow .16s ease,filter .16s ease}',
+          '.dshComfyViewer-generate:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.07);box-shadow:0 0 30px rgba(255,92,122,.45),0 8px 20px rgba(0,0,0,.28)}',
+          '.dshComfyViewer-generate:active:not(:disabled){transform:translateY(0);filter:brightness(.98)}',
+          '.dshComfyViewer-generate:disabled{opacity:.5;cursor:default;box-shadow:0 0 12px rgba(255,92,122,.15)}',
+          '@media (prefers-reduced-motion:reduce){.dshComfyViewer-generate:hover:not(:disabled){transform:none}}',
+          '.dshComfyViewer-icon{display:inline-flex;align-items:center;justify-content:center;height:22px;padding:0 7px;text-decoration:none}',
+          '.dshComfyViewer-resize:hover{background:rgba(255,255,255,.1)}',
+          // The self-drawn dropdown lives in the canvas styles too; the album
+          // viewer uses it as well, so its rules have to be present here.
+          '.dshCanvasPicker{appearance:none;display:flex;align-items:center;width:100%;box-sizing:border-box;font:inherit;font-size:10.5px;padding:4px 7px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);cursor:pointer;text-align:left}',
+          '.dshCanvasPicker:hover{background:var(--dsw-alias-bg-layer-2)}',
+          '.dshCanvasPicker[data-dark="true"]{border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:rgba(255,255,255,.9)}',
+          '.dshCanvasPicker[data-dark="true"]:hover{background:rgba(255,255,255,.11)}',
+          '.dshCanvasOption{appearance:none;display:block;width:100%;box-sizing:border-box;text-align:left;font:inherit;font-size:10.5px;padding:5px 8px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+          '.dshCanvasOption:hover{background:var(--dsw-alias-bg-layer-2)}',
+          '.dshCanvasOption[data-on="true"]{background:var(--dsw-alias-brand-primary);color:var(--dshcomfy-on-brand)}',
+          '.dshCanvasOption[data-dark="true"]{color:rgba(255,255,255,.88)}',
+          '.dshCanvasOption[data-dark="true"]:hover{background:rgba(255,255,255,.1)}',
+          '.dshCanvasOption[data-dark="true"][data-on="true"]{background:rgba(255,255,255,.18);color:#fff}',
+          '@keyframes dshComfyViewerIn{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}',
+          '@keyframes dshComfyViewerOut{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.97)}}',
+          '@keyframes dshComfyViewerFadeIn{from{opacity:0}to{opacity:1}}',
+          '@keyframes dshComfyViewerFadeOut{from{opacity:1}to{opacity:0}}',
+          '@keyframes dshComfyJobSlide{0%{transform:translateX(-110%)}100%{transform:translateX(360%)}}',
+          '@keyframes dshComfyJobPulse{0%,100%{opacity:.45}50%{opacity:1}}',
           '.dshComfyAlbum-thumb{appearance:none;padding:0;margin:0;border:0;border-radius:8px;background:var(--dsw-alias-bg-layer-2);cursor:pointer;overflow:hidden;display:block;width:100%;height:92px;line-height:0}',
           '.dshComfyAlbum-thumb:hover{opacity:.86}',
           '.dshComfyAlbum-thumb:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}',
+          '.dshComfyAlbum-cell{position:relative;min-width:0}',
+          '.dshComfyAlbum-compare{position:absolute;right:5px;top:5px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:6px;cursor:pointer;background:rgba(0,0,0,.55);color:#fff;opacity:0;transition:opacity .15s ease;backdrop-filter:blur(4px)}',
+          '.dshComfyAlbum-cell:hover .dshComfyAlbum-compare{opacity:1}',
+          '.dshComfyAlbum-compare[data-on="true"]{opacity:1;background:var(--dsw-alias-brand-primary);color:var(--dshcomfy-on-brand)}',
+          '.dshComfyAlbum-compare:focus-visible{opacity:1;outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}',
           '.dshComfyAlbum-gallery{background:var(--dsw-specific-sidebar-fill);background:light-dark(var(--dsw-alias-bg-overlay),var(--dsw-alias-bg-layer-2))}',
           '.dshComfyAlbum-zoom{position:absolute;right:8px;bottom:8px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:8px;cursor:pointer;background:rgba(0,0,0,.55);color:#fff;backdrop-filter:blur(4px)}',
           '.dshComfyAlbum-zoom:hover{background:rgba(0,0,0,.78)}',
@@ -567,11 +990,24 @@ window.__ModuleLoader__.load({
       flex: 'none',
       position: 'relative',
       overflow: 'hidden',
-      margin: '10px 12px 0',
-      padding: '8px 11px 8px 13px',
+      margin: 0,
+      padding: '8px 11px 9px 13px',
       borderRadius: 10,
-      border: '1px solid var(--dsw-alias-border-l2)',
+      border: '1px solid rgba(255, 90, 90, 0.26)',
       background: 'var(--dsw-alias-bg-layer-1)',
+      boxShadow: '0 10px 28px rgba(0, 0, 0, 0.28)',
+    }
+
+    /** The job panel floats over the stage instead of taking a row in the flow. */
+    const RUNNING_FLOAT = {
+      position: 'absolute',
+      top: 12,
+      left: 12,
+      zIndex: 6,
+      width: 280,
+      maxWidth: 'calc(100% - 24px)',
+      maxHeight: 'calc(100% - 24px)',
+      overflowY: 'auto',
     }
 
     function useAlbum() {
@@ -618,6 +1054,8 @@ window.__ModuleLoader__.load({
 
       const text = showRaw && value.raw ? value.raw : value.text
       const accent = props.accent || 'var(--dsw-alias-border-l2)'
+      const dark = Boolean(props.dark)
+      const buttonTone = dark ? { 'data-dark': 'true' } : null
 
       const copy = async () => {
         try {
@@ -631,7 +1069,7 @@ window.__ModuleLoader__.load({
 
       return h(
         'div',
-        { style: { marginTop: 14, position: 'relative', paddingLeft: 9 } },
+        { style: { marginTop: dark ? 12 : 14, position: 'relative', paddingLeft: 9 } },
         h('span', {
           style: {
             position: 'absolute',
@@ -646,14 +1084,26 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 } },
-          h('span', { style: { fontSize: 10.5, fontWeight: 600, color: 'var(--dsw-alias-label-secondary)' } }, props.title),
+          h(
+            'span',
+            {
+              style: {
+                fontSize: 10.5,
+                fontWeight: 600,
+                color: dark ? 'rgba(255, 255, 255, 0.55)' : 'var(--dsw-alias-label-secondary)',
+              },
+            },
+            props.title,
+          ),
           h('span', { style: { flex: 1 } }),
           value.structured
-            ? h('button', { className: 'dshComfyAlbum-btn', onClick: () => setShowRaw(!showRaw) }, showRaw ? '显示正文' : '原始 JSON')
+            ? h('button', Object.assign({ className: 'dshComfyAlbum-btn' }, buttonTone, {
+                onClick: () => setShowRaw(!showRaw),
+              }), showRaw ? '显示正文' : '原始 JSON')
             : null,
-          h('button', { className: 'dshComfyAlbum-btn', onClick: copy }, copied ? '已复制' : '复制'),
+          h('button', Object.assign({ className: 'dshComfyAlbum-btn' }, buttonTone, { onClick: copy }), copied ? '已复制' : '复制'),
         ),
-        h('pre', { style: PROMPT_BOX }, text),
+        h('pre', { style: dark ? Object.assign({}, PROMPT_BOX, PROMPT_BOX_DARK) : PROMPT_BOX }, text),
       )
     }
 
@@ -673,6 +1123,22 @@ window.__ModuleLoader__.load({
       const job = props.job
       const meta = (job && job.meta) || {}
       const [expanded, setExpanded] = useState(false)
+      // ComfyUI's queue timestamp is in seconds and inconsistent across builds,
+      // so count from the first render of this job instead of mixing units.
+      const [startedAt, setStartedAt] = useState(() => Date.now())
+      const [now, setNow] = useState(() => Date.now())
+
+      useEffect(() => {
+        setStartedAt(Date.now())
+        setNow(Date.now())
+      }, [job && job.id])
+
+      useEffect(() => {
+        const timer = setInterval(() => setNow(Date.now()), 1000)
+        return () => clearInterval(timer)
+      }, [])
+
+      const elapsed = Math.max(0, Math.floor((now - startedAt) / 1000))
       const head = meta.positive && meta.positive.text ? meta.positive.text.replace(/\s+/g, ' ').trim() : ''
 
       const sampler = meta.sampler
@@ -692,7 +1158,7 @@ window.__ModuleLoader__.load({
             top: 0,
             bottom: 0,
             width: 2,
-            background: 'var(--dsw-alias-brand-primary)',
+            background: '#ff5a5a',
           },
         }),
         h(
@@ -704,26 +1170,87 @@ window.__ModuleLoader__.load({
               height: 7,
               borderRadius: '50%',
               flex: 'none',
-              background: 'var(--dsw-alias-brand-primary)',
-              animation: 'dsh-comfy-status-pulse 1.4s ease-in-out infinite',
+              background: '#ff5a5a',
+              animation: 'dshComfyJobPulse 1.1s ease-in-out infinite',
             },
           }),
-          h('span', { style: { fontWeight: 600, fontSize: 11.5 } }, '正在生成'),
-          h('span', { style: Object.assign({}, SUB, NUM, { fontSize: 10.5 }) }, samplerLine),
+          h('span', { style: { fontWeight: 600, fontSize: 11.5, color: '#ff6b6b' } }, '正在生成'),
+          h(
+            'span',
+            {
+              style: Object.assign({}, NUM, {
+                fontSize: 10.5,
+                color: 'rgba(255, 107, 107, 0.85)',
+                whiteSpace: 'nowrap',
+              }),
+            },
+            elapsed + 's',
+          ),
           h('span', { style: { flex: 1 } }),
           h('button', { className: 'dshComfyAlbum-btn', onClick: () => setExpanded(!expanded) }, expanded ? '收起' : '查看提示词'),
         ),
-        !expanded && head
-          ? h('div', { style: Object.assign({}, SUB, ELLIPSIS, { marginTop: 4, fontSize: 10.5 }) }, head)
-          : null,
-        expanded
+        samplerLine
           ? h(
+              'div',
+              {
+                style: Object.assign({}, SUB, NUM, {
+                  fontSize: 10,
+                  marginTop: 4,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }),
+              },
+              samplerLine,
+            )
+          : null,
+        h(
+          'div',
+          {
+            style: {
+              height: 3,
+              marginTop: 7,
+              borderRadius: 99,
+              background: 'var(--dsw-alias-bg-layer-2)',
+              overflow: 'hidden',
+            },
+          },
+          h('div', {
+            style: {
+              width: '38%',
+              height: '100%',
+              borderRadius: 99,
+              background: 'linear-gradient(90deg, #ff4d4d, #ff9a4a)',
+              animation: 'dshComfyJobSlide 1.15s ease-in-out infinite',
+            },
+          }),
+        ),
+        !expanded && head
+          ? h('div', { style: Object.assign({}, SUB, ELLIPSIS, { marginTop: 5, fontSize: 10.5 }) }, head)
+          : null,
+        h(
+          'div',
+          {
+            style: {
+              display: 'grid',
+              gridTemplateRows: expanded ? '1fr' : '0fr',
+              opacity: expanded ? 1 : 0,
+              // grid rows animate without a hardcoded height: the row collapses
+              // to 0fr and the inner box clips, so the prompt can be any length.
+              transition: 'grid-template-rows 220ms cubic-bezier(0.32, 0.72, 0, 1), opacity 160ms ease',
+            },
+          },
+          h(
+            'div',
+            { style: { minHeight: 0, overflow: 'hidden' } },
+            h(
               'div',
               { style: { maxHeight: '30vh', overflowY: 'auto' } },
               h(PromptBlock, { title: '正向提示词', value: meta.positive }),
               h(PromptBlock, { title: '负向提示词', value: meta.negative }),
-            )
-          : null,
+            ),
+          ),
+        ),
       )
     }
 
@@ -732,15 +1259,34 @@ window.__ModuleLoader__.load({
       inset: 0,
       zIndex: 1000,
       display: 'flex',
-      alignItems: 'center',
+      alignItems: 'stretch',
       justifyContent: 'center',
       padding: 24,
       background: 'rgba(0, 0, 0, 0.86)',
       cursor: 'zoom-out',
     }
+    /** Holds the stage and everything that floats over it. */
+    const VIEWER_MAIN = {
+      position: 'relative',
+      flex: 1,
+      minWidth: 0,
+      minHeight: 0,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    }
+    /** Wraps the stage so the entrance/exit motion never fights the zoom transform. */
+    const VIEWER_ANIM = {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: '100%',
+      height: '100%',
+      willChange: 'transform, opacity',
+    }
     const VIEWER_IMAGE = {
-      maxWidth: '94vw',
-      maxHeight: '88vh',
+      maxWidth: '100%',
+      maxHeight: '100%',
       objectFit: 'contain',
       borderRadius: 8,
       display: 'block',
@@ -754,79 +1300,1333 @@ window.__ModuleLoader__.load({
       transform: 'translateX(-50%)',
       display: 'flex',
       alignItems: 'center',
-      gap: 8,
-      maxWidth: '92vw',
-      padding: '6px 10px',
-      borderRadius: 10,
-      background: 'rgba(0, 0, 0, 0.62)',
+      flexWrap: 'wrap',
+      gap: '6px 10px',
+      maxWidth: '92%',
+      padding: '7px 12px',
+      borderRadius: 12,
+      border: '1px solid rgba(255, 255, 255, 0.08)',
+      background: 'rgba(0, 0, 0, 0.55)',
+      backdropFilter: 'blur(10px)',
+      WebkitBackdropFilter: 'blur(10px)',
       color: '#ffffff',
+      cursor: 'default',
+    }
+    /** One fact in the bottom strip: a quiet label beside its value. */
+    const VIEWER_FACT = { display: 'flex', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap' }
+    /** A run of strip controls that must wrap as one unit, never splitting a button off alone. */
+    const VIEWER_BAR_GROUP = { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap' }
+    const VIEWER_FACT_LABEL = { fontSize: 9.5, color: 'rgba(255, 255, 255, 0.5)' }
+    const VIEWER_FACT_VALUE = { fontSize: 10.5, color: 'rgba(255, 255, 255, 0.92)', ...NUM }
+
+    /** Right-hand column: the prompts and the parameters that produced this image. */
+    const VIEWER_PANEL = {
+      width: '100%',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      minHeight: 0,
+      borderRadius: 14,
+      border: '1px solid rgba(255, 255, 255, 0.1)',
+      background: 'rgba(30, 30, 34, 0.82)',
+      backdropFilter: 'blur(14px)',
+      WebkitBackdropFilter: 'blur(14px)',
+      color: 'rgba(255, 255, 255, 0.9)',
+      cursor: 'default',
+      overflow: 'hidden',
+    }
+    /** Drag strip on the panel's left edge; invisible until hovered. */
+    const VIEWER_RESIZE_HANDLE = {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      bottom: 0,
+      width: 7,
+      zIndex: 3,
+      cursor: 'col-resize',
+      background: 'transparent',
+      transition: 'background .15s ease',
+    }
+    const VIEWER_PANEL_HEAD = {
+      flex: 'none',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      padding: '10px 12px',
+      borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+    }
+    const VIEWER_PANEL_BODY = {
+      flex: 1,
+      minHeight: 0,
+      overflowY: 'auto',
+      padding: '0 12px 14px',
+    }
+    const VIEWER_PANEL_EMPTY = { fontSize: 11, color: 'rgba(255, 255, 255, 0.45)', padding: '12px 0' }
+    const VIEWER_BLOCK = { marginTop: 14 }
+    const VIEWER_BLOCK_TITLE = {
+      fontSize: 10,
+      fontWeight: 600,
+      color: 'rgba(255, 255, 255, 0.5)',
+      marginBottom: 6,
+    }
+    const VIEWER_PARAM_GRID = {
+      display: 'grid',
+      gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+      columnGap: 16,
+      rowGap: 4,
+      fontSize: 10.5,
+    }
+    const VIEWER_PARAM = { display: 'flex', justifyContent: 'space-between', gap: 10, minWidth: 0 }
+    const VIEWER_PARAM_LABEL = { color: 'rgba(255, 255, 255, 0.5)', flex: 'none' }
+    const VIEWER_PARAM_VALUE = { color: 'rgba(255, 255, 255, 0.9)', ...NUM, ...ELLIPSIS }
+    const VIEWER_MODEL_ROW = { display: 'flex', alignItems: 'baseline', gap: 8, padding: '2px 0' }
+    const VIEWER_MODEL_ROLE = { flex: 'none', width: 62, color: 'rgba(255, 255, 255, 0.5)', fontSize: 10 }
+    const VIEWER_MODEL_NAME = { color: 'rgba(255, 255, 255, 0.9)', fontSize: 10.5, ...ELLIPSIS }
+    const VIEWER_MODEL_STRENGTH = {
+      flex: 'none',
+      fontSize: 10,
+      color: 'rgba(255, 255, 255, 0.82)',
+      fontVariantNumeric: 'tabular-nums',
+    }
+    const VIEWER_FILE = { fontSize: 10, color: 'rgba(255, 255, 255, 0.45)', ...ELLIPSIS, marginBottom: 2 }
+    /** Prompt editing surface inside the viewer's side column. */
+    const VIEWER_EDIT_AREA = {
+      width: '100%',
+      boxSizing: 'border-box',
+      minHeight: 64,
+      maxHeight: 420,
+      resize: 'vertical',
+      padding: '7px 9px',
+      borderRadius: 8,
+      border: '1px solid rgba(255, 255, 255, 0.1)',
+      background: 'rgba(255, 255, 255, 0.05)',
+      color: 'rgba(255, 255, 255, 0.9)',
+      fontSize: 10.5,
+      lineHeight: 1.5,
+      fontFamily: 'inherit',
+      outline: 'none',
+    }
+    const VIEWER_EDIT_ROW = { display: 'flex', alignItems: 'center', gap: 6, marginTop: 10 }
+    const VIEWER_EDIT_LABEL = { fontSize: 10, color: 'rgba(255, 255, 255, 0.5)', flex: 'none' }
+    const VIEWER_EDIT_NUM = {
+      width: 62,
+      boxSizing: 'border-box',
+      padding: '4px 6px',
+      borderRadius: 6,
+      border: '1px solid rgba(255, 255, 255, 0.1)',
+      background: 'rgba(255, 255, 255, 0.05)',
+      color: 'rgba(255, 255, 255, 0.9)',
+      fontSize: 10.5,
+      fontFamily: 'inherit',
+      outline: 'none',
+    }
+    /** Keep a dragged editor height inside what the column can actually show. */
+    function clampEditorHeight(value) {
+      const n = Number(value)
+      if (!Number.isFinite(n)) return 96
+      return Math.min(420, Math.max(64, Math.round(n)))
     }
 
-    /** Four outward arrows: "expand this image". */
+    /** Keep the info column wide enough to read, narrow enough to leave the picture room. */
+    function clampPanelWidth(value) {
+      const n = Number(value)
+      if (!Number.isFinite(n)) return 360
+      return Math.min(720, Math.max(260, Math.round(n)))
+    }
+    const VIEWER_EDIT_STATUS = { marginTop: 8, fontSize: 10.5, lineHeight: 1.5 }
+    const VIEWER_EDIT_HINT = { marginTop: 6, fontSize: 9.5, lineHeight: 1.5, color: 'rgba(255, 255, 255, 0.38)' }
+    /** Running-job banner: warm red, pinned above the scroll area so it stays visible. */
+    const VIEWER_JOB_BOX = {
+      flex: 'none',
+      padding: '9px 12px 10px',
+      borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+      background: 'rgba(255, 86, 86, 0.09)',
+    }
+    const VIEWER_JOB_HEAD = { display: 'flex', alignItems: 'center', gap: 8 }
+    const VIEWER_JOB_DOT = {
+      width: 7,
+      height: 7,
+      flex: 'none',
+      borderRadius: '50%',
+      background: '#ff5a5a',
+      boxShadow: '0 0 0 3px rgba(255, 90, 90, 0.2)',
+      animation: 'dshComfyJobPulse 1.1s ease-in-out infinite',
+    }
+    const VIEWER_JOB_TEXT = { fontSize: 11, fontWeight: 600, color: '#ff9a9a' }
+    const VIEWER_JOB_ELAPSED = {
+      fontSize: 10.5,
+      color: 'rgba(255, 179, 179, 0.85)',
+      fontVariantNumeric: 'tabular-nums',
+    }
+    const VIEWER_JOB_TRACK = {
+      height: 4,
+      marginTop: 8,
+      borderRadius: 99,
+      background: 'rgba(255, 255, 255, 0.08)',
+      overflow: 'hidden',
+    }
+    const VIEWER_JOB_BAR = {
+      width: '35%',
+      height: '100%',
+      borderRadius: 99,
+      background: 'linear-gradient(90deg, #ff4d4d, #ff9a4a)',
+      animation: 'dshComfyJobSlide 1.15s ease-in-out infinite',
+    }
+    const VIEWER_JOB_CANCEL = {
+      color: '#ffb3b3',
+      borderColor: 'rgba(255, 120, 120, 0.45)',
+    }
+    const VIEWER_STAGE = {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: '100%',
+      height: '100%',
+      overflow: 'hidden',
+    }
+    const VIEWER_NAV = {
+      position: 'absolute',
+      top: '50%',
+      transform: 'translateY(-50%)',
+      width: 36,
+      height: 56,
+      border: 0,
+      borderRadius: 10,
+      background: 'rgba(0, 0, 0, 0.42)',
+      color: '#ffffff',
+      fontSize: 22,
+      lineHeight: 1,
+      cursor: 'pointer',
+      zIndex: 2,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    }
+    const VIEWER_THUMBS = { display: 'flex', alignItems: 'center', gap: 3 }
+    const VIEWER_THUMB = {
+      width: 28,
+      height: 28,
+      objectFit: 'cover',
+      borderRadius: 4,
+      border: '1px solid rgba(255, 255, 255, 0.25)',
+      opacity: 0.65,
+      cursor: 'pointer',
+    }
+    /** The prompt surface once it sits on the dark viewer instead of the page. */
+    const PROMPT_BOX_DARK = {
+      border: '1px solid rgba(255, 255, 255, 0.1)',
+      background: 'rgba(255, 255, 255, 0.06)',
+      color: 'rgba(255, 255, 255, 0.88)',
+      maxHeight: 220,
+    }
+
+    /**
+     * Bounds the pan so the zoomed image never leaves the stage: the visible
+     * overflow is the only room it has to move. At 1x the overflow is zero, so
+     * the offset stays centred.
+     */
+    function clampViewerOffset(offset, scale, stageRect, image) {
+      // offset and stageRect are visual pixels (pointer space); offsetWidth is
+      // layout pixels, which the plugin-wide zoom has already scaled on screen.
+      const maxX = Math.max(0, (image.offsetWidth * UI_SCALE * scale - stageRect.width) / 2)
+      const maxY = Math.max(0, (image.offsetHeight * UI_SCALE * scale - stageRect.height) / 2)
+      return {
+        x: Math.min(maxX, Math.max(-maxX, offset.x)),
+        y: Math.min(maxY, Math.max(-maxY, offset.y)),
+      }
+    }
+
+    /** "Expand this image" — Lucide maximize. */
     function ZoomIcon(props) {
-      const size = (props && props.size) || 14
+      return h(Icon, { name: 'maximize', size: (props && props.size) || 14 })
+    }
+
+    /**
+     * Right-hand column of the viewer: what was written, and what made the
+     * picture. The short facts stay on the strip over the image; this holds the
+     * text, which needs room a floating strip cannot give it.
+     */
+    /**
+     * One shared tracker for the job the user started from the album.
+     *
+     * It lives at module scope on purpose. A completion chime has to survive the
+     * viewer being closed — and an AudioContext owned by a component gets closed
+     * exactly when that component unmounts, which is why the chime came and went.
+     */
+    const jobStore = (() => {
+      let state = null
+      let timer = null
+      let ctx = null
+      const listeners = new Set()
+
+      const notify = () => {
+        for (const listener of [...listeners]) listener()
+      }
+
+      const ensureAudio = () => {
+        try {
+          const Ctx = window.AudioContext || window.webkitAudioContext
+          if (!Ctx) return null
+          if (!ctx) ctx = new Ctx()
+          if (ctx.state === 'suspended') ctx.resume()
+          return ctx
+        } catch {
+          return null
+        }
+      }
+
+      const ding = () => {
+        const audio = ensureAudio()
+        if (!audio) return
+        try {
+          const now = audio.currentTime
+          const gain = audio.createGain()
+          gain.gain.setValueAtTime(0.0001, now)
+          gain.gain.exponentialRampToValueAtTime(0.2, now + 0.02)
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55)
+          const osc = audio.createOscillator()
+          osc.type = 'sine'
+          osc.frequency.setValueAtTime(880, now)
+          osc.frequency.setValueAtTime(1318, now + 0.09)
+          osc.connect(gain)
+          gain.connect(audio.destination)
+          osc.start(now)
+          osc.stop(now + 0.6)
+        } catch {
+          // An audio device that refuses to play is not worth failing the job over.
+        }
+      }
+
+      const stopTimer = () => {
+        if (timer) {
+          clearInterval(timer)
+          timer = null
+        }
+      }
+
+      let tick // assigned below; set() runs only after module load
+
+      const set = (next) => {
+        state = next
+        notify()
+        if (!next || next.status === 'done' || next.status === 'error') {
+          stopTimer()
+        } else if (!timer) {
+          tick()
+          timer = setInterval(tick, 3000)
+        }
+      }
+
+      tick = async () => {
+        const current = state
+        if (!current || !current.id) return
+        if (current.status === 'done' || current.status === 'error') return
+        try {
+          const snapRes = await fetch(SNAPSHOT, { cache: 'no-store' })
+          const snap = await snapRes.json()
+          const last = snap && snap.last
+          if (last && last.promptId === current.id && last.status === 'error') {
+            set({ status: 'error', message: 'ComfyUI 执行失败', id: current.id, at: current.at })
+            return
+          }
+          // A failed job may never produce an image, so the album alone cannot
+          // tell us it is over; stop waiting after five minutes regardless.
+          if (current.at && Date.now() - current.at > 300000) {
+            set({ status: 'error', message: '超时未检测到结果，请查看 ComfyUI 控制台', id: current.id, at: current.at })
+            return
+          }
+          const queue = (snap && snap.queue) || {}
+          const runningIds = Array.isArray(queue.runningIds) ? queue.runningIds : []
+          const pendingIds = Array.isArray(queue.pendingIds) ? queue.pendingIds : []
+          if (runningIds.indexOf(current.id) >= 0) {
+            if (current.status !== 'running') set({ ...current, status: 'running', message: '正在生成…' })
+            return
+          }
+          if (pendingIds.indexOf(current.id) >= 0) {
+            if (current.status !== 'queued') set({ ...current, status: 'queued', message: '排队中…' })
+            return
+          }
+          const albumRes = await fetch(ALBUM_ENDPOINT, { cache: 'no-store' })
+          const album = await albumRes.json()
+          const item = (album.items || []).find((entry) => entry.id === current.id)
+          if (!item) return
+          if (item.completed) {
+            const first = Array.isArray(item.images) && item.images.length > 0 ? item.images[0] : null
+            set({
+              status: 'done',
+              message: '生成完成，已加入相册',
+              id: current.id,
+              at: current.at,
+              origin: current.origin,
+              imageUrl: first ? first.url : '',
+              filename: first ? first.filename : '',
+            })
+            if (pluginPrefs.get().sound !== false) ding()
+          } else if (item.status === 'error') {
+            set({ status: 'error', message: 'ComfyUI 执行失败', id: current.id, at: current.at, origin: current.origin })
+          }
+        } catch {
+          // A transient network failure: the next tick retries.
+        }
+      }
+
+      return {
+        get: () => state,
+        subscribe(listener) {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
+        start(promptId, origin) {
+          set({
+            status: 'queued',
+            message: '已交给 ComfyUI，等待生成…',
+            id: promptId,
+            at: Date.now(),
+            origin: origin || 'album',
+          })
+        },
+        fail(message) {
+          set({ status: 'error', message })
+        },
+        ensureAudio,
+      }
+    })()
+
+    function ViewerInfoPanel(props) {
+      const meta = props.meta || {}
+      const sampler = meta.sampler || null
+      const models = meta.models || []
+      const hasPrompts = Boolean(meta.positive || meta.negative)
+      const params = []
+      if (sampler) {
+        if (sampler.name) params.push(['采样器', sampler.name])
+        if (sampler.scheduler) params.push(['调度', sampler.scheduler])
+        if (sampler.steps !== null && sampler.steps !== undefined) params.push(['步数', String(sampler.steps)])
+        if (sampler.cfg !== null && sampler.cfg !== undefined) params.push(['CFG', String(sampler.cfg)])
+        if (sampler.seed !== null && sampler.seed !== undefined) params.push(['种子', String(sampler.seed)])
+        if (sampler.denoise !== null && sampler.denoise !== undefined) params.push(['降噪', String(sampler.denoise)])
+      }
+
+      const [editing, setEditing] = useState(false)
+      const [initialPositive, setInitialPositive] = useState('')
+      const [initialNegative, setInitialNegative] = useState('')
+      const [seedMode, setSeedMode] = useState('keep')
+      const [job, setJob] = useState(() => jobStore.get())
+      const [cancelling, setCancelling] = useState(false)
+      const [clock, setClock] = useState(0)
+      const [soundOn, setSoundOn] = usePref('sound')
+      const [positiveHeight, setPositiveHeight] = usePref('editorPositiveHeight')
+      const [negativeHeight, setNegativeHeight] = usePref('editorNegativeHeight')
+      const [samplerValue, setSamplerValue] = useState('')
+      const [schedulerValue, setSchedulerValue] = useState('')
+      const [stepsValue, setStepsValue] = useState('')
+      const [cfgValue, setCfgValue] = useState('')
+      const [paramOptions, setParamOptions] = useState(null)
+      const positiveRef = useRef(null)
+      const negativeRef = useRef(null)
+
+      const canEdit = Boolean(props.promptId) && hasPrompts
+      const busy = job !== null && (job.status === 'sending' || job.status === 'queued' || job.status === 'running')
+      const active = job !== null && (job.status === 'queued' || job.status === 'running')
+
+      // The tracker is shared, so the viewer mirrors it instead of owning it.
+      useEffect(() => jobStore.subscribe(() => setJob(jobStore.get())), [])
+
+      // Paging to another picture must not leave one prompt's draft pointed at
+      // another record's node ids.
+      useEffect(() => {
+        setEditing(false)
+      }, [props.promptId])
+
+      // Seconds since the job was accepted, ticking while the banner is up.
+      useEffect(() => {
+        if (!active) return undefined
+        setClock(Date.now())
+        const timer = setInterval(() => setClock(Date.now()), 1000)
+        return () => clearInterval(timer)
+      }, [active])
+
+      /** Store the height the user just dragged the editor to. */
+      const rememberHeight = (ref, setter) => {
+        const node = ref.current
+        if (!node) return
+        const height = Math.round(node.offsetHeight)
+        if (Number.isFinite(height)) setter(clampEditorHeight(height))
+      }
+
+      const startEdit = () => {
+        setInitialPositive(meta.positive ? meta.positive.raw || meta.positive.text : '')
+        setInitialNegative(meta.negative ? meta.negative.raw || meta.negative.text : '')
+        const sampler = meta.sampler || {}
+        setSamplerValue(sampler.name || '')
+        setSchedulerValue(sampler.scheduler || '')
+        setStepsValue(sampler.steps !== null && sampler.steps !== undefined ? String(sampler.steps) : '')
+        setCfgValue(sampler.cfg !== null && sampler.cfg !== undefined ? String(sampler.cfg) : '')
+        setEditing(true)
+      }
+
+      // The sampler and scheduler lists come from ComfyUI itself, so a custom
+      // node pack never offers a value the server would reject.
+      useEffect(() => {
+        if (!editing || paramOptions) return undefined
+        let alive = true
+        fetch('/plugin/comfy-status/sampler-options', { cache: 'no-store' })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (alive && data && Array.isArray(data.samplers)) setParamOptions(data)
+          })
+          .catch(() => {
+            // The dropdowns fall back to the record's current value.
+          })
+        return () => {
+          alive = false
+        }
+      }, [editing, paramOptions])
+
+      const send = async () => {
+        if (!props.promptId || busy) return
+        // Unlock audio while the click is still a user gesture; the chime itself
+        // fires much later, from the tracker's timer.
+        jobStore.ensureAudio()
+        try {
+          const res = await fetch('/plugin/comfy-status/regenerate', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              promptId: props.promptId,
+              positive: positiveRef.current ? positiveRef.current.value : initialPositive,
+              negative: negativeRef.current ? negativeRef.current.value : initialNegative,
+              seed: seedMode,
+              sampler: samplerValue,
+              scheduler: schedulerValue,
+              steps: Number(stepsValue) || undefined,
+              cfg: Number(cfgValue) || undefined,
+            }),
+          })
+          const data = await res.json().catch(() => null)
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && data.error) || 'HTTP ' + res.status)
+          }
+          jobStore.start(data.promptId)
+        } catch (error) {
+          const message = String((error && error.message) || error)
+          jobStore.fail(
+            message === 'not found' || /HTTP 404/.test(message)
+              ? '插件 Host 还没重载：toggle 一次 bundle 再试'
+              : message,
+          )
+        }
+      }
+
+      const cancel = async () => {
+        if (!job || !job.id || cancelling) return
+        const target = job
+        setCancelling(true)
+        try {
+          const res = await fetch('/plugin/comfy-status/cancel', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ promptId: target.id }),
+          })
+          const data = await res.json().catch(() => null)
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && data.error) || 'HTTP ' + res.status)
+          }
+          jobStore.fail(
+            data.removed && data.removed.length > 0 ? '已终止这次生成' : '任务已结束，无需终止',
+          )
+        } catch (error) {
+          const message = String((error && error.message) || error)
+          jobStore.fail(
+            message === 'not found' || /HTTP 404/.test(message)
+              ? '插件 Host 还没重载：toggle 一次 bundle 再试'
+              : '终止失败：' + message,
+          )
+        } finally {
+          setCancelling(false)
+        }
+      }
+
+      const elapsed = job && job.at && clock ? Math.max(0, Math.floor((clock - job.at) / 1000)) : 0
+
+      // The current value is prepended when the engine list is unavailable or
+      // does not contain it, so the control never renders blank.
+      const buildChoices = (values, current) => {
+        const list = (Array.isArray(values) ? values : []).map((value) => ({ value, label: value }))
+        if (current && !list.some((option) => option.value === current)) {
+          list.unshift({ value: current, label: current })
+        }
+        return list
+      }
+      const samplerChoices = buildChoices(paramOptions && paramOptions.samplers, samplerValue)
+      const schedulerChoices = buildChoices(paramOptions && paramOptions.schedulers, schedulerValue)
+
+      const statusColor =
+        job && job.status === 'error'
+          ? '#ff9a9a'
+          : job && job.status === 'done'
+            ? '#8fe3a0'
+            : 'rgba(255, 255, 255, 0.7)'
+
       return h(
-        'svg',
-        { width: size, height: size, viewBox: '0 0 16 16', 'aria-hidden': true, style: { display: 'block' } },
+        'aside',
+        {
+          style: VIEWER_PANEL,
+          'aria-label': '生成信息',
+          onClick: (event) => event.stopPropagation(),
+        },
         h(
-          'g',
-          { fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' },
-          h('path', { d: 'M6 2H2v4' }),
-          h('path', { d: 'M10 2h4v4' }),
-          h('path', { d: 'M14 10v4h-4' }),
-          h('path', { d: 'M2 10v4h4' }),
+          'div',
+          { style: VIEWER_PANEL_HEAD },
+          h('span', { style: { fontSize: 12, fontWeight: 600 } }, '生成信息'),
+          h('span', { style: { flex: 1 } }),
+          canEdit
+            ? h(
+                'button',
+                {
+                  className: 'dshComfyAlbum-btn',
+                  'data-dark': 'true',
+                  onClick: editing
+                    ? () => {
+                        setEditing(false)
+                      }
+                    : startEdit,
+                  title: editing ? '退出编辑' : '改提示词并重新生成',
+                },
+                editing ? '退出' : '编辑',
+              )
+            : null,
+          h(
+            'button',
+            {
+              className: 'dshComfyAlbum-btn dshComfyViewer-icon',
+              'data-dark': 'true',
+              onClick: () => setSoundOn(!soundOn),
+              title: soundOn ? '完成提示音：开' : '完成提示音：关',
+              'aria-label': soundOn ? '关闭完成提示音' : '开启完成提示音',
+            },
+            h(SoundGlyph, { on: soundOn }),
+          ),
+          h(
+            'button',
+            Object.assign(
+              { className: 'dshComfyAlbum-btn', 'data-dark': 'true', title: '收起信息栏（i）' },
+              { onClick: props.onClose },
+            ),
+            '收起',
+          ),
+        ),
+        active
+          ? h(
+              'div',
+              { style: VIEWER_JOB_BOX },
+              h(
+                'div',
+                { style: VIEWER_JOB_HEAD },
+                h('span', { style: VIEWER_JOB_DOT }),
+                h(
+                  'span',
+                  { style: VIEWER_JOB_TEXT },
+                  cancelling ? '正在终止…' : job.status === 'running' ? '正在生成…' : '排队中…',
+                ),
+                h('span', { style: VIEWER_JOB_ELAPSED }, elapsed + 's'),
+                h('span', { style: { flex: 1 } }),
+                h(
+                  'button',
+                  {
+                    className: 'dshComfyAlbum-btn',
+                    'data-dark': 'true',
+                    style: VIEWER_JOB_CANCEL,
+                    disabled: cancelling,
+                    onClick: cancel,
+                    title: '停止这次生成',
+                  },
+                  cancelling ? '终止中…' : '终止',
+                ),
+              ),
+              h('div', { style: VIEWER_JOB_TRACK }, h('div', { style: VIEWER_JOB_BAR })),
+            )
+          : null,
+        h(
+          'div',
+          { style: VIEWER_PANEL_BODY },
+          h('div', { style: VIEWER_FILE, title: props.filename }, props.filename),
+          editing
+            ? h(
+                'div',
+                null,
+                h('div', { style: VIEWER_BLOCK_TITLE }, '正向提示词'),
+                h('textarea', {
+                  ref: positiveRef,
+                  defaultValue: initialPositive,
+                  style: Object.assign({}, VIEWER_EDIT_AREA, { height: clampEditorHeight(positiveHeight) }),
+                  onMouseUp: () => rememberHeight(positiveRef, setPositiveHeight),
+                  onTouchEnd: () => rememberHeight(positiveRef, setPositiveHeight),
+                  spellCheck: false,
+                }),
+                h('div', { style: Object.assign({}, VIEWER_BLOCK_TITLE, { marginTop: 10 }) }, '负向提示词'),
+                h('textarea', {
+                  ref: negativeRef,
+                  defaultValue: initialNegative,
+                  style: Object.assign({}, VIEWER_EDIT_AREA, { height: clampEditorHeight(negativeHeight) }),
+                  onMouseUp: () => rememberHeight(negativeRef, setNegativeHeight),
+                  onTouchEnd: () => rememberHeight(negativeRef, setNegativeHeight),
+                  spellCheck: false,
+                }),
+                h(
+                  'div',
+                  { style: VIEWER_EDIT_ROW },
+                  h('span', { style: VIEWER_EDIT_LABEL }, '种子'),
+                  h(
+                    'button',
+                    {
+                      className: 'dshComfyAlbum-btn',
+                      'data-dark': 'true',
+                      'data-on': seedMode === 'keep' ? 'true' : 'false',
+                      onClick: () => setSeedMode('keep'),
+                    },
+                    '沿用',
+                  ),
+                  h(
+                    'button',
+                    {
+                      className: 'dshComfyAlbum-btn',
+                      'data-dark': 'true',
+                      'data-on': seedMode === 'random' ? 'true' : 'false',
+                      onClick: () => setSeedMode('random'),
+                    },
+                    '随机',
+                  ),
+                ),
+                h(
+                  'div',
+                  { style: VIEWER_EDIT_ROW },
+                  h('span', { style: VIEWER_EDIT_LABEL }, '采样器'),
+                  h(Dropdown, {
+                    options: samplerChoices,
+                    value: samplerValue,
+                    onPick: setSamplerValue,
+                    title: '采样器',
+                    dark: true,
+                  }),
+                  h('span', { style: Object.assign({}, VIEWER_EDIT_LABEL, { marginLeft: 4 }) }, '调度'),
+                  h(Dropdown, {
+                    options: schedulerChoices,
+                    value: schedulerValue,
+                    onPick: setSchedulerValue,
+                    title: '调度',
+                    dark: true,
+                  }),
+                ),
+                h(
+                  'div',
+                  { style: VIEWER_EDIT_ROW },
+                  h('span', { style: VIEWER_EDIT_LABEL }, '步数'),
+                  h('input', {
+                    type: 'number',
+                    min: 1,
+                    max: 200,
+                    value: stepsValue,
+                    style: VIEWER_EDIT_NUM,
+                    onChange: (event) => setStepsValue(event.target.value),
+                  }),
+                  h('span', { style: VIEWER_EDIT_LABEL }, 'CFG'),
+                  h('input', {
+                    type: 'number',
+                    min: 0,
+                    step: 0.1,
+                    value: cfgValue,
+                    style: VIEWER_EDIT_NUM,
+                    onChange: (event) => setCfgValue(event.target.value),
+                  }),
+                  h('span', { style: { flex: 1 } }),
+                ),
+                h(
+                  'button',
+                  {
+                    className: 'dshComfyViewer-generate',
+                    disabled: busy,
+                    onClick: send,
+                    title: '把改过的提示词直接交给 ComfyUI',
+                  },
+                  busy ? '正在生成…' : '生成',
+                ),
+                job && !active
+                  ? h('div', { style: Object.assign({}, VIEWER_EDIT_STATUS, { color: statusColor }) }, job.message)
+                  : null,
+                h('div', { style: VIEWER_EDIT_HINT }, '生成会直接提交到 ComfyUI，结果出现在相册里。'),
+              )
+            : hasPrompts
+              ? [
+                  h(PromptBlock, {
+                    key: 'prompt-positive',
+                    title: '正向提示词',
+                    value: meta.positive,
+                    accent: 'var(--dsw-alias-brand-primary)',
+                    dark: true,
+                  }),
+                  h(PromptBlock, {
+                    key: 'prompt-negative',
+                    title: '负向提示词',
+                    value: meta.negative,
+                    accent: 'rgba(255, 255, 255, 0.22)',
+                    dark: true,
+                  }),
+                ]
+              : h('div', { style: VIEWER_PANEL_EMPTY }, '这条记录没有提示词'),
+          models.length > 0
+            ? h(
+                'div',
+                { style: VIEWER_BLOCK },
+                h('div', { style: VIEWER_BLOCK_TITLE }, '模型'),
+                ...models.map((model) =>
+                  h(
+                    'div',
+                    { key: model.role + '\u0000' + model.name, style: VIEWER_MODEL_ROW },
+                    h('span', { style: VIEWER_MODEL_ROLE }, model.role),
+                    h('span', { style: VIEWER_MODEL_NAME, title: model.name }, model.name),
+                    typeof model.strength === 'number'
+                      ? h(
+                          'span',
+                          {
+                            style: VIEWER_MODEL_STRENGTH,
+                            title:
+                              typeof model.strengthClip === 'number'
+                                ? '模型强度 ' + model.strength + '，CLIP 强度 ' + model.strengthClip
+                                : '强度 ' + model.strength,
+                          },
+                          model.strength +
+                            (typeof model.strengthClip === 'number' ? ' / ' + model.strengthClip : ''),
+                        )
+                      : null,
+                  ),
+                ),
+              )
+            : null,
+          params.length > 0
+            ? h(
+                'div',
+                { style: VIEWER_BLOCK },
+                h('div', { style: VIEWER_BLOCK_TITLE }, '采样'),
+                h(
+                  'div',
+                  { style: VIEWER_PARAM_GRID },
+                  ...params.map((pair) =>
+                    h(
+                      'div',
+                      { key: pair[0], style: VIEWER_PARAM },
+                      h('span', { style: VIEWER_PARAM_LABEL }, pair[0]),
+                      h('span', { style: VIEWER_PARAM_VALUE, title: pair[1] }, pair[1]),
+                    ),
+                  ),
+                ),
+              )
+            : null,
         ),
       )
     }
 
+    /** Small glyphs for the viewer's icon-only actions, so the strip fits on one line. */
+    function ViewerGlyph(props) {
+      const kind = props.kind
+      if (kind === 'close') return h(Icon, { name: 'x', size: 11 })
+      if (kind === 'info') return h(Icon, { name: 'info', size: 13 })
+      return h(Icon, { name: 'external-link', size: 12 })
+    }
+
+    /** Bell glyph; the slash appears while the completion sound is muted. */
+    function SoundGlyph(props) {
+      return h(Icon, { name: props.on ? 'bell' : 'bell-off', size: 13 })
+    }
+
     /** Full-viewport image viewer; Escape or a backdrop click closes it. */
     function ImageViewer(props) {
+      const images = props.images && props.images.length ? props.images : [{ url: props.src, filename: props.filename }]
+      const [index, setIndex] = useState(props.startIndex || 0)
+      const [scale, setScale] = useState(1)
+      const [offset, setOffset] = useState({ x: 0, y: 0 })
+      const [dragging, setDragging] = useState(false)
+      const [showInfo, setShowInfo] = useState(true)
+      const [natural, setNatural] = useState(null)
+      const [closing, setClosing] = useState(false)
+      const [panelWidth, setPanelWidthPref] = usePref('viewerPanelWidth')
+      const [livePanelWidth, setLivePanelWidth] = useState(null)
+      // Read once: the preference does not change mid-gesture.
+      const [reducedMotion] = useState(
+        () =>
+          typeof window !== 'undefined' &&
+          typeof window.matchMedia === 'function' &&
+          window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      )
+      const stageRef = useRef(null)
+      const imgRef = useRef(null)
+      const dragRef = useRef(null)
+      const closingRef = useRef(false)
+      const closeTimer = useRef(null)
+      const panelDragRef = useRef(null)
+      const livePanelRef = useRef(null)
+      const panelHandlersRef = useRef(null)
+      // Mirror of the zoom pair, so the wheel and pointer handlers read the live
+      // value instead of a stale render closure.
+      const viewRef = useRef({ scale: 1, offset: { x: 0, y: 0 } })
       const onClose = props.onClose
+
+      // The viewer unmounts only after the exit animation, so the timer must not
+      // outlive the component.
+      useEffect(
+        () => () => {
+          if (closeTimer.current) clearTimeout(closeTimer.current)
+        },
+        [],
+      )
+
+      // A width drag listens on window; drop those listeners with the viewer.
+      useEffect(
+        () => () => {
+          const handlers = panelHandlersRef.current
+          if (!handlers) return
+          window.removeEventListener('pointermove', handlers.move)
+          window.removeEventListener('pointerup', handlers.up)
+          window.removeEventListener('pointercancel', handlers.up)
+        },
+        [],
+      )
+
+      const requestClose = () => {
+        if (closingRef.current) return
+        closingRef.current = true
+        setClosing(true)
+        closeTimer.current = setTimeout(() => {
+          if (onClose) onClose()
+        }, 170)
+      }
+
+      // Between pointerdown and pointerup the live width wins; the stored one is
+      // written once the drag ends, so a drag does not hammer localStorage.
+      const panelPx = clampPanelWidth(livePanelWidth === null ? panelWidth : livePanelWidth)
+
+      const onPanelHandleMove = (event) => {
+        const drag = panelDragRef.current
+        if (!drag) return
+        const limit = Math.max(260, Math.min(720, window.innerWidth - 320))
+        const next = Math.min(limit, Math.max(260, drag.startWidth - (event.clientX - drag.startX)))
+        livePanelRef.current = next
+        setLivePanelWidth(next)
+      }
+
+      const onPanelHandleUp = () => {
+        if (!panelDragRef.current) return
+        panelDragRef.current = null
+        window.removeEventListener('pointermove', onPanelHandleMove)
+        window.removeEventListener('pointerup', onPanelHandleUp)
+        window.removeEventListener('pointercancel', onPanelHandleUp)
+        if (livePanelRef.current !== null) setPanelWidthPref(clampPanelWidth(livePanelRef.current))
+        livePanelRef.current = null
+        setLivePanelWidth(null)
+      }
+
+      const onPanelHandleDown = (event) => {
+        if (event.button !== 0) return
+        event.preventDefault()
+        event.stopPropagation()
+        panelDragRef.current = { startX: event.clientX, startWidth: panelPx }
+        livePanelRef.current = panelPx
+        setLivePanelWidth(panelPx)
+        panelHandlersRef.current = { move: onPanelHandleMove, up: onPanelHandleUp }
+        window.addEventListener('pointermove', onPanelHandleMove)
+        window.addEventListener('pointerup', onPanelHandleUp)
+        window.addEventListener('pointercancel', onPanelHandleUp)
+      }
+
+      const fadeAnimation = closing
+        ? 'dshComfyViewerFadeOut 160ms ease-out both'
+        : 'dshComfyViewerFadeIn 200ms ease-out both'
+      const stageAnimation = reducedMotion
+        ? 'none'
+        : closing
+          ? 'dshComfyViewerOut 160ms ease-out both'
+          : 'dshComfyViewerIn 240ms cubic-bezier(0.23, 1, 0.32, 1) both'
+      const current = images[index] || images[0]
+      // A sliding window of five thumbnails that keeps the current picture in
+      // the middle: without it the strip freezes on the newest five and paging
+      // past them leaves the strip pointing at nothing.
+      const recent = (() => {
+        const size = Math.min(images.length, 5)
+        const start = Math.max(0, Math.min(index - Math.floor(size / 2), images.length - size))
+        return images.slice(start, start + size).map((image, at) => ({ image, at: start + at }))
+      })()
+
+      const meta = current.meta || {}
+      const hasPanel = Boolean(
+        meta.positive || meta.negative || (meta.models && meta.models.length) || meta.sampler,
+      )
+      const resolution = natural && natural.width
+        ? natural.width + ' × ' + natural.height
+        : current.width && current.height
+          ? current.width + ' × ' + current.height
+          : meta.size && meta.size.width
+            ? meta.size.width + ' × ' + meta.size.height
+            : ''
+      const timeText = fmtDateTime(current.startedAt)
+      const durationText = fmtDuration(current.durationMs)
+
+      const applyView = (nextScale, nextOffset) => {
+        viewRef.current = { scale: nextScale, offset: nextOffset }
+        setScale(nextScale)
+        setOffset(nextOffset)
+      }
+
+      const resetView = () => applyView(1, { x: 0, y: 0 })
+
+      const go = (delta) => {
+        if (images.length < 2) return
+        setIndex((value) => (value + delta + images.length) % images.length)
+        // In compare mode the zoom is the point: flipping to the other picture
+        // keeps the same magnification and pan so details line up.
+        if (!props.compare) resetView()
+        setNatural(null)
+      }
+
       useEffect(() => {
         const onKey = (event) => {
           if (event.isComposing) return
-          if (event.key === 'Escape') onClose()
+          if (event.key === 'Escape') requestClose()
+          const target = event.target
+          const editing =
+            target &&
+            (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+          if (editing) return
+          if (event.key === 'ArrowLeft') go(-1)
+          if (event.key === 'ArrowRight') go(1)
+          if (event.key === 'i' || event.key === 'I') setShowInfo((value) => !value)
         }
         document.addEventListener('keydown', onKey)
         return () => document.removeEventListener('keydown', onKey)
-        // onClose only calls a state setter, so binding once is enough.
+        // go only calls state setters and reads images.length.
+      }, [images.length])
+
+      // React's onWheel is passive, so preventDefault needs a native listener.
+      useEffect(() => {
+        const node = stageRef.current
+        if (!node) return undefined
+        const onWheel = (event) => {
+          event.preventDefault()
+          const img = imgRef.current
+          const view = viewRef.current
+          const next = Math.min(5, Math.max(1, view.scale + (event.deltaY < 0 ? 0.2 : -0.2)))
+          if (next === view.scale) return
+          if (next === 1 || !img) {
+            applyView(1, { x: 0, y: 0 })
+            return
+          }
+          // Pin the point under the cursor: the new offset has to compensate for
+          // the scale ratio around the cursor's distance from the stage centre.
+          const rect = node.getBoundingClientRect()
+          const vx = event.clientX - (rect.left + rect.width / 2)
+          const vy = event.clientY - (rect.top + rect.height / 2)
+          const ratio = next / view.scale
+          const anchor = {
+            x: vx - ratio * (vx - view.offset.x),
+            y: vy - ratio * (vy - view.offset.y),
+          }
+          applyView(next, clampViewerOffset(anchor, next, rect, img))
+        }
+        node.addEventListener('wheel', onWheel, { passive: false })
+        return () => node.removeEventListener('wheel', onWheel)
       }, [])
+
+      // Panning only exists once the image is zoomed in; at 1x the pointer goes
+      // through untouched so a plain click still closes the viewer.
+      const onImagePointerDown = (event) => {
+        if (event.button !== 0 || viewRef.current.scale <= 1) return
+        event.preventDefault()
+        event.stopPropagation()
+        const img = event.currentTarget
+        if (img.setPointerCapture) img.setPointerCapture(event.pointerId)
+        dragRef.current = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          origin: viewRef.current.offset,
+        }
+        setDragging(true)
+      }
+
+      const onImagePointerMove = (event) => {
+        const drag = dragRef.current
+        if (!drag || drag.pointerId !== event.pointerId) return
+        const node = stageRef.current
+        const img = imgRef.current
+        if (!node || !img) return
+        const view = viewRef.current
+        const next = {
+          x: drag.origin.x + event.clientX - drag.startX,
+          y: drag.origin.y + event.clientY - drag.startY,
+        }
+        applyView(view.scale, clampViewerOffset(next, view.scale, node.getBoundingClientRect(), img))
+      }
+
+      const endDrag = (event) => {
+        const drag = dragRef.current
+        if (!drag || drag.pointerId !== event.pointerId) return
+        const img = event.currentTarget
+        if (img.hasPointerCapture && img.hasPointerCapture(event.pointerId)) {
+          img.releasePointerCapture(event.pointerId)
+        }
+        dragRef.current = null
+        setDragging(false)
+      }
 
       return h(
         'div',
-        { style: VIEWER_BACKDROP, onClick: onClose, role: 'presentation' },
-        h('img', {
-          src: props.src,
-          alt: props.filename,
-          style: VIEWER_IMAGE,
-          onClick: (event) => event.stopPropagation(),
-        }),
+        {
+          style: Object.assign({}, VIEWER_BACKDROP, { animation: fadeAnimation }),
+          onClick: requestClose,
+          role: 'presentation',
+        },
         h(
           'div',
-          { style: VIEWER_BAR, onClick: (event) => event.stopPropagation() },
+          { style: VIEWER_MAIN },
+          images.length > 1
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  style: Object.assign({}, VIEWER_NAV, { left: 16 }),
+                  'aria-label': '上一张',
+                  onClick: (event) => {
+                    event.stopPropagation()
+                    go(-1)
+                  },
+                },
+                '‹',
+              )
+            : null,
+          images.length > 1
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  style: Object.assign({}, VIEWER_NAV, { right: 16 }),
+                  'aria-label': '下一张',
+                  onClick: (event) => {
+                    event.stopPropagation()
+                    go(1)
+                  },
+                },
+                '›',
+              )
+            : null,
           h(
-            'span',
-            {
-              style: {
-                fontSize: 11,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                maxWidth: '46vw',
-                color: 'rgba(255, 255, 255, 0.78)',
-              },
-            },
-            props.filename,
+            'div',
+            { style: Object.assign({}, VIEWER_ANIM, { animation: stageAnimation }) },
+            h(
+              'div',
+              { ref: stageRef, style: VIEWER_STAGE },
+              h('img', {
+                ref: imgRef,
+                src: current.url,
+                alt: current.filename,
+                draggable: false,
+                style: Object.assign({}, VIEWER_IMAGE, {
+                  transform:
+                    'translate3d(' +
+                    offset.x / UI_SCALE +
+                    'px, ' +
+                    offset.y / UI_SCALE +
+                    'px, 0) scale(' +
+                    scale +
+                    ')',
+                  transition: dragging ? 'none' : 'transform 120ms ease',
+                  cursor: scale > 1 ? (dragging ? 'grabbing' : 'grab') : 'default',
+                  touchAction: 'none',
+                  userSelect: 'none',
+                }),
+                onClick: (event) => event.stopPropagation(),
+                onPointerDown: onImagePointerDown,
+                onPointerMove: onImagePointerMove,
+                onPointerUp: endDrag,
+                onPointerCancel: endDrag,
+                onDragStart: (event) => event.preventDefault(),
+                onLoad: (event) =>
+                  setNatural({
+                    width: event.currentTarget.naturalWidth,
+                    height: event.currentTarget.naturalHeight,
+                  }),
+              }),
+            ),
           ),
-          h('a', {
-            className: 'dshComfyAlbum-btn',
-            href: props.src,
-            target: '_blank',
-            rel: 'noreferrer',
-            style: { textDecoration: 'none' },
-          }, '新标签打开'),
-          h('button', { className: 'dshComfyAlbum-btn', onClick: onClose }, '关闭'),
+          h(
+            'div',
+            { style: VIEWER_BAR, onClick: (event) => event.stopPropagation() },
+            h(
+              'div',
+              { style: VIEWER_BAR_GROUP },
+              resolution
+                ? h(
+                    'span',
+                    { style: VIEWER_FACT },
+                    h('span', { style: VIEWER_FACT_LABEL }, '分辨率'),
+                    h('span', { style: VIEWER_FACT_VALUE }, resolution),
+                  )
+                : null,
+              timeText
+                ? h(
+                    'span',
+                    { style: VIEWER_FACT },
+                    h('span', { style: VIEWER_FACT_LABEL }, '生成'),
+                    h('span', { style: VIEWER_FACT_VALUE }, timeText),
+                  )
+                : null,
+              durationText !== '—'
+                ? h(
+                    'span',
+                    { style: VIEWER_FACT },
+                    h('span', { style: VIEWER_FACT_LABEL }, '耗时'),
+                    h('span', { style: VIEWER_FACT_VALUE }, durationText),
+                  )
+                : null,
+              h(
+                'span',
+                { style: VIEWER_FACT },
+                h('span', { style: VIEWER_FACT_LABEL }, '缩放'),
+                h('span', { style: VIEWER_FACT_VALUE }, scale.toFixed(1) + '×'),
+              ),
+              images.length > 1
+                ? h(
+                    'span',
+                    {
+                      style: {
+                        fontSize: 10,
+                        color: 'rgba(255, 255, 255, 0.5)',
+                        fontVariantNumeric: 'tabular-nums',
+                        whiteSpace: 'nowrap',
+                      },
+                    },
+                    index + 1 + ' / ' + images.length,
+                  )
+                : null,
+            ),
+            recent.length > 1
+              ? h(
+                  'div',
+                  { style: VIEWER_THUMBS },
+                  ...recent.map((entry) =>
+                    h('img', {
+                      key: entry.at,
+                      src: entry.image.url,
+                      alt: entry.image.filename,
+                      title: entry.image.filename,
+                      onClick: () => {
+                        setIndex(entry.at)
+                        if (!props.compare) resetView()
+                        setNatural(null)
+                      },
+                      style: Object.assign(
+                        {},
+                        VIEWER_THUMB,
+                        entry.at === index ? { opacity: 1, borderColor: 'rgba(255, 255, 255, 0.9)' } : null,
+                      ),
+                    }),
+                  ),
+                )
+              : null,
+            h(
+              'div',
+              { style: VIEWER_BAR_GROUP },
+              h('button', { className: 'dshComfyAlbum-btn', 'data-dark': 'true', onClick: resetView }, '还原'),
+              h(
+                'a',
+                {
+                  className: 'dshComfyAlbum-btn dshComfyViewer-icon',
+                  'data-dark': 'true',
+                  href: current.url,
+                  target: '_blank',
+                  rel: 'noreferrer',
+                  title: '新标签打开',
+                  'aria-label': '新标签打开',
+                },
+                h(ViewerGlyph, { kind: 'open' }),
+              ),
+              hasPanel
+                ? h(
+                    'button',
+                    {
+                      className: 'dshComfyAlbum-btn dshComfyViewer-icon',
+                      'data-dark': 'true',
+                      onClick: () => setShowInfo(!showInfo),
+                      title: showInfo ? '收起信息栏（i）' : '展开信息栏（i）',
+                      'aria-label': showInfo ? '收起信息栏' : '展开信息栏',
+                    },
+                    h(ViewerGlyph, { kind: 'info' }),
+                  )
+                : null,
+              h(
+                'button',
+                {
+                  className: 'dshComfyAlbum-btn dshComfyViewer-icon',
+                  'data-dark': 'true',
+                  onClick: requestClose,
+                  title: '关闭（Esc）',
+                  'aria-label': '关闭',
+                },
+                h(ViewerGlyph, { kind: 'close' }),
+              ),
+            ),
+          ),
         ),
+        hasPanel
+          ? h(
+              'div',
+              {
+                style: {
+                  position: 'relative',
+                  flex: 'none',
+                  // A flex child defaults to min-width:auto, which would keep the
+                  // collapsed pane at its content width instead of 0.
+                  minWidth: 0,
+                  width: showInfo ? panelPx / UI_SCALE : 0,
+                  marginLeft: showInfo ? 16 : 0,
+                  overflow: 'hidden',
+                  // While dragging, the width follows the pointer directly; the
+                  // transition only exists for the collapse/expand animation.
+                  transition:
+                    livePanelWidth !== null || reducedMotion
+                      ? 'none'
+                      : 'width 260ms cubic-bezier(0.32, 0.72, 0, 1), margin-left 260ms cubic-bezier(0.32, 0.72, 0, 1)',
+                },
+              },
+              h(
+                'div',
+                {
+                  style: {
+                    width: panelPx / UI_SCALE,
+                    height: '100%',
+                    transform: showInfo ? 'translateX(0)' : 'translateX(100%)',
+                    opacity: showInfo ? 1 : 0,
+                    transition: reducedMotion
+                      ? 'opacity 160ms ease'
+                      : 'transform 260ms cubic-bezier(0.32, 0.72, 0, 1), opacity 180ms ease',
+                  },
+                },
+                h(ViewerInfoPanel, {
+                  meta,
+                  filename: current.filename,
+                  promptId: current.itemId,
+                  onClose: () => setShowInfo(false),
+                }),
+              ),
+              showInfo
+                ? h('div', {
+                    className: 'dshComfyViewer-resize',
+                    style: VIEWER_RESIZE_HANDLE,
+                    onPointerDown: onPanelHandleDown,
+                    onClick: (event) => event.stopPropagation(),
+                    title: '拖动调整宽度',
+                  })
+                : null,
+            )
+          : null,
       )
     }
 
@@ -863,16 +2663,56 @@ window.__ModuleLoader__.load({
 
       if (models.length === 0 && !hasSampler) return null
 
-      const modelChips =
+      // Same rows as the full-screen viewer: role on the left, file name in the
+      // middle, LoRA strength on the right.
+      const modelRows =
         models.length > 0
           ? h(
               'div',
-              { style: { display: 'flex', flexWrap: 'wrap', gap: 4 } },
+              null,
               ...models.map((model) =>
                 h(
-                  'span',
-                  { key: model.role + '\u0000' + model.name, style: MODEL_CHIP, title: model.role + ': ' + model.name },
-                  model.role + ' · ' + model.name,
+                  'div',
+                  {
+                    key: model.role + '\u0000' + model.name,
+                    style: { display: 'flex', alignItems: 'baseline', gap: 8, padding: '2px 0' },
+                  },
+                  h(
+                    'span',
+                    {
+                      style: {
+                        flex: 'none',
+                        width: 52,
+                        fontSize: 10,
+                        color: 'var(--dsw-alias-label-secondary)',
+                      },
+                    },
+                    model.role,
+                  ),
+                  h(
+                    'span',
+                    { style: Object.assign({}, ELLIPSIS, { flex: 1, fontSize: 10.5 }), title: model.name },
+                    model.name,
+                  ),
+                  typeof model.strength === 'number'
+                    ? h(
+                        'span',
+                        {
+                          style: {
+                            flex: 'none',
+                            fontSize: 10,
+                            color: 'var(--dsw-alias-label-secondary)',
+                            fontVariantNumeric: 'tabular-nums',
+                          },
+                          title:
+                            typeof model.strengthClip === 'number'
+                              ? '模型强度 ' + model.strength + '，CLIP 强度 ' + model.strengthClip
+                              : '强度 ' + model.strength,
+                        },
+                        model.strength +
+                          (typeof model.strengthClip === 'number' ? ' / ' + model.strengthClip : ''),
+                      )
+                    : null,
                 ),
               ),
             )
@@ -894,11 +2734,11 @@ window.__ModuleLoader__.load({
         return h(
           'div',
           { style: Object.assign({}, INFO_CARD, { marginTop: 12 }) },
-          modelChips ? h('div', null, h('div', { style: CARD_LABEL }, '模型'), modelChips) : null,
+          modelRows ? h('div', null, h('div', { style: CARD_LABEL }, '模型'), modelRows) : null,
           sampling
             ? h(
                 'div',
-                { style: modelChips ? CARD_SECTION : null },
+                { style: modelRows ? CARD_SECTION : null },
                 h('div', { style: CARD_LABEL }, '采样'),
                 sampling,
               )
@@ -921,7 +2761,7 @@ window.__ModuleLoader__.load({
           'div',
           { style: { minWidth: 0 } },
           h('div', { style: CARD_LABEL }, '模型'),
-          modelChips || h('div', { style: EMPTY_GROUP }, '未记录'),
+          modelRows || h('div', { style: EMPTY_GROUP }, '未记录'),
         ),
         h(
           'div',
@@ -987,9 +2827,28 @@ window.__ModuleLoader__.load({
           ),
         ),
         zoomed
-          ? h(ImageViewer, { src: image.url, filename: image.filename, onClose: () => setZoomed(false) })
+          ? (() => {
+              // Compare mode narrows the viewer to the two picked pictures, so
+              // paging and the arrow keys flip between them instead of walking
+              // the whole gallery.
+              const compare = Array.isArray(props.compare) ? props.compare : null
+              const usingCompare = Boolean(
+                compare && compare.some((entry) => entry && entry.url === image.url),
+              )
+              const pool = usingCompare
+                ? compare
+                : props.gallery && props.gallery.length
+                  ? props.gallery
+                  : [image]
+              return h(ImageViewer, {
+                images: pool,
+                startIndex: Math.max(0, pool.findIndex((entry) => entry && entry.url === image.url)),
+                filename: image.filename,
+                compare: usingCompare,
+                onClose: () => setZoomed(false),
+              })
+            })()
           : null,
-        h(InfoCard, { item, wide }),
         h(PromptBlock, {
           title: '正向提示词',
           value: meta.positive,
@@ -1000,6 +2859,9 @@ window.__ModuleLoader__.load({
           value: meta.negative,
           accent: 'var(--dsw-alias-border-l2)',
         }),
+        // Same order as the full-screen viewer: prompts first, then models and
+        // sampler facts.
+        h(InfoCard, { item, wide }),
       )
     }
 
@@ -1031,6 +2893,13 @@ window.__ModuleLoader__.load({
       const [shellRef, paneWidth] = usePaneWidth()
       const [clearedBefore, setClearedBefore] = usePref('clearedBefore')
       const [confirming, setConfirming] = useState(false)
+      const [albumTheme, setAlbumTheme] = usePref('albumTheme')
+      const nightTheme = albumTheme !== 'light'
+      // Compare mode: pick one picture, then another, and the viewer pages only
+      // between those two.
+      const [compareA, setCompareA] = useState(null)
+      const [compareB, setCompareB] = useState(null)
+      const comparing = Boolean(compareA && compareB)
       const wide = paneWidth >= WIDE_BREAKPOINT
 
       // A clear only hides what already existed at that moment; the next render
@@ -1040,6 +2909,22 @@ window.__ModuleLoader__.load({
       const running = (album && album.running) || []
       const groups = groupByDay(visible)
       const selected = visible.find((item) => item.id === picked) || visible[0] || null
+      // One flat strip of every image, newest first: feeds viewer paging and the
+      // recent thumbnails at its bottom. Each entry carries its owning job so the
+      // viewer can show the prompt without a second lookup.
+      const galleryImages = []
+      for (const item of visible) {
+        for (const image of item.images || []) {
+          galleryImages.push({
+            ...image,
+            itemId: item.id,
+            startedAt: item.startedAt,
+            durationMs: item.durationMs,
+            meta: item.meta,
+          })
+        }
+      }
+      const galleryByUrl = new Map(galleryImages.map((image) => [image.url, image]))
 
       useEffect(() => {
         if (!confirming) return undefined
@@ -1056,21 +2941,60 @@ window.__ModuleLoader__.load({
         setClearedBefore(Date.now())
       }
 
-      const thumbOf = (item) =>
-        h(
-          'button',
-          {
-            key: item.id,
-            className: 'dshComfyAlbum-thumb',
-            title: item.images[0].filename,
-            onClick: () => setPicked(item.id),
-            style:
-              selected && selected.id === item.id
-                ? { outline: '2px solid var(--dsw-alias-brand-primary)', outlineOffset: 1 }
-                : null,
-          },
-          h('img', { src: item.images[0].url, loading: 'lazy', alt: item.images[0].filename, style: ALBUM_IMG }),
+      const imageCompared = (image) =>
+        Boolean((compareA && compareA.url === image.url) || (compareB && compareB.url === image.url))
+
+      const toggleCompare = (image) => {
+        if (comparing) {
+          setCompareA(null)
+          setCompareB(null)
+          return
+        }
+        if (!compareA) {
+          setCompareA(image)
+          return
+        }
+        if (compareA.url === image.url) {
+          setCompareA(null)
+          return
+        }
+        setCompareB(image)
+      }
+
+      const thumbOf = (item) => {
+        const image = galleryByUrl.get(item.images[0].url) || item.images[0]
+        const compared = imageCompared(image)
+        return h(
+          'div',
+          { key: item.id, className: 'dshComfyAlbum-cell' },
+          h(
+            'button',
+            {
+              className: 'dshComfyAlbum-thumb',
+              title: image.filename,
+              onClick: () => setPicked(item.id),
+              style:
+                selected && selected.id === item.id
+                  ? { outline: '2px solid var(--dsw-alias-brand-primary)', outlineOffset: 1 }
+                  : null,
+            },
+            h('img', { src: image.url, loading: 'lazy', alt: image.filename, style: ALBUM_IMG }),
+          ),
+          h(
+            'button',
+            {
+              className: 'dshComfyAlbum-compare',
+              'data-on': compared ? 'true' : 'false',
+              title: comparing ? '结束对比' : compared ? '取消选择' : '加入对比',
+              onClick: (event) => {
+                event.stopPropagation()
+                toggleCompare(image)
+              },
+            },
+            h(CompareIcon, { size: 12 }),
+          ),
         )
+      }
 
       const gallery = h(
         'div',
@@ -1117,12 +3041,22 @@ window.__ModuleLoader__.load({
           gallery,
           h(
             'div',
-            { style: wide ? DETAIL_PANE : ALBUM_DETAIL },
+            {
+              style: Object.assign({}, wide ? DETAIL_PANE : ALBUM_DETAIL, { position: 'relative' }),
+            },
+            running.length > 0
+              ? h('div', { style: RUNNING_FLOAT }, h(RunningBlock, { job: running[0] }))
+              : null,
             selected
               ? h(
                   'div',
                   { style: wide ? { maxWidth: DETAIL_MAX_WIDTH } : null },
-                  h(AlbumDetail, { item: selected, wide }),
+                  h(AlbumDetail, {
+                    item: selected,
+                    wide,
+                    gallery: galleryImages,
+                    compare: comparing ? [compareA, compareB] : null,
+                  }),
                 )
               : null,
           ),
@@ -1130,7 +3064,11 @@ window.__ModuleLoader__.load({
 
       return h(
         'div',
-        { style: ALBUM_SHELL, ref: shellRef },
+        {
+          style: ALBUM_SHELL,
+          className: nightTheme ? 'dshComfySurface-dark' : 'dshComfySurface-light',
+          ref: shellRef,
+        },
         h(AlbumStyles),
         h(PulseKeyframes),
         h(
@@ -1138,6 +3076,13 @@ window.__ModuleLoader__.load({
           { style: ALBUM_HEAD },
           h('span', { style: { fontWeight: 600, fontSize: 12.5 } }, '相册'),
           h('span', { style: Object.assign({}, SUB, NUM, { fontSize: 11 }) }, visible.length + ' 张'),
+          comparing
+            ? h(
+                'span',
+                { style: { fontSize: 10, color: 'var(--dsw-alias-brand-primary)', whiteSpace: 'nowrap' } },
+                '对比 2 张',
+              )
+            : null,
           h('span', { style: { flex: 1 } }),
           clearedBefore > 0
             ? h('button', { className: 'dshComfyAlbum-btn', onClick: () => setClearedBefore(0) }, '恢复')
@@ -1158,9 +3103,24 @@ window.__ModuleLoader__.load({
                 confirming ? '确认清空？' : '清空',
               )
             : null,
+          h(
+            'button',
+            {
+              className: 'dshComfyAlbum-btn',
+              style: {
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                lineHeight: 1,
+              },
+              title: nightTheme ? '切换到日间' : '切换到夜间',
+              'aria-label': nightTheme ? '切换到日间' : '切换到夜间',
+              onClick: () => setAlbumTheme(nightTheme ? 'light' : 'dark'),
+            },
+            h(ThemeIcon, { night: nightTheme }),
+          ),
           h('button', { className: 'dshComfyAlbum-btn', onClick: reload }, '刷新'),
         ),
-        running.length > 0 ? h(RunningBlock, { job: running[0] }) : null,
         content,
       )
     }
@@ -1250,7 +3210,7 @@ window.__ModuleLoader__.load({
       if (props.view === 'summary') {
         return h(
           'span',
-          { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } },
+          { style: { zoom: UI_SCALE, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } },
           '侧边栏状态' +
             (statusOn ? '开' : '关') +
             ' · 相册' +
@@ -1262,7 +3222,7 @@ window.__ModuleLoader__.load({
 
       return h(
         'div',
-        null,
+        { style: { zoom: UI_SCALE } },
         h(ModuleRow, {
           first: true,
           title: '侧边栏状态卡片',
@@ -1297,6 +3257,7 @@ window.__ModuleLoader__.load({
      *  one line. */
     const BOARD_MAX_HEIGHT = '50vh'
     const SHELL = {
+      zoom: UI_SCALE,
       display: 'flex',
       flexDirection: 'column',
       height: '100%',
@@ -1445,8 +3406,10 @@ window.__ModuleLoader__.load({
     const PANEL = {
       display: 'flex',
       flexDirection: 'column',
-      width: '94vw',
-      height: '92vh',
+      // Percentages instead of vw/vh: the overlay is zoomed, and viewport units
+      // would be scaled a second time and overflow the screen.
+      width: '94%',
+      height: '92%',
       borderRadius: 14,
       border: '1px solid var(--dsw-alias-border-l2)',
       background: 'var(--dsw-alias-bg-base)',
@@ -1528,6 +3491,61 @@ window.__ModuleLoader__.load({
       borderRadius: 9,
       background: 'var(--dsw-alias-bg-layer-2)',
     }
+    /** Whole-image caption under the box list, so the overlay works standalone. */
+    const ZOOM_SUMMARY = {
+      flex: 'none',
+      padding: '8px 10px 10px',
+      borderTop: '1px solid var(--dsw-alias-border-l2)',
+    }
+    const ZOOM_SUMMARY_AREA = {
+      width: '100%',
+      boxSizing: 'border-box',
+      minHeight: 40,
+      maxHeight: 240,
+      resize: 'vertical',
+      padding: '5px 7px',
+      borderRadius: 6,
+      border: '1px solid var(--dsw-alias-border-l2)',
+      background: 'var(--dsw-alias-bg-layer-1)',
+      color: 'var(--dsw-alias-label-primary)',
+      fontSize: 10.5,
+      lineHeight: 1.5,
+      fontFamily: 'inherit',
+      outline: 'none',
+    }
+    /** Drag strip on the overlay side column's left edge. */
+    const ZOOM_RESIZE_HANDLE = {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      bottom: 0,
+      width: 7,
+      zIndex: 3,
+      cursor: 'col-resize',
+      background: 'transparent',
+      transition: 'background .15s ease',
+    }
+
+    /** Reference image + resolution controls, stated inline in the header row. */
+    const ZOOM_TOOL_LABEL = {
+      flex: 'none',
+      fontSize: 10,
+      color: 'var(--dsw-alias-label-secondary)',
+    }
+
+    /** Keep a dragged editor height inside what the panel can show. */
+    function clampZoomHeight(value) {
+      const n = Number(value)
+      if (!Number.isFinite(n)) return 68
+      return Math.min(240, Math.max(40, Math.round(n)))
+    }
+
+    /** Keep the overlay side column wide enough to read, narrow enough to leave the board room. */
+    function clampZoomSide(value) {
+      const n = Number(value)
+      if (!Number.isFinite(n)) return 260
+      return Math.min(480, Math.max(200, Math.round(n)))
+    }
     const ZOOM_CHECK_ROW = {
       display: 'flex',
       alignItems: 'center',
@@ -1574,7 +3592,7 @@ window.__ModuleLoader__.load({
     // #fff in light mode, so the previous paint-the-background trick was invisible.
     const SEGMENT_ON = Object.assign({}, SEGMENT, {
       background: 'var(--dsw-alias-brand-primary)',
-      color: 'var(--dsw-alias-bg-base)',
+      color: 'var(--dshcomfy-on-brand)',
       cursor: 'default',
     })
     const FIELD_LABEL = {
@@ -1682,7 +3700,7 @@ window.__ModuleLoader__.load({
           '.dshCanvasBtn{appearance:none;flex:none;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10.5px;line-height:1.5;padding:4px 11px;border-radius:7px;cursor:pointer;white-space:nowrap}',
           '.dshCanvasBtn:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
           '.dshCanvasBtn:disabled{opacity:.4;cursor:default}',
-          '.dshCanvasBtn[data-tone="primary"]{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base);border-color:var(--dsw-alias-brand-primary)}',
+          '.dshCanvasBtn[data-tone="primary"]{background:var(--dsw-alias-brand-primary);color:var(--dshcomfy-on-brand);border-color:var(--dsw-alias-brand-primary)}',
           '.dshCanvasBtn[data-tone="primary"]:disabled{opacity:.4}',
           '.dshCanvasBtn[data-tone="danger"]:hover:not(:disabled){color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-bg-layer-1)}',
           '.dshCanvasBoard:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}',
@@ -1693,12 +3711,26 @@ window.__ModuleLoader__.load({
           '.dshCanvasPicker:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}',
           '.dshCanvasOption{appearance:none;display:block;width:100%;box-sizing:border-box;text-align:left;font:inherit;font-size:10px;padding:4px 6px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
           '.dshCanvasOption:hover{background:var(--dsw-alias-bg-layer-2)}',
-          '.dshCanvasOption[data-on="true"]{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base)}',
+          '.dshCanvasOption[data-on="true"]{background:var(--dsw-alias-brand-primary);color:var(--dshcomfy-on-brand)}',
           '.dshCanvasBoxItem:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}',
           '.dshCanvasBoxItem{appearance:none;display:flex;align-items:center;gap:5px;width:100%;box-sizing:border-box;font:inherit;font-size:10px;padding:3px 6px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;text-align:left;outline:none}',
           '.dshCanvasBoxItem:hover{background:var(--dsw-alias-bg-layer-2)}',
           '.dshCanvasBoxItem:focus{outline:none}',
           '.dshCanvasBoxItem[data-on="true"]{background:var(--dsw-alias-bg-layer-1);border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}',
+          '@keyframes dshComfyOverlayIn{from{opacity:0}to{opacity:1}}',
+          '@keyframes dshComfyOverlayOut{from{opacity:1}to{opacity:0}}',
+          '@keyframes dshComfyPanelIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}',
+          '@keyframes dshComfyPanelOut{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.98)}}',
+          '@keyframes dshComfyDropIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}',
+          '@keyframes dshComfyJobSlide{0%{transform:translateX(-110%)}100%{transform:translateX(360%)}}',
+          '@keyframes dshComfyJobPulse{0%,100%{opacity:.45}50%{opacity:1}}',
+          SURFACE_LIGHT_CSS,
+          SURFACE_DARK_CSS,
+          THEME_ICON_CSS,
+          '.dshComfyZoom-resize:hover{background:rgba(128,128,128,.18)}',
+          '.dshComfySurface-dark,.dshComfySurface-light{transition:background-color .3s ease,color .3s ease}',
+          '.dshComfySurface-dark *,.dshComfySurface-light *{transition:background-color .26s ease,color .26s ease,border-color .26s ease}',
+          '@media (prefers-reduced-motion:reduce){.dshComfySurface-dark,.dshComfySurface-light,.dshComfySurface-dark *,.dshComfySurface-light *{transition:none!important}}',
         ].join(''),
       )
     }
@@ -1748,22 +3780,25 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Bottom-right grab handle on the selected box. A small outlined square is the
-     * convention every design tool uses — a solid filled block reads as more
-     * content rather than as a control.
+     * Bottom-right grab handle on the selected box: a small rounded key with a
+     * diagonal-resize glyph, so it reads as a control rather than a stray pixel.
      */
     const HANDLE = {
       position: 'absolute',
-      right: -1,
-      bottom: -1,
-      width: 10,
-      height: 10,
+      right: -3,
+      bottom: -3,
+      width: 16,
+      height: 16,
       boxSizing: 'border-box',
-      borderRadius: 2,
-      border: '1.5px solid var(--dsw-alias-brand-primary)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 4,
+      border: '1px solid var(--dsw-alias-brand-primary)',
       background: 'var(--dsw-alias-bg-base)',
+      color: 'var(--dsw-alias-brand-primary)',
       cursor: 'nwse-resize',
-      boxShadow: '0 1px 2px rgba(0, 0, 0, 0.2)',
+      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.25)',
     }
 
     function clamp(value, min, max) {
@@ -1975,8 +4010,10 @@ window.__ModuleLoader__.load({
           ref: boardRef,
           className: 'dshCanvasBoard',
           style: Object.assign({}, BOARD, {
-            width: '100%',
-            maxWidth: 'calc(' + (props.maxHeight || BOARD_MAX_HEIGHT) + ' * ' + ratio + ')',
+            // Width capped by BOTH the stage width and the ratio at max height:
+            // a portrait board sized `100%` wide is taller than its max height,
+            // which pushed its top edge past the stage and got clipped.
+            width: 'min(100%, calc(' + (props.maxHeight || BOARD_MAX_HEIGHT) + ' * ' + ratio + '))',
             aspectRatio: props.width + ' / ' + props.height,
           }),
           onPointerDown: (event) => {
@@ -1988,6 +4025,16 @@ window.__ModuleLoader__.load({
             // Empty canvas: keep the browser menu suppressed so the gesture stays
             // consistent with right-clicking a box.
             event.preventDefault()
+          },
+          onDoubleClick: (event) => {
+            // Only empty space: box double clicks stop propagation themselves.
+            if (props.preview || event.target !== boardRef.current) return
+            if (!props.onAddAt || !boardRef.current) return
+            const rect = boardRef.current.getBoundingClientRect()
+            if (rect.width === 0 || rect.height === 0) return
+            const x = ((event.clientX - rect.left) / rect.width) * props.width
+            const y = ((event.clientY - rect.top) / rect.height) * props.height
+            props.onAddAt(x, y)
           },
         },
         // Sits under every box and never takes pointer events, so it stays a
@@ -2006,13 +4053,14 @@ window.__ModuleLoader__.load({
                 width: '100%',
                 height: '100%',
                 objectFit: 'contain',
-                opacity: props.reference.opacity,
+                // Preview shows the picture at its own opacity, with the boxes gone.
+                opacity: props.preview ? 1 : props.reference.opacity,
                 pointerEvents: 'none',
                 userSelect: 'none',
               },
             })
           : null,
-        ...props.boxes.map((box, index) =>
+        ...(props.preview ? [] : props.boxes.map((box, index) =>
           h(
             'div',
             {
@@ -2086,26 +4134,30 @@ window.__ModuleLoader__.load({
                     : h('span', { style: LABEL_CHIP }, boxLabel(box))
                 })(),
             props.selected === index && props.editing !== index
-              ? h('div', {
-                  style: HANDLE,
-                  title: '拖动调整大小',
-                  onPointerDown: (event) => {
-                    if (event.button !== 0) return
-                    event.preventDefault()
-                    event.stopPropagation()
-                    setDrag({
-                      mode: 'resize',
-                      index,
-                      startX: event.clientX,
-                      startY: event.clientY,
-                      origW: box.width,
-                      origH: box.height,
-                    })
+              ? h(
+                  'div',
+                  {
+                    style: HANDLE,
+                    title: '拖动调整大小',
+                    onPointerDown: (event) => {
+                      if (event.button !== 0) return
+                      event.preventDefault()
+                      event.stopPropagation()
+                      setDrag({
+                        mode: 'resize',
+                        index,
+                        startX: event.clientX,
+                        startY: event.clientY,
+                        origW: box.width,
+                        origH: box.height,
+                      })
+                    },
                   },
-                })
+                  h(Icon, { name: 'move-diagonal', size: 10 }),
+                )
               : null,
           ),
-        ),
+        )),
       )
     }
 
@@ -2115,7 +4167,14 @@ window.__ModuleLoader__.load({
      * from React state while open.
      */
     function Dropdown(props) {
+      const dark = Boolean(props.dark)
       const [open, setOpen] = useState(false)
+      const [reducedMotion] = useState(
+        () =>
+          typeof window !== 'undefined' &&
+          typeof window.matchMedia === 'function' &&
+          window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      )
       const boxRef = useRef(null)
 
       useEffect(() => {
@@ -2136,16 +4195,27 @@ window.__ModuleLoader__.load({
       }, [open])
 
       const current = props.options.find((option) => option.value === props.value)
+      const menuSkin = dark
+        ? {
+            border: '1px solid rgba(255, 255, 255, 0.14)',
+            background: 'rgba(30, 30, 34, 0.98)',
+            boxShadow: '0 12px 32px rgba(0, 0, 0, 0.5)',
+          }
+        : null
 
       return h(
         'div',
-        { ref: boxRef, style: { position: 'relative', flex: '1 1 0', minWidth: 0 } },
+        { ref: boxRef, style: { position: 'relative', flex: '1 1 0', minWidth: 96 } },
         h(
           'button',
           {
             type: 'button',
             className: 'dshCanvasPicker',
+            'data-dark': dark ? 'true' : undefined,
             title: props.title,
+            // A flex row with an empty label collapses to its padding; keep the
+            // trigger at a usable height even before a value is picked.
+            style: { minHeight: 22 },
             onClick: () => {
               if (!open && props.onOpen) props.onOpen()
               setOpen(!open)
@@ -2154,13 +4224,19 @@ window.__ModuleLoader__.load({
           h(
             'span',
             { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
-            current ? current.label : '',
+            current ? current.label : props.placeholder || '',
           ),
         ),
         open
           ? h(
               'div',
-              { style: DROPDOWN },
+              {
+                style: Object.assign({}, DROPDOWN, menuSkin, {
+                  animation: reducedMotion
+                    ? 'dshComfyOverlayIn 120ms ease both'
+                    : 'dshComfyDropIn 140ms cubic-bezier(0.23, 1, 0.32, 1) both',
+                }),
+              },
               ...props.options.map((option) =>
                 h(
                   'button',
@@ -2169,6 +4245,7 @@ window.__ModuleLoader__.load({
                     type: 'button',
                     className: 'dshCanvasOption',
                     'data-on': option.value === props.value ? 'true' : 'false',
+                    'data-dark': dark ? 'true' : undefined,
                     title: option.label,
                     onClick: () => {
                       props.onPick(option.value)
@@ -2239,9 +4316,159 @@ window.__ModuleLoader__.load({
      */
     function ZoomOverlay(props) {
       const onClose = props.onClose
+      const [overlayTheme] = usePref('albumTheme')
+      const overlayNight = overlayTheme !== 'light'
       const [localEditing, setLocalEditing] = useState(null)
       const [localDraft, setLocalDraft] = useState('')
       const [confirmRemove, setConfirmRemove] = useState(false)
+      const [closing, setClosing] = useState(false)
+      // Read once: the preference does not change mid-gesture.
+      const [reducedMotion] = useState(
+        () =>
+          typeof window !== 'undefined' &&
+          typeof window.matchMedia === 'function' &&
+          window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      )
+      const closingRef = useRef(false)
+      const closeTimer = useRef(null)
+      const [summaryHeight, setSummaryHeight] = usePref('zoomSummaryHeight')
+      const [descHeight, setDescHeight] = usePref('zoomDescHeight')
+      const [sideWidth, setSideWidthPref] = usePref('zoomPanelWidth')
+      const [liveSideWidth, setLiveSideWidth] = useState(null)
+      const sideDragRef = useRef(null)
+      const liveSideRef = useRef(null)
+      const sideHandlersRef = useRef(null)
+      const [preview, setPreview] = useState(false)
+      const [job, setJob] = useState(() => jobStore.get())
+      const [jobClock, setJobClock] = useState(() => Date.now())
+      const jobActive = job !== null && (job.status === 'queued' || job.status === 'running')
+      const summaryRef = useRef(null)
+      const descRef = useRef(null)
+
+      // The overlay unmounts only after the exit animation, so the timer must not
+      // outlive the component.
+      useEffect(
+        () => () => {
+          if (closeTimer.current) clearTimeout(closeTimer.current)
+        },
+        [],
+      )
+
+      // A side-width drag listens on window; drop those listeners with the overlay.
+      useEffect(
+        () => () => {
+          const handlers = sideHandlersRef.current
+          if (!handlers) return
+          window.removeEventListener('pointermove', handlers.move)
+          window.removeEventListener('pointerup', handlers.up)
+          window.removeEventListener('pointercancel', handlers.up)
+        },
+        [],
+      )
+
+      useEffect(() => jobStore.subscribe(() => setJob(jobStore.get())), [])
+
+      useEffect(() => {
+        if (!jobActive) return undefined
+        setJobClock(Date.now())
+        const timer = setInterval(() => setJobClock(Date.now()), 1000)
+        return () => clearInterval(timer)
+      }, [jobActive])
+
+      const jobElapsed = job && job.at && jobClock ? Math.max(0, Math.floor((jobClock - job.at) / 1000)) : 0
+
+      // Native textarea resize does not reliably fire mouseup on the element, so
+      // the settled height is read off the box itself instead of the event.
+      useEffect(() => {
+        const node = summaryRef.current
+        if (!node) return undefined
+        let timer = null
+        const observer = new ResizeObserver(() => {
+          if (timer) clearTimeout(timer)
+          timer = setTimeout(() => {
+            const height = Math.round(node.offsetHeight)
+            if (height > 0) setSummaryHeight(clampZoomHeight(height))
+          }, 250)
+        })
+        observer.observe(node)
+        return () => {
+          observer.disconnect()
+          if (timer) clearTimeout(timer)
+        }
+      }, [])
+
+      useEffect(() => {
+        const node = descRef.current
+        if (!node) return undefined
+        let timer = null
+        const observer = new ResizeObserver(() => {
+          if (timer) clearTimeout(timer)
+          timer = setTimeout(() => {
+            const height = Math.round(node.offsetHeight)
+            if (height > 0) setDescHeight(clampZoomHeight(height))
+          }, 250)
+        })
+        observer.observe(node)
+        return () => {
+          observer.disconnect()
+          if (timer) clearTimeout(timer)
+        }
+      }, [props.selected])
+
+      const requestClose = () => {
+        if (closingRef.current) return
+        closingRef.current = true
+        setClosing(true)
+        closeTimer.current = setTimeout(() => {
+          if (onClose) onClose()
+        }, 190)
+      }
+
+      // Between pointerdown and pointerup the live width wins; the stored one is
+      // written once the drag ends.
+      const sidePx = clampZoomSide(liveSideWidth === null ? sideWidth : liveSideWidth)
+
+      const onSideMove = (event) => {
+        const drag = sideDragRef.current
+        if (!drag) return
+        const limit = Math.max(200, Math.min(480, window.innerWidth * 0.5))
+        const next = Math.min(limit, Math.max(200, drag.startWidth - (event.clientX - drag.startX)))
+        liveSideRef.current = next
+        setLiveSideWidth(next)
+      }
+
+      const onSideUp = () => {
+        if (!sideDragRef.current) return
+        sideDragRef.current = null
+        window.removeEventListener('pointermove', onSideMove)
+        window.removeEventListener('pointerup', onSideUp)
+        window.removeEventListener('pointercancel', onSideUp)
+        if (liveSideRef.current !== null) setSideWidthPref(clampZoomSide(liveSideRef.current))
+        liveSideRef.current = null
+        setLiveSideWidth(null)
+      }
+
+      const onSideDown = (event) => {
+        if (event.button !== 0) return
+        event.preventDefault()
+        event.stopPropagation()
+        sideDragRef.current = { startX: event.clientX, startWidth: sidePx }
+        liveSideRef.current = sidePx
+        setLiveSideWidth(sidePx)
+        sideHandlersRef.current = { move: onSideMove, up: onSideUp }
+        window.addEventListener('pointermove', onSideMove)
+        window.addEventListener('pointerup', onSideUp)
+        window.addEventListener('pointercancel', onSideUp)
+      }
+
+      const overlayAnimation = closing
+        ? 'dshComfyOverlayOut 160ms ease-out both'
+        : 'dshComfyOverlayIn 200ms ease-out both'
+      const panelAnimation = reducedMotion
+        ? 'none'
+        : closing
+          ? 'dshComfyPanelOut 160ms ease-out both'
+          : 'dshComfyPanelIn 220ms cubic-bezier(0.23, 1, 0.32, 1) both'
 
       useEffect(() => {
         if (!confirmRemove) return undefined
@@ -2288,7 +4515,7 @@ window.__ModuleLoader__.load({
         const onKey = (event) => {
           // An IME uses Escape to cancel a candidate; that must not close the panel.
           if (event.isComposing) return
-          if (event.key === 'Escape') onClose()
+          if (event.key === 'Escape') requestClose()
         }
         document.addEventListener('keydown', onKey)
         return () => document.removeEventListener('keydown', onKey)
@@ -2298,11 +4525,16 @@ window.__ModuleLoader__.load({
 
       return h(
         'div',
-        { style: OVERLAY, onClick: onClose, role: 'presentation' },
+        {
+          style: Object.assign({}, OVERLAY, { animation: overlayAnimation, zoom: UI_SCALE }),
+          onClick: requestClose,
+          role: 'presentation',
+        },
         h(
           'div',
           {
-            style: PANEL,
+            style: Object.assign({}, PANEL, { animation: panelAnimation }),
+            className: overlayNight ? 'dshComfySurface-dark' : 'dshComfySurface-light',
             role: 'dialog',
             'aria-label': 'MOSS 画框大视图',
             onClick: (event) => event.stopPropagation(),
@@ -2310,17 +4542,193 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { style: PANEL_HEAD },
-            h('span', { style: { fontWeight: 600 } }, '画框 MOSS · ' + props.width + ' × ' + props.height),
+            h(
+              'span',
+              { style: { fontWeight: 600, whiteSpace: 'nowrap' } },
+              '画框 MOSS · ' + props.width + ' × ' + props.height,
+            ),
+            jobActive
+              ? h(
+                  'div',
+                  { style: { display: 'flex', alignItems: 'center', gap: 6, flex: 'none' } },
+                  h('span', {
+                    style: {
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      flex: 'none',
+                      background: '#ff5a5a',
+                      animation: 'dshComfyJobPulse 1.1s ease-in-out infinite',
+                    },
+                  }),
+                  h(
+                    'span',
+                    {
+                      style: {
+                        fontSize: 10.5,
+                        fontWeight: 600,
+                        color: '#ff6b6b',
+                        whiteSpace: 'nowrap',
+                      },
+                    },
+                    job.status === 'running' ? '正在生成' : '排队中',
+                  ),
+                  h(
+                    'span',
+                    {
+                      style: {
+                        fontSize: 10,
+                        color: 'rgba(255, 107, 107, 0.85)',
+                        fontVariantNumeric: 'tabular-nums',
+                      },
+                    },
+                    jobElapsed + 's',
+                  ),
+                  h(
+                    'div',
+                    {
+                      style: {
+                        width: 64,
+                        height: 3,
+                        borderRadius: 99,
+                        background: 'var(--dsw-alias-bg-layer-2)',
+                        overflow: 'hidden',
+                        flex: 'none',
+                      },
+                    },
+                    h('div', {
+                      style: {
+                        width: '40%',
+                        height: '100%',
+                        borderRadius: 99,
+                        background: 'linear-gradient(90deg, #ff4d4d, #ff9a4a)',
+                        animation: 'dshComfyJobSlide 1.15s ease-in-out infinite',
+                      },
+                    }),
+                  ),
+                )
+              : props.status
+                ? h(
+                    'span',
+                    {
+                      style: Object.assign({}, CANVAS_SUB, {
+                        fontSize: 10.5,
+                        maxWidth: 170,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }),
+                    },
+                    props.status,
+                  )
+                : null,
             h('span', { style: { flex: 1 } }),
-            h('span', { style: Object.assign({}, CANVAS_SUB, { fontSize: 10.5 }) }, props.boxes.length + ' 个框 · Esc 关闭'),
-            h('button', { className: 'dshCanvasBtn', onClick: onClose }, '关闭'),
+            h('span', { style: ZOOM_TOOL_LABEL }, '参考'),
+            h(
+              'div',
+              { style: { flex: '0 1 200px', minWidth: 120 } },
+              h(Dropdown, {
+                title: '参考图（来自 ComfyUI 相册）',
+                placeholder: '选择参考图',
+                value: props.referenceUrl || '',
+                options: [
+                  { value: '', label: '无' },
+                  ...(props.referenceOptions || []).map((option) => ({ value: option.url, label: option.label })),
+                  ...(props.referenceKind === 'file' && props.referenceUrl
+                    ? [{ value: props.referenceUrl, label: '本地 · ' + (props.referenceName || '') }]
+                    : []),
+                ],
+                onOpen: () => {
+                  if (props.onRefreshReference) props.onRefreshReference()
+                },
+                onPick: (value) => {
+                  if (props.onReferencePick) props.onReferencePick(value)
+                },
+                dark: overlayNight,
+              }),
+            ),
+            h('span', { style: ZOOM_TOOL_LABEL }, '比例'),
+            h(
+              'div',
+              { style: { flex: 'none', width: 150 } },
+              h(Dropdown, {
+                title: '画面比例',
+                placeholder: '比例',
+                value: props.ratio || (props.ratioOptions && props.ratioOptions[0]) || '',
+                options: (props.ratioOptions || []).map((option) => ({ value: option, label: option })),
+                onPick: (value) => {
+                  if (props.onRatioChange) props.onRatioChange(value)
+                },
+                dark: overlayNight,
+              }),
+            ),
+            h('input', {
+              type: 'number',
+              value: props.megapixels || 1,
+              min: props.mpMeta && typeof props.mpMeta.min === 'number' ? props.mpMeta.min : 0.1,
+              max: props.mpMeta && typeof props.mpMeta.max === 'number' ? props.mpMeta.max : 16,
+              step: props.mpMeta && typeof props.mpMeta.step === 'number' ? props.mpMeta.step : 0.1,
+              style: Object.assign({}, RES_MP, NUM),
+              title: '百万像素',
+              onChange: (event) => {
+                const next = Number(event.target.value)
+                if (Number.isFinite(next) && next > 0 && props.onMegapixelsChange) {
+                  props.onMegapixelsChange(next)
+                }
+              },
+            }),
+            h('span', { style: ZOOM_TOOL_LABEL }, 'MP'),
+            h(
+              'span',
+              { style: Object.assign({}, CANVAS_SUB, { fontSize: 10.5, whiteSpace: 'nowrap' }) },
+              props.boxes.length + ' 个框',
+            ),
+            h(
+              'button',
+              {
+                className: 'dshCanvasBtn',
+                onClick: () => {
+                  if (props.onAdd) props.onAdd()
+                },
+              },
+              props.boxes.length === 0 ? '加第一个框' : '加框',
+            ),
+            h(
+              'button',
+              {
+                className: 'dshCanvasBtn',
+                disabled: props.boxes.length === 0,
+                title: '不经过 agent，直接把当前版式提交给 ComfyUI',
+                onClick: () => {
+                  if (props.onGenerate) props.onGenerate()
+                },
+              },
+              '快速生成',
+            ),
+            h(
+              'button',
+              {
+                className: 'dshCanvasBtn',
+                'data-tone': 'primary',
+                disabled: props.boxes.length === 0,
+                onClick: () => {
+                  if (props.onSend) props.onSend()
+                },
+              },
+              props.confirmSend ? '确认发送？' : '发给 agent',
+            ),
+            h('button', { className: 'dshCanvasBtn', onClick: requestClose }, '关闭'),
           ),
           h(
             'div',
             { style: PANEL_BODY },
             h(
               'div',
-              { style: PANEL_STAGE },
+              {
+                // Size containment lets the board's width cap read the stage's
+                // own height via cqh, instead of guessing from the viewport.
+                style: Object.assign({}, PANEL_STAGE, { containerType: 'size', position: 'relative' }),
+              },
               h(Board, {
                 width: props.width,
                 height: props.height,
@@ -2329,6 +4737,7 @@ window.__ModuleLoader__.load({
                 onSelect: props.onSelect,
                 onChange: props.onChange,
                 onRemove: props.onRemove,
+                onAddAt: props.onAddAt,
                 // The overlay owns its editing session: routing it through the
                 // store costs a publish/notify round trip, and a stale closure
                 // there makes a double click silently do nothing.
@@ -2343,12 +4752,69 @@ window.__ModuleLoader__.load({
                 onDraftChange: setLocalDraft,
                 onEditCommit: commitLocalEdit,
                 onEditCancel: cancelLocalEdit,
-                maxHeight: '76vh',
+                maxHeight: '100cqh',
+                preview,
               }),
+              h(
+                'div',
+                {
+                  style: {
+                    position: 'absolute',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    bottom: 12,
+                    fontSize: 10,
+                    lineHeight: 1,
+                    color: 'var(--dsw-alias-label-secondary)',
+                    background: 'var(--dsw-alias-bg-layer-1)',
+                    padding: '5px 10px',
+                    borderRadius: 99,
+                    opacity: 0.85,
+                    pointerEvents: 'none',
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                  },
+                },
+                '双击空白加框 · 双击框编辑 · 拖动移动 · 右下角缩放',
+              ),
+              h(
+                'button',
+                {
+                  className: 'dshCanvasBtn',
+                  style: {
+                    position: 'absolute',
+                    right: 18,
+                    bottom: 18,
+                    zIndex: 20,
+                    // Fixed footprint: toggling the label must not resize the
+                    // button and make it jump around.
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 5,
+                    width: 96,
+                    height: 30,
+                    padding: 0,
+                    boxSizing: 'border-box',
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.28)',
+                  },
+                  title: preview ? '退出预览，显示画框' : '隐藏画框，按实际画面预览',
+                  onClick: () => setPreview(!preview),
+                },
+                h(Icon, { name: preview ? 'eye-off' : 'eye', size: 14 }),
+                h('span', null, preview ? '退出预览' : '预览'),
+              ),
             ),
             h(
               'div',
-              { style: PANEL_SIDE },
+              { style: Object.assign({}, PANEL_SIDE, { position: 'relative', width: sidePx }) },
+              h('div', {
+                className: 'dshComfyZoom-resize',
+                style: ZOOM_RESIZE_HANDLE,
+                onPointerDown: onSideDown,
+                title: '拖动调整宽度',
+              }),
               h(
                 'div',
                 { style: PANEL_LIST },
@@ -2422,6 +4888,30 @@ window.__ModuleLoader__.load({
                             '标记为人物',
                           ),
                       h('div', { style: ZOOM_INFO_BODY }, boxLabel(selectedBox) || '未命名'),
+                      h(
+                        'div',
+                        { style: { marginTop: 2 } },
+                        h(
+                          'label',
+                          {
+                            style: {
+                              display: 'block',
+                              fontSize: 10,
+                              color: 'var(--dsw-alias-label-secondary)',
+                              marginBottom: 4,
+                            },
+                          },
+                          '描述',
+                        ),
+                        h('textarea', {
+                          key: 'zoom-desc-' + String(props.selected),
+                          ref: descRef,
+                          defaultValue: meta.desc || '',
+                          style: Object.assign({}, ZOOM_SUMMARY_AREA, { height: clampZoomHeight(descHeight) }),
+                          onMouseUp: (event) => setDescHeight(clampZoomHeight(event.currentTarget.offsetHeight)),
+                          onChange: (event) => patch({ desc: event.target.value }),
+                        }),
+                      ),
                       h('div', { style: ZOOM_INFO_HINT }, '双击画框可直接编辑，改完点框外保存'),
                       h(
                         'div',
@@ -2448,7 +4938,36 @@ window.__ModuleLoader__.load({
                       ),
                     )
                   })()
-                : h('div', { style: EMPTY }, '点选一个框'),
+                : h(
+                    'div',
+                    { style: EMPTY },
+                    props.boxes.length === 0 ? '点上方「加第一个框」开始' : '点选一个框',
+                  ),
+              h(
+                'div',
+                { style: ZOOM_SUMMARY },
+                h(
+                  'label',
+                  {
+                    style: {
+                      display: 'block',
+                      fontSize: 10.5,
+                      color: 'var(--dsw-alias-label-secondary)',
+                      marginBottom: 4,
+                    },
+                  },
+                  '整图描述',
+                ),
+                h('textarea', {
+                  ref: summaryRef,
+                  defaultValue: props.summary || '',
+                  style: Object.assign({}, ZOOM_SUMMARY_AREA, { height: clampZoomHeight(summaryHeight) }),
+                  onMouseUp: (event) => setSummaryHeight(clampZoomHeight(event.currentTarget.offsetHeight)),
+                  onChange: (event) => {
+                    if (props.onSummaryChange) props.onSummaryChange(event.target.value)
+                  },
+                }),
+              ),
             ),
           ),
         ),
@@ -2641,6 +5160,22 @@ window.__ModuleLoader__.load({
       const [referenceOpacity, setReferenceOpacity] = useState(55)
       /** Set by the polling effect so opening the dropdown can refresh on demand. */
       const refreshAlbum = useRef(null)
+      const [canvasTheme, setCanvasTheme] = usePref('albumTheme')
+      const canvasNight = canvasTheme !== 'light'
+      const [trackedJob, setTrackedJob] = useState(() => jobStore.get())
+
+      useEffect(() => jobStore.subscribe(() => setTrackedJob(jobStore.get())), [])
+
+      // A canvas-initiated render replaces the reference with its own result, so
+      // the next iteration starts from what just came out.
+      useEffect(() => {
+        if (!trackedJob || trackedJob.status !== 'done') return
+        if (trackedJob.origin !== 'canvas' || !trackedJob.imageUrl) return
+        setReferenceUrl(trackedJob.imageUrl)
+        setReferenceKind('album')
+        setReferenceName(trackedJob.filename || '')
+        setDirty(true)
+      }, [trackedJob])
 
       // Reference images come from the ComfyUI album plugin when it is enabled.
       // Polled so a render that finishes while the board is open shows up without
@@ -2809,7 +5344,6 @@ window.__ModuleLoader__.load({
             const values = Array.isArray(node.widgets_values) ? node.widgets_values : []
             const width = typeof values[0] === 'number' ? values[0] : 1024
             const height = typeof values[1] === 'number' ? values[1] : 1024
-            const list = Array.isArray(values[2]) ? values[2] : []
             const resolver = (wf.nodes || []).find((item) => item.type === 'ResolutionSelector')
             const resolverValues = resolver && Array.isArray(resolver.widgets_values) ? resolver.widgets_values : []
             const wfRatio = typeof resolverValues[0] === 'string' ? resolverValues[0] : ''
@@ -2823,10 +5357,12 @@ window.__ModuleLoader__.load({
                 : ''
 
             // An unsent draft wins over the file: it is what the user last saw.
+            // The template's preset boxes are intentionally ignored: a fresh board
+            // starts empty and the user adds boxes from the toolbar.
             const draft = readDraft(file)
             const useWidth = draft && typeof draft.width === 'number' ? draft.width : width
             const useHeight = draft && typeof draft.height === 'number' ? draft.height : height
-            const useBoxes = draft ? draft.boxes : list
+            const useBoxes = draft ? draft.boxes : []
 
             setNodeId(node.id)
             setSize({ width: useWidth, height: useHeight })
@@ -2900,6 +5436,21 @@ window.__ModuleLoader__.load({
           y: Math.round(size.height * 0.1),
           width: Math.round(size.width * 0.3),
           height: Math.round(size.height * 0.3),
+          metadata: { type: 'obj', text: '', desc: '', palette: [] },
+        }
+        setBoxes((current) => [...current, next])
+        setSelected(boxes.length)
+        setDirty(true)
+      }
+
+      /** A double click on empty board space drops a 100×100 box centred there. */
+      const addBoxAt = (x, y) => {
+        const side = 100
+        const next = {
+          x: Math.round(clamp(x - side / 2, 0, Math.max(0, size.width - side))),
+          y: Math.round(clamp(y - side / 2, 0, Math.max(0, size.height - side))),
+          width: side,
+          height: side,
           metadata: { type: 'obj', text: '', desc: '', palette: [] },
         }
         setBoxes((current) => [...current, next])
@@ -3040,6 +5591,31 @@ window.__ModuleLoader__.load({
         }
       }
 
+      /** Direct preview: hand the current layout to ComfyUI without the agent. */
+      const quickGenerate = async () => {
+        if (boxes.length === 0) {
+          setStatus('画布上还没有框')
+          return
+        }
+        const layout = buildMossLayout(summary, size.width, size.height, boxes)
+        setStatus('正在提交…')
+        try {
+          const res = await fetch('/plugin/comfy-canvas/generate', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ layout }),
+          })
+          const data = await res.json().catch(() => null)
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && data.error) || 'HTTP ' + res.status)
+          }
+          jobStore.start(data.promptId, 'canvas')
+          setStatus('已提交，正在生成')
+        } catch (error) {
+          setStatus('提交失败：' + String((error && error.message) || error))
+        }
+      }
+
       const hasNode = nodeId !== null
 
       // Hand the working copy to the frame-wide overlay host. It renders outside
@@ -3063,9 +5639,53 @@ window.__ModuleLoader__.load({
           onEditCommit: commitEdit,
           onEditCancel: cancelEdit,
           onAdd: addBox,
+          onAddAt: addBoxAt,
           onClose: () => setZoomMode(false),
+          summary,
+          onSummaryChange: (value) => {
+            setSummary(value)
+            setDirty(true)
+          },
+          onSend: sendToAgent,
+          onGenerate: quickGenerate,
+          confirmSend,
+          status,
+          referenceUrl,
+          referenceKind,
+          referenceName,
+          referenceOptions,
+          onReferencePick: chooseReference,
+          onRefreshReference: () => {
+            if (refreshAlbum.current) refreshAlbum.current()
+          },
+          ratioOptions,
+          ratio,
+          megapixels,
+          mpMeta,
+          onRatioChange: (value) => applyResolution(value, megapixels),
+          onMegapixelsChange: (value) => applyResolution(ratio || ratioOptions[0], value),
         })
-      }, [zoomMode, size.width, size.height, boxes, selected, editing, draft, referenceUrl, referenceOpacity])
+      }, [
+        zoomMode,
+        size.width,
+        size.height,
+        boxes,
+        selected,
+        editing,
+        draft,
+        referenceUrl,
+        referenceOpacity,
+        summary,
+        confirmSend,
+        status,
+        referenceKind,
+        referenceName,
+        referenceOptions,
+        ratioOptions,
+        ratio,
+        megapixels,
+        mpMeta,
+      ])
 
       useEffect(() => () => zoomStore.set(null), [])
 
@@ -3096,14 +5716,15 @@ window.__ModuleLoader__.load({
                     null,
                     h('span', { style: RES_LABEL }, '比例'),
                     h(
-                      'select',
-                      {
-                        value: ratio || ratioOptions[0],
-                        style: RES_SELECT,
+                      'div',
+                      { style: { flex: 'none', width: 150 } },
+                      h(Dropdown, {
                         title: '画布比例',
-                        onChange: (event) => applyResolution(event.target.value, megapixels),
-                      },
-                      ...ratioOptions.map((option) => h('option', { key: option, value: option }, option)),
+                        placeholder: '选择比例',
+                        value: ratio || ratioOptions[0] || '',
+                        options: ratioOptions.map((option) => ({ value: option, label: option })),
+                        onPick: (value) => applyResolution(value, megapixels),
+                      }),
                     ),
                     h('input', {
                       type: 'number',
@@ -3126,6 +5747,7 @@ window.__ModuleLoader__.load({
               h('span', { style: RES_LABEL }, '参考'),
               h(Dropdown, {
                 title: '参考图（来自 ComfyUI 相册）',
+                placeholder: '选择参考图',
                 value: referenceUrl,
                 options: [
                   { value: '', label: '无' },
@@ -3183,6 +5805,7 @@ window.__ModuleLoader__.load({
                 onSelect: setSelected,
                 onChange: changeBox,
                 onRemove: removeBox,
+                onAddAt: addBoxAt,
                 editing,
                 draft,
                 reference: referenceUrl ? { url: referenceUrl, opacity: referenceOpacity / 100 } : null,
@@ -3220,8 +5843,39 @@ window.__ModuleLoader__.load({
               h('span', { style: NUM }, size.width + ' × ' + size.height),
               h('span', null, boxes.length + ' 个框'),
               h('span', { style: { flex: 1 } }),
-              h('button', { className: 'dshCanvasBtn', onClick: () => setZoomMode(true) }, '放大'),
+              h(
+                'button',
+                {
+                  className: 'dshCanvasBtn',
+                  style: {
+                    background: 'linear-gradient(135deg, #ff5c7a, #ff8a3d)',
+                    borderColor: 'transparent',
+                    color: '#fff',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    boxShadow: '0 0 14px rgba(255, 92, 122, 0.3)',
+                  },
+                  onClick: () => setZoomMode(true),
+                },
+                h(Icon, { name: 'maximize', size: 12 }),
+                '放大',
+              ),
               h('button', { className: 'dshCanvasBtn', onClick: addBox }, '加框'),
+            ),
+            h(
+              'div',
+              {
+                style: {
+                  marginTop: 8,
+                  fontSize: 10,
+                  lineHeight: 1.5,
+                  color: 'var(--dsw-alias-label-secondary)',
+                  opacity: 0.7,
+                },
+              },
+              '双击画布空白加框；点「放大」进入大视图，可拖动调整、双击编辑、换参考图与比例。',
             ),
           ),
           h(
@@ -3265,7 +5919,10 @@ window.__ModuleLoader__.load({
 
       return h(
         'div',
-        { style: SHELL },
+        {
+          style: SHELL,
+          className: canvasNight ? 'dshComfySurface-dark' : 'dshComfySurface-light',
+        },
         h(Styles),
         h(
           'div',
@@ -3301,6 +5958,22 @@ window.__ModuleLoader__.load({
             { className: 'dshCanvasBtn', 'data-tone': 'primary', onClick: sendToAgent, disabled: !hasNode },
             confirmSend ? '确认发送？' : '发给 agent',
           ),
+          h(
+            'button',
+            {
+              className: 'dshCanvasBtn',
+              style: {
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                lineHeight: 1,
+              },
+              title: canvasNight ? '切换到日间' : '切换到夜间',
+              'aria-label': canvasNight ? '切换到日间' : '切换到夜间',
+              onClick: () => setCanvasTheme(canvasNight ? 'light' : 'dark'),
+            },
+            h(ThemeIcon, { night: canvasNight }),
+          ),
         ),
         body,
       )
@@ -3310,34 +5983,13 @@ window.__ModuleLoader__.load({
       return h(
         'span',
         { style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 } },
-        h(
-          'svg',
-          { width: 14, height: 14, viewBox: '0 0 16 16', 'aria-hidden': true, style: { display: 'block', flex: 'none' } },
-          h(
-            'g',
-            { fill: 'none', stroke: 'currentColor', strokeWidth: 1.3 },
-            h('rect', { x: 1.6, y: 1.6, width: 12.8, height: 12.8, rx: 2 }),
-            h('rect', { x: 3.8, y: 3.8, width: 5, height: 4, rx: 1 }),
-            h('rect', { x: 9.6, y: 8.6, width: 3.4, height: 3, rx: 0.9 }),
-          ),
-        ),
+        h(Icon, { name: 'scan', size: 14, style: { flex: 'none' } }),
         h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, 'ComfyUI 画框 MOSS'),
       )
     }
 
     function CanvasIcon(props) {
-      const size = (props && props.size) || 16
-      return h(
-        'svg',
-        { width: size, height: size, viewBox: '0 0 16 16', 'aria-hidden': true, style: { display: 'block' } },
-        h(
-          'g',
-          { fill: 'none', stroke: 'currentColor', strokeWidth: 1.3 },
-          h('rect', { x: 1.6, y: 1.6, width: 12.8, height: 12.8, rx: 2 }),
-          h('rect', { x: 3.8, y: 3.8, width: 5, height: 4, rx: 1 }),
-          h('rect', { x: 9.6, y: 8.6, width: 3.4, height: 3, rx: 0.9 }),
-        ),
-      )
+      return h(Icon, { name: 'scan', size: (props && props.size) || 16 })
     }
 
     const canvasHalf = {
