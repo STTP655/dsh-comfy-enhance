@@ -574,7 +574,9 @@ function createHandler(baseUrl) {
       return
     }
     const target = new URL(`${baseUrl}/view`)
-    for (const key of ['filename', 'subfolder', 'type']) {
+    // `preview` lets ComfyUI render a downscaled variant (webp) for grids; without
+    // it the browser decodes the full-size PNG for every thumbnail.
+    for (const key of ['filename', 'subfolder', 'type', 'preview']) {
       const value = query.get(key)
       if (value !== null) target.searchParams.set(key, value)
     }

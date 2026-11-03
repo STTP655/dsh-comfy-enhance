@@ -8031,6 +8031,10 @@ window.__ModuleLoader__.load({
       const sampling = canvasModels.sampling || {}
       // The engine's folder can hold hundreds of files; cap what the grid mounts.
       const albumList = albumSource === 'output' ? outputFiles.slice(0, 120) : referenceOptions
+      /** ComfyUI serves a cheap webp preview when asked; grids must not decode
+       *  full-size outputs. */
+      const thumbOf = (url) =>
+        typeof url === 'string' && url.indexOf('/view?') >= 0 ? url + '&preview=webp' : url
 
       if (!enabled) {
         return h('div', { style: EMPTY }, '独立画板工作台已在插件设置中关闭')
@@ -8748,9 +8752,10 @@ window.__ModuleLoader__.load({
                           },
                         },
                         h('img', {
-                          src: option.url,
+                          src: thumbOf(option.url),
                           alt: '',
                           loading: 'lazy',
+                          decoding: 'async',
                           style: {
                             position: 'absolute',
                             inset: 0,
