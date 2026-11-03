@@ -8169,6 +8169,16 @@ window.__ModuleLoader__.load({
           h('span', { style: { flex: 1 } }),
           h(
             'span',
+            {
+              style: Object.assign({}, WORKSPACE_LABEL, {
+                fontSize: 10.5,
+                fontVariantNumeric: 'tabular-nums',
+              }),
+            },
+            size.width + ' × ' + size.height,
+          ),
+          h(
+            'span',
             { style: Object.assign({}, WORKSPACE_LABEL, { fontSize: 10.5 }) },
             boxes.length + ' 个框',
           ),
