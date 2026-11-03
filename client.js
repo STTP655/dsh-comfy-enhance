@@ -7471,46 +7471,59 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
-            { style: SUMMARY_BLOCK },
+            {
+              style: {
+                flex: 'none',
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 8,
+                padding: '0 14px 12px',
+                borderBottom: '1px solid var(--dsw-alias-border-l2)',
+              },
+            },
             h(
-              'label',
-              { style: FIELD_LABEL },
-              '整图描述',
-              String(summary || '').trim()
-                ? null
-                : h(
-                    'span',
-                    { style: { color: 'var(--dsw-alias-state-error-primary)', marginLeft: 6 } },
-                    '必填',
-                  ),
-            ),
-            h('textarea', {
-              value: summary,
-              style: Object.assign({}, SUMMARY_AREA, {
-                borderColor: String(summary || '').trim()
-                  ? 'var(--dsw-alias-border-l2)'
-                  : 'var(--dsw-alias-state-error-primary)',
+              'div',
+              null,
+              h(
+                'label',
+                { style: FIELD_LABEL },
+                '整图描述',
+                String(summary || '').trim()
+                  ? null
+                  : h(
+                      'span',
+                      { style: { color: 'var(--dsw-alias-state-error-primary)', marginLeft: 6 } },
+                      '必填',
+                    ),
+              ),
+              h('textarea', {
+                value: summary,
+                style: Object.assign({}, SUMMARY_AREA, {
+                  borderColor: String(summary || '').trim()
+                    ? 'var(--dsw-alias-border-l2)'
+                    : 'var(--dsw-alias-state-error-primary)',
+                }),
+                placeholder: '整张图讲什么',
+                onChange: (event) => {
+                  setSummary(event.target.value)
+                  setDirty(true)
+                },
               }),
-              placeholder: '整张图讲什么：画风、光线、背景、谁在哪',
-              onChange: (event) => {
-                setSummary(event.target.value)
-                setDirty(true)
-              },
-            }),
-          ),
-          h(
-            'div',
-            { style: SUMMARY_BLOCK },
-            h('label', { style: FIELD_LABEL }, '负面提示词'),
-            h('textarea', {
-              value: negative,
-              style: SUMMARY_AREA,
-              placeholder: '留空则沿用模板里的负向提示词',
-              onChange: (event) => {
-                setNegative(event.target.value)
-                setDirty(true)
-              },
-            }),
+            ),
+            h(
+              'div',
+              null,
+              h('label', { style: FIELD_LABEL }, '负面提示词'),
+              h('textarea', {
+                value: negative,
+                style: SUMMARY_AREA,
+                placeholder: '留空则沿用模板',
+                onChange: (event) => {
+                  setNegative(event.target.value)
+                  setDirty(true)
+                },
+              }),
+            ),
           ),
           selected !== null && boxes[selected]
             ? h(Inspector, {
