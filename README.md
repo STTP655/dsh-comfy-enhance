@@ -29,9 +29,9 @@
 
 **MOSS-Image 专用**的版式画板。产出的不是普通文本提示词，而是 MOSS 的 layout JSON（`abs_centralized` + `yxyx` 坐标），别的模型认不了。
 
-> **注意：MOSS 画板需要配合 MOSS 的官方 skill（`moss-image-prompt-enhancer`）一起工作，才能达到最佳效果。**
+> **注意：MOSS 画板建议配合 MOSS 提示词 skill（`moss-image-prompt-enhancer`）一起使用，效果更好。**
 >
-> 画板负责版式、画框和参数；画面描述、文字内容与提示词的写法交给官方 skill 来生成。两者配合才能拿到最好的构图与画面质量。
+> 画板负责版式、画框和参数；画面描述、文字内容与提示词的写法交给这个 skill 来生成。两者配合更容易拿到好的构图与画面质量。
 
 - 读取 ComfyUI 工作流里 `CreateBoundingBoxes` 节点的内容
 - 拖动移动、右下角缩放、右键删除
@@ -80,7 +80,7 @@ cmd /c mklink /J "%USERPROFILE%\.dsh\profiles\<profile>\node_modules\dsh-comfy-e
 3. 点顶部「模型」打开「生成设置」，选好 UNET / CLIP / VAE（默认是 MOSS-Image 的 DiT 三件套），LoRA 可以留空或最多加 4 个。
 4. 在画布上拖框或双击空白加框，写完整图描述后：
    - 「快速生成」：直接按当前版式出一张预览图；
-   - 「发给 agent」：把版式交给对话，继续补描述或润色（配合 MOSS 官方 skill `moss-image-prompt-enhancer` 效果最好）。
+   - 「发给 agent」：把版式交给对话，继续补描述或润色（配合 MOSS 提示词 skill `moss-image-prompt-enhancer` 效果更好）。
 5. 生成过程中可以「停止」，完成后新图会进入相册，并自动成为下一轮的参考图。
 
 ## 配置
