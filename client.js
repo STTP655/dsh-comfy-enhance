@@ -7788,7 +7788,7 @@ window.__ModuleLoader__.load({
       const panelDragRef = useRef(null)
       const [albumMetaByUrl, setAlbumMetaByUrl] = useState({})
       const [albumPick, setAlbumPick] = useState('')
-      const [albumScale, setAlbumScale] = useState(1)
+      const [albumZoom, setAlbumZoom] = useState({ scale: 1, x: 0, y: 0 })
       const albumZoomRef = useRef(null)
       const [albumSource, setAlbumSource] = useState('plugin')
       const [outputFiles, setOutputFiles] = useState([])
@@ -7915,9 +7915,9 @@ window.__ModuleLoader__.load({
         }
       }, [albumPick, albumMetaByUrl])
 
-      // Wheel zooms the preview; opening another image resets it.
+      // Wheel zooms toward the cursor; opening another image resets the view.
       useEffect(() => {
-        setAlbumScale(1)
+        setAlbumZoom({ scale: 1, x: 0, y: 0 })
       }, [albumPick])
       useEffect(() => {
         if (!albumOpen || !albumPick) return undefined
@@ -7925,7 +7925,19 @@ window.__ModuleLoader__.load({
         if (!node) return undefined
         const onWheel = (event) => {
           event.preventDefault()
-          setAlbumScale((current) => clamp(current * (event.deltaY < 0 ? 1.12 : 0.89), 0.5, 5))
+          const rect = node.getBoundingClientRect()
+          const mx = event.clientX - rect.left - rect.width / 2
+          const my = event.clientY - rect.top - rect.height / 2
+          setAlbumZoom((current) => {
+            const nextScale = clamp(current.scale * (event.deltaY < 0 ? 1.12 : 0.89), 0.5, 5)
+            const ratio = nextScale / current.scale
+            // Keep the point under the cursor fixed while scaling.
+            return {
+              scale: nextScale,
+              x: mx - ratio * (mx - current.x),
+              y: my - ratio * (my - current.y),
+            }
+          })
         }
         node.addEventListener('wheel', onWheel, { passive: false })
         return () => node.removeEventListener('wheel', onWheel)
@@ -8884,9 +8896,15 @@ window.__ModuleLoader__.load({
                             objectFit: 'contain',
                             borderRadius: 8,
                             boxShadow: '0 8px 30px rgba(0, 0, 0, 0.25)',
-                            transform: 'scale(' + albumScale + ')',
-                            transformOrigin: 'center',
-                            transition: 'transform .12s ease-out',
+                            transform:
+                              'translate(' +
+                              albumZoom.x +
+                              'px, ' +
+                              albumZoom.y +
+                              'px) scale(' +
+                              albumZoom.scale +
+                              ')',
+                            transition: 'transform .08s ease-out',
                           },
                         }),
                       ),
