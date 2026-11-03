@@ -7666,6 +7666,13 @@ window.__ModuleLoader__.load({
       fontFamily: 'inherit',
       outline: 'none',
     }
+    const WORKSPACE_PARAM_TITLE = { fontSize: 10.5, fontWeight: 600, margin: '10px 0 4px' }
+    const WORKSPACE_PARAM_BODY = {
+      fontSize: 10.5,
+      lineHeight: 1.5,
+      color: 'var(--dsw-alias-label-secondary)',
+      wordBreak: 'break-word',
+    }
 
     /**
      * Full-screen canvas workspace opened from the left sidebar entry.
@@ -7704,6 +7711,8 @@ window.__ModuleLoader__.load({
       const [referenceUrl, setReferenceUrl] = useState('')
       const [referenceOptions, setReferenceOptions] = useState([])
       const [referenceOpacity, setReferenceOpacity] = useState(55)
+      const [albumMetaByUrl, setAlbumMetaByUrl] = useState({})
+      const [albumPick, setAlbumPick] = useState('')
       const boardWrapRef = useRef(null)
 
       const filesEffect = (load) => load
@@ -7753,14 +7762,17 @@ window.__ModuleLoader__.load({
             const data = await res.json()
             if (!alive || !data) return
             const options = []
+            const metaByUrl = {}
             for (const item of data.items || []) {
               for (const image of item.images || []) {
                 if (image && image.url) {
                   options.push({ url: image.url, label: image.filename || image.url })
+                  metaByUrl[image.url] = item.meta || null
                 }
               }
             }
             setReferenceOptions(options)
+            setAlbumMetaByUrl(metaByUrl)
           } catch {
             // The album plugin may be off; the reference picker just stays empty.
           } finally {
@@ -8502,56 +8514,175 @@ window.__ModuleLoader__.load({
                     borderBottom: '1px solid var(--dsw-alias-border-l2)',
                   },
                 },
-                h('span', { style: { fontWeight: 600, fontSize: 12 } }, '相册'),
+                albumPick
+                  ? h('button', { className: 'dshCanvasBtn', onClick: () => setAlbumPick('') }, '网格')
+                  : null,
+                h('span', { style: { fontWeight: 600, fontSize: 12 } }, albumPick ? '预览' : '相册'),
                 h('span', { style: { flex: 1 } }),
+                h(
+                  'span',
+                  { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
+                  '左键查看 · 右键设为参考图',
+                ),
                 h('button', { className: 'dshCanvasBtn', onClick: () => setAlbumOpen(false) }, '关闭'),
               ),
-              h(
-                'div',
-                {
-                  style: {
-                    flex: 1,
-                    minHeight: 0,
-                    overflowY: 'auto',
-                    padding: 12,
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-                    gap: 8,
-                  },
-                },
-                referenceOptions.length === 0 ? h('div', { style: EMPTY }, '相册里还没有输出图') : null,
-                ...referenceOptions.map((option) =>
-                  h(
-                    'button',
+              albumPick
+                ? (() => {
+                    const meta = albumMetaByUrl[albumPick] || null
+                    const models = meta && Array.isArray(meta.models) ? meta.models : []
+                    const sampler = (meta && meta.sampler) || null
+                    const prompt =
+                      meta && meta.positive && typeof meta.positive.text === 'string' ? meta.positive.text : ''
+                    return h(
+                      'div',
+                      { style: { flex: 1, minHeight: 0, display: 'flex' } },
+                      h(
+                        'div',
+                        {
+                          style: {
+                            flex: 1,
+                            minWidth: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: 16,
+                            background: 'var(--dsw-alias-bg-layer-1)',
+                          },
+                        },
+                        h('img', {
+                          src: albumPick,
+                          alt: '',
+                          style: {
+                            maxWidth: '100%',
+                            maxHeight: '100%',
+                            objectFit: 'contain',
+                            borderRadius: 8,
+                            boxShadow: '0 8px 30px rgba(0, 0, 0, 0.25)',
+                          },
+                        }),
+                      ),
+                      h(
+                        'div',
+                        {
+                          style: {
+                            flex: 'none',
+                            width: 280,
+                            minHeight: 0,
+                            overflowY: 'auto',
+                            borderLeft: '1px solid var(--dsw-alias-border-l2)',
+                            padding: '10px 12px',
+                          },
+                        },
+                        h('div', { style: WORKSPACE_PARAM_TITLE }, '提示词'),
+                        h('div', { style: WORKSPACE_PARAM_BODY }, prompt || '（没有记录）'),
+                        h('div', { style: WORKSPACE_PARAM_TITLE }, '模型'),
+                        models.length === 0
+                          ? h('div', { style: WORKSPACE_PARAM_BODY }, '（没有记录）')
+                          : h(
+                              'div',
+                              { style: { display: 'flex', flexDirection: 'column', gap: 2 } },
+                              ...models.map((model, index) =>
+                                h(
+                                  'div',
+                                  { key: index, style: WORKSPACE_PARAM_BODY },
+                                  (model.role || '') + '：' + (model.name || ''),
+                                ),
+                              ),
+                            ),
+                        h('div', { style: WORKSPACE_PARAM_TITLE }, '采样'),
+                        sampler
+                          ? h(
+                              'div',
+                              { style: { display: 'flex', flexDirection: 'column', gap: 2 } },
+                              h(
+                                'div',
+                                { style: WORKSPACE_PARAM_BODY },
+                                '采样器：' + (sampler.name || '—') + ' / ' + (sampler.scheduler || '—'),
+                              ),
+                              h(
+                                'div',
+                                { style: WORKSPACE_PARAM_BODY },
+                                '步数：' +
+                                  (sampler.steps !== null && sampler.steps !== undefined ? sampler.steps : '—') +
+                                  ' · CFG：' +
+                                  (sampler.cfg !== null && sampler.cfg !== undefined ? sampler.cfg : '—'),
+                              ),
+                              h(
+                                'div',
+                                { style: WORKSPACE_PARAM_BODY },
+                                '种子：' +
+                                  (sampler.seed !== null && sampler.seed !== undefined ? sampler.seed : '—'),
+                              ),
+                            )
+                          : h('div', { style: WORKSPACE_PARAM_BODY }, '（没有记录）'),
+                        h(
+                          'div',
+                          { style: { marginTop: 14 } },
+                          h(
+                            'button',
+                            {
+                              className: 'dshCanvasBtn',
+                              style: { width: '100%' },
+                              onClick: () => {
+                                setReferenceUrl(albumPick)
+                                setDirty(true)
+                                setAlbumOpen(false)
+                              },
+                            },
+                            '设为参考图',
+                          ),
+                        ),
+                      ),
+                    )
+                  })()
+                : h(
+                    'div',
                     {
-                      key: option.url,
-                      type: 'button',
-                      className: 'dshCanvasBtn',
                       style: {
-                        padding: 0,
-                        border: 0,
-                        overflow: 'hidden',
-                        borderRadius: 8,
-                        cursor: 'pointer',
-                        height: 110,
-                        background: 'transparent',
-                      },
-                      title: option.label,
-                      onClick: () => {
-                        setReferenceUrl(option.url)
-                        setDirty(true)
-                        setAlbumOpen(false)
+                        flex: 1,
+                        minHeight: 0,
+                        overflowY: 'auto',
+                        padding: 12,
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+                        gap: 8,
                       },
                     },
-                    h('img', {
-                      src: option.url,
-                      alt: '',
-                      loading: 'lazy',
-                      style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
-                    }),
+                    referenceOptions.length === 0 ? h('div', { style: EMPTY }, '相册里还没有输出图') : null,
+                    ...referenceOptions.map((option) =>
+                      h(
+                        'button',
+                        {
+                          key: option.url,
+                          type: 'button',
+                          className: 'dshCanvasBtn',
+                          style: {
+                            padding: 0,
+                            border: 0,
+                            overflow: 'hidden',
+                            borderRadius: 8,
+                            cursor: 'pointer',
+                            height: 105,
+                            background: 'transparent',
+                          },
+                          title: option.label,
+                          onClick: () => setAlbumPick(option.url),
+                          onContextMenu: (event) => {
+                            event.preventDefault()
+                            setReferenceUrl(option.url)
+                            setDirty(true)
+                            setAlbumOpen(false)
+                          },
+                        },
+                        h('img', {
+                          src: option.url,
+                          alt: '',
+                          loading: 'lazy',
+                          style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
+                        }),
+                      ),
+                    ),
                   ),
-                ),
-              ),
             )
           : null,
         h(ModelSettingsDialog, {
