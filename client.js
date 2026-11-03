@@ -51,6 +51,7 @@ window.__ModuleLoader__.load({
         zoomDescHeight: 68,
         zoomPanelWidth: 260,
         canvasRuler: false,
+        canvasWorkspace: true,
         canvasModels: Object.assign({}, DEFAULT_CANVAS_MODELS),
       }
       try {
@@ -78,6 +79,7 @@ window.__ModuleLoader__.load({
               zoomPanelWidth:
                 typeof parsed.zoomPanelWidth === 'number' ? parsed.zoomPanelWidth : 260,
               canvasRuler: parsed.canvasRuler === true,
+              canvasWorkspace: parsed.canvasWorkspace !== false,
               canvasModels: (() => {
                 const raw =
                   parsed.canvasModels && typeof parsed.canvasModels === 'object' ? parsed.canvasModels : {}
@@ -3309,6 +3311,7 @@ window.__ModuleLoader__.load({
       const [statusOn, setStatusOn] = usePref('status')
       const [albumOn, setAlbumOn] = usePref('album')
       const [canvasOn, setCanvasOn] = usePref('canvas')
+      const [workspaceOn, setWorkspaceOn] = usePref('canvasWorkspace')
 
       if (props.view === 'summary') {
         return h(
@@ -3319,7 +3322,9 @@ window.__ModuleLoader__.load({
             ' · 相册' +
             (albumOn ? '开' : '关') +
             ' · 画板MOSS' +
-            (canvasOn ? '开' : '关'),
+            (canvasOn ? '开' : '关') +
+            ' · 工作台' +
+            (workspaceOn ? '开' : '关'),
         )
       }
 
@@ -3344,6 +3349,12 @@ window.__ModuleLoader__.load({
           description: 'MOSS 模型专用：在右侧边栏编辑画框、整图描述与版式提示词。',
           checked: canvasOn,
           onChange: setCanvasOn,
+        }),
+        h(ModuleRow, {
+          title: '独立画板工作台',
+          description: '在左侧边栏「自动化任务」下加入口，点开是全屏画板工作台，不依赖右侧标签页。',
+          checked: workspaceOn,
+          onChange: setWorkspaceOn,
         }),
       )
     }
@@ -7545,6 +7556,605 @@ window.__ModuleLoader__.load({
       return h(Icon, { name: 'scan', size: (props && props.size) || 16 })
     }
 
+    const WORKSPACE_KEY = 'dsh-comfy-workspace'
+    const WORKSPACE_SHELL = {
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100%',
+      minHeight: 0,
+      fontSize: 12,
+      color: 'var(--dsw-alias-label-primary)',
+    }
+    const WORKSPACE_TOOLBAR = {
+      flex: 'none',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      padding: '10px 14px',
+      borderBottom: '1px solid var(--dsw-alias-border-l2)',
+    }
+    const WORKSPACE_BODY = { flex: 1, minHeight: 0, display: 'flex' }
+    const WORKSPACE_STAGE = {
+      flex: 1,
+      minHeight: 0,
+      position: 'relative',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 20,
+      containerType: 'size',
+    }
+    const WORKSPACE_SIDE = {
+      flex: 'none',
+      width: 280,
+      minHeight: 0,
+      borderLeft: '1px solid var(--dsw-alias-border-l2)',
+      display: 'flex',
+      flexDirection: 'column',
+    }
+    const WORKSPACE_AREA = {
+      flex: 1,
+      minHeight: 0,
+      overflowY: 'auto',
+      padding: '10px 12px',
+    }
+    const WORKSPACE_AREA_INPUT = {
+      width: '100%',
+      boxSizing: 'border-box',
+      minHeight: 90,
+      resize: 'vertical',
+      padding: '6px 8px',
+      borderRadius: 6,
+      border: '1px solid var(--dsw-alias-border-l2)',
+      background: 'var(--dsw-alias-bg-layer-1)',
+      color: 'var(--dsw-alias-label-primary)',
+      fontSize: 11,
+      lineHeight: 1.5,
+      fontFamily: 'inherit',
+      outline: 'none',
+    }
+
+    /**
+     * Full-screen canvas workspace opened from the left sidebar entry.
+     *
+     * It owns a working copy of its own, sharing the per-file draft storage with
+     * the right-side canvas tab so both surfaces see the same edits.
+     */
+    function CanvasWorkspace() {
+      const [enabled] = usePref('canvasWorkspace')
+      const [canvasTheme] = usePref('albumTheme')
+      const canvasNight = canvasTheme !== 'light'
+      const [canvasModels, setCanvasModels] = usePref('canvasModels')
+      const [rulerOn, setRulerOn] = usePref('canvasRuler')
+      const [files, setFiles] = useState(null)
+      const [file, setFile] = useState('')
+      const [size, setSize] = useState({ width: 1024, height: 1024 })
+      const [ratio, setRatio] = useState('')
+      const [ratioOptions, setRatioOptions] = useState([])
+      const [megapixels, setMegapixels] = useState(1)
+      const [multiple, setMultiple] = useState(16)
+      const [summary, setSummary] = useState('')
+      const [boxes, setBoxes] = useState([])
+      const [guides, setGuides] = useState([])
+      const [selected, setSelected] = useState(null)
+      const [editing, setEditing] = useState(null)
+      const [draft, setDraft] = useState('')
+      const [dirty, setDirty] = useState(false)
+      const [status, setStatus] = useState('')
+      const [error, setError] = useState('')
+      const [preview, setPreview] = useState(false)
+      const [modelPanel, setModelPanel] = useState(false)
+      const [quickMissing, setQuickMissing] = useState(null)
+      const [job, setJob] = useState(() => jobStore.get())
+      const [jobClock, setJobClock] = useState(() => Date.now())
+      const boardWrapRef = useRef(null)
+
+      const filesEffect = (load) => load
+      useEffect(() => {
+        let alive = true
+        fetch(API + '/workflows', { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (!alive) return
+            if (!data.ok) throw new Error(data.error || '无法读取工作流目录')
+            const list = data.files || []
+            setFiles(list)
+            if (list.length > 0) setFile((current) => current || list[0].name)
+          })
+          .catch((err) => {
+            if (alive) setError(String((err && err.message) || err))
+          })
+        return () => {
+          alive = false
+        }
+      }, [])
+
+      useEffect(() => {
+        let alive = true
+        fetch(API + '/resolutions', { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (!alive || !data.ok) return
+            setRatioOptions(Array.isArray(data.ratios) ? data.ratios : [])
+          })
+          .catch(() => {
+            // Without the list the canvas keeps whatever the file records.
+          })
+        return () => {
+          alive = false
+        }
+      }, [])
+
+      useEffect(() => {
+        if (!file) return undefined
+        let alive = true
+        setError('')
+        setStatus('')
+        fetch(API + '/workflow?file=' + encodeURIComponent(file), { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (!alive) return
+            if (!data.ok) throw new Error(data.error || '无法读取工作流')
+            const wf = data.workflow
+            const node = (wf.nodes || []).find((item) => item.type === NODE_TYPE)
+            if (!node) {
+              setError('这个工作流里没有 CreateBoundingBoxes 节点')
+              setBoxes([])
+              setGuides([])
+              setSelected(null)
+              setSummary('')
+              return
+            }
+            const values = Array.isArray(node.widgets_values) ? node.widgets_values : []
+            const width = typeof values[0] === 'number' ? values[0] : 1024
+            const height = typeof values[1] === 'number' ? values[1] : 1024
+            const resolver = (wf.nodes || []).find((item) => item.type === 'ResolutionSelector')
+            const resolverValues = resolver && Array.isArray(resolver.widgets_values) ? resolver.widgets_values : []
+            const wfRatio = typeof resolverValues[0] === 'string' ? resolverValues[0] : ''
+            const wfMegapixels = typeof resolverValues[1] === 'number' ? resolverValues[1] : 1
+            const wfMultiple = typeof resolverValues[2] === 'number' ? resolverValues[2] : 16
+            const layoutNode = (wf.nodes || []).find((item) => item.type === 'MOSSImageLayoutPrompt')
+            const wfSummary =
+              layoutNode && Array.isArray(layoutNode.widgets_values) && typeof layoutNode.widgets_values[0] === 'string'
+                ? layoutNode.widgets_values[0]
+                : ''
+            const stored = readDraft(file)
+            const useWidth = stored && typeof stored.width === 'number' ? stored.width : width
+            const useHeight = stored && typeof stored.height === 'number' ? stored.height : height
+            setSize({ width: useWidth, height: useHeight })
+            setRatio(stored && typeof stored.ratio === 'string' ? stored.ratio : wfRatio)
+            setMegapixels(stored && typeof stored.megapixels === 'number' ? stored.megapixels : wfMegapixels)
+            setMultiple(stored && typeof stored.multiple === 'number' ? stored.multiple : wfMultiple)
+            setSummary(stored && typeof stored.summary === 'string' ? stored.summary : wfSummary)
+            setBoxes(sanitizeBoxes(stored ? stored.boxes : [], useWidth, useHeight))
+            setGuides(Array.isArray(stored && stored.guides) ? stored.guides.map(normalizeGuide).filter(Boolean) : [])
+            setSelected(null)
+            setDirty(Boolean(stored))
+            if (stored) setStatus('已恢复上次未发送的编辑')
+          })
+          .catch((err) => {
+            if (alive) setError(String((err && err.message) || err))
+          })
+        return () => {
+          alive = false
+        }
+      }, [file])
+
+      useEffect(() => {
+        if (!file || !dirty) return undefined
+        const timer = setTimeout(() => {
+          writeDraft(file, {
+            width: size.width,
+            height: size.height,
+            ratio,
+            megapixels,
+            multiple,
+            summary,
+            boxes,
+            guides,
+          })
+        }, 400)
+        return () => clearTimeout(timer)
+      }, [file, dirty, size, ratio, megapixels, multiple, summary, boxes, guides])
+
+      useEffect(() => jobStore.subscribe(() => setJob(jobStore.get())), [])
+
+      const jobActive = job !== null && (job.status === 'queued' || job.status === 'running')
+      useEffect(() => {
+        if (!jobActive) return undefined
+        setJobClock(Date.now())
+        const timer = setInterval(() => setJobClock(Date.now()), 1000)
+        return () => clearInterval(timer)
+      }, [jobActive])
+      const jobElapsed = job && job.at ? Math.max(0, Math.floor((jobClock - job.at) / 1000)) : 0
+
+      const changeBox = (index, patch) => {
+        setBoxes((current) => current.map((box, at) => (at === index ? Object.assign({}, box, patch) : box)))
+        setDirty(true)
+      }
+      const removeBox = (index) => {
+        setBoxes((current) => current.filter((_, at) => at !== index))
+        setSelected(null)
+        setEditing(null)
+        setDirty(true)
+      }
+      const addBox = () => {
+        const next = {
+          x: Math.round(size.width * 0.1),
+          y: Math.round(size.height * 0.1),
+          width: Math.round(size.width * 0.3),
+          height: Math.round(size.height * 0.3),
+          metadata: { type: 'obj', text: '', desc: '', palette: [] },
+        }
+        setBoxes((current) => [...current, next])
+        setSelected(boxes.length)
+        setDirty(true)
+      }
+      const addBoxAt = (x, y) => {
+        const side = 100
+        const next = {
+          x: Math.round(clamp(x - side / 2, 0, Math.max(0, size.width - side))),
+          y: Math.round(clamp(y - side / 2, 0, Math.max(0, size.height - side))),
+          width: side,
+          height: side,
+          metadata: { type: 'obj', text: '', desc: '', palette: [] },
+        }
+        setBoxes((current) => [...current, next])
+        setSelected(boxes.length)
+        setDirty(true)
+      }
+      const startEdit = (index) => {
+        const box = boxes[index]
+        if (!box) return
+        const meta = box.metadata || {}
+        setSelected(index)
+        setEditing(index)
+        setDraft(meta.type === 'text' ? meta.text || '' : meta.desc || '')
+      }
+      const commitEdit = () => {
+        if (editing === null) return
+        const box = boxes[editing]
+        if (box) {
+          const meta = box.metadata || {}
+          changeBox(editing, {
+            metadata: Object.assign({}, meta, meta.type === 'text' ? { text: draft } : { desc: draft }),
+          })
+        }
+        setEditing(null)
+      }
+      const cancelEdit = () => setEditing(null)
+      const applyResolution = (nextRatio, nextMegapixels) => {
+        const target = resolveSize(nextRatio, nextMegapixels, multiple)
+        if (target.width === size.width && target.height === size.height) {
+          setRatio(nextRatio)
+          setMegapixels(nextMegapixels)
+          return
+        }
+        const sx = target.width / Math.max(1, size.width)
+        const sy = target.height / Math.max(1, size.height)
+        setBoxes((current) =>
+          current.map((box) => ({
+            ...box,
+            x: Math.round(clamp(box.x * sx, 0, Math.max(0, target.width - 1))),
+            y: Math.round(clamp(box.y * sy, 0, Math.max(0, target.height - 1))),
+            width: Math.max(8, Math.round(box.width * sx)),
+            height: Math.max(8, Math.round(box.height * sy)),
+          })),
+        )
+        setGuides((current) =>
+          current.map((guide) => ({
+            ...guide,
+            pos: Math.round(guide.pos * (guide.axis === 'h' ? sy : sx)),
+          })),
+        )
+        setSize(target)
+        setRatio(nextRatio)
+        setMegapixels(nextMegapixels)
+        setDirty(true)
+      }
+
+      const quickGenerate = async () => {
+        if (boxes.length === 0) {
+          setStatus('画布上还没有框')
+          return
+        }
+        const layout = buildMossLayout(summary, size.width, size.height, boxes)
+        const stored = pluginPrefs.get().canvasModels || {}
+        let sampling = stored.sampling || {}
+        if (sampling.seedMode === 'random') {
+          sampling = Object.assign({}, sampling, { seed: Math.floor(Math.random() * 1e15) })
+          setCanvasModels(Object.assign({}, stored, { sampling }))
+        }
+        setStatus('正在提交…')
+        try {
+          const res = await fetch('/plugin/comfy-canvas/generate', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              layout,
+              models: Object.assign({}, stored, { sampling }),
+              width: size.width,
+              height: size.height,
+            }),
+          })
+          const data = await res.json().catch(() => null)
+          if (data && data.code === 'missing-models') {
+            const missing = Array.isArray(data.missing) ? data.missing : []
+            setQuickMissing(missing)
+            setStatus('缺少模型：' + missing.map((entry) => entry.file).join('、'))
+            return
+          }
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && data.error) || 'HTTP ' + res.status)
+          }
+          setQuickMissing(null)
+          jobStore.start(data.promptId, 'canvas')
+          setStatus('已提交，正在生成')
+        } catch (err) {
+          setStatus('提交失败：' + String((err && err.message) || err))
+        }
+      }
+
+      if (!enabled) {
+        return h('div', { style: EMPTY }, '独立画板工作台已在插件设置中关闭')
+      }
+
+      const stageContent = error
+        ? h('div', { style: EMPTY }, error)
+        : files !== null && files.length === 0
+          ? h('div', { style: EMPTY }, '工作流目录是空的')
+          : h(
+              'div',
+              {
+                ref: boardWrapRef,
+                style: {
+                  position: 'relative',
+                  flex: 'none',
+                  width: 'min(100%, calc(100cqh * ' + (size.width / Math.max(1, size.height)) + '))',
+                  aspectRatio: size.width + ' / ' + size.height,
+                  display: 'flex',
+                },
+              },
+              h(RulerLayer, {
+                width: size.width,
+                height: size.height,
+                rulerOn,
+                guides,
+                onGuidesChange: (next) => {
+                  setGuides(next)
+                  setDirty(true)
+                },
+                wrapRef: boardWrapRef,
+              }),
+              h(Board, {
+                width: size.width,
+                height: size.height,
+                boxes,
+                selected,
+                onSelect: setSelected,
+                onChange: changeBox,
+                onRemove: removeBox,
+                onAddAt: addBoxAt,
+                editing,
+                draft,
+                onEditStart: startEdit,
+                onDraftChange: setDraft,
+                onEditCommit: commitEdit,
+                onEditCancel: cancelEdit,
+                preview,
+                fill: true,
+                guides,
+              }),
+              h(
+                'button',
+                {
+                  className: 'dshCanvasBtn',
+                  style: {
+                    position: 'absolute',
+                    right: 18,
+                    bottom: 18,
+                    zIndex: 20,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 5,
+                    width: 96,
+                    height: 30,
+                    padding: 0,
+                    boxSizing: 'border-box',
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.08), 0 3px 10px rgba(0, 0, 0, 0.07)',
+                  },
+                  title: preview ? '退出预览，显示画框' : '隐藏画框，按实际画面预览',
+                  onClick: () => setPreview(!preview),
+                },
+                h(Icon, { name: preview ? 'eye-off' : 'eye', size: 14 }),
+                h('span', null, preview ? '退出预览' : '预览'),
+              ),
+            )
+
+      return h(
+        'div',
+        {
+          style: WORKSPACE_SHELL,
+          className: canvasNight ? 'dshComfySurface-dark' : 'dshComfySurface-light',
+        },
+        h(Styles),
+        h(
+          'div',
+          { style: WORKSPACE_TOOLBAR },
+          h(
+            'div',
+            { style: { flex: 'none', width: 190 } },
+            h(Dropdown, {
+              title: '选择工作流',
+              placeholder: files && files.length > 0 ? '选择工作流' : '无工作流',
+              value: file || '',
+              options: (files || []).map((item) => ({ value: item.name, label: item.name })),
+              onPick: (value) => setFile(value),
+              dark: canvasNight,
+              menuMinWidth: 260,
+            }),
+          ),
+          ratioOptions.length > 0
+            ? h(
+                'div',
+                { style: { flex: 'none', width: 150 } },
+                h(Dropdown, {
+                  title: '画布比例',
+                  placeholder: '选择比例',
+                  value: ratio || ratioOptions[0] || '',
+                  options: ratioOptions.map((option) => ({ value: option, label: option })),
+                  onPick: (value) => applyResolution(value, megapixels),
+                  dark: canvasNight,
+                }),
+              )
+            : null,
+          jobActive
+            ? h(
+                'span',
+                { style: { fontSize: 10.5, fontWeight: 600, color: '#ff6b6b', whiteSpace: 'nowrap' } },
+                (job.status === 'running' ? '正在生成' : '排队中') + ' ' + jobElapsed + 's',
+              )
+            : status
+              ? h(
+                  'span',
+                  {
+                    style: {
+                      fontSize: 10.5,
+                      color: 'var(--dsw-alias-label-secondary)',
+                      maxWidth: 240,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    },
+                  },
+                  status,
+                )
+              : null,
+          h('span', { style: { flex: 1 } }),
+          h(
+            'button',
+            {
+              className: 'dshCanvasBtn',
+              style: { flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4 },
+              title: '标尺',
+              onClick: () => setRulerOn(!rulerOn),
+            },
+            h(Icon, { name: 'ruler', size: 12 }),
+            h('span', null, '标尺'),
+          ),
+          h(
+            'button',
+            {
+              className: 'dshCanvasBtn',
+              style: { flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4 },
+              title: '生成设置：模型 / LoRA / 采样',
+              onClick: () => setModelPanel(true),
+            },
+            h(Icon, { name: 'sliders-horizontal', size: 12 }),
+            h('span', null, '模型'),
+          ),
+          h('button', { className: 'dshCanvasBtn', style: { flexShrink: 0 }, onClick: addBox }, '加框'),
+          h(
+            'button',
+            {
+              className: 'dshCanvasBtn dshComfyGenBlue',
+              style: {
+                flexShrink: 0,
+                background: '#3b82f6',
+                borderColor: '#3b82f6',
+                color: '#ffffff',
+                fontWeight: 600,
+                opacity: boxes.length === 0 ? 0.45 : 1,
+              },
+              disabled: boxes.length === 0,
+              onClick: quickGenerate,
+            },
+            '快速生成',
+          ),
+          jobActive
+            ? h(
+                'button',
+                {
+                  className: 'dshCanvasBtn',
+                  style: { flexShrink: 0, color: '#ff6b6b', borderColor: 'rgba(255, 90, 90, 0.5)' },
+                  onClick: cancelTrackedJob,
+                },
+                '停止',
+              )
+            : null,
+        ),
+        h(
+          'div',
+          { style: WORKSPACE_BODY },
+          h('div', { style: WORKSPACE_STAGE }, stageContent),
+          h(
+            'div',
+            { style: WORKSPACE_SIDE },
+            h(
+              'div',
+              { style: WORKSPACE_AREA },
+              boxes.length === 0
+                ? h('div', { style: EMPTY }, '在画布上双击空白加框')
+                : h(
+                    'div',
+                    { style: { display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 12 } },
+                    ...boxes.map((box, index) =>
+                      h(
+                        'button',
+                        {
+                          key: index,
+                          type: 'button',
+                          className: 'dshCanvasOption',
+                          'data-on': selected === index ? 'true' : 'false',
+                          style: { textAlign: 'left', padding: '4px 8px' },
+                          onClick: () => setSelected(index),
+                        },
+                        String(index + 1) + '. ' + (boxLabel(box) || '未命名'),
+                      ),
+                    ),
+                  ),
+              h(
+                'label',
+                {
+                  style: {
+                    display: 'block',
+                    fontSize: 10.5,
+                    color: 'var(--dsw-alias-label-secondary)',
+                    margin: '8px 0 4px',
+                  },
+                },
+                '整图描述',
+              ),
+              h('textarea', {
+                value: summary,
+                style: WORKSPACE_AREA_INPUT,
+                onChange: (event) => {
+                  setSummary(event.target.value)
+                  setDirty(true)
+                },
+              }),
+            ),
+          ),
+        ),
+        h(ModelSettingsDialog, {
+          open: modelPanel,
+          models: canvasModels,
+          onChange: setCanvasModels,
+          onClose: () => setModelPanel(false),
+          night: canvasNight,
+        }),
+      )
+    }
+
+    /** Left-sidebar entry; hidden while its switch is off. */
+    function WorkspaceIcon(props) {
+      const [enabled] = usePref('canvasWorkspace')
+      if (!enabled) return null
+      return h(Icon, { name: 'scan', size: (props && props.size) || 16 })
+    }
+
     const canvasHalf = {
       inject: ['slots'],
       apply(ctx) {
@@ -7599,6 +8209,42 @@ window.__ModuleLoader__.load({
         ctx.slots.inject('shell.overlay', () =>
           ctx.slots.register({ name: 'shell.overlay', id: 'comfy-canvas-zoom' }, ZoomHost),
         )
+
+        // Standalone workspace: a left-sidebar entry plus the main-panel page it
+        // switches to. The entry follows the preference so switching it off
+        // removes it from the sidebar immediately.
+        ctx.slots.inject('main', () =>
+          ctx.slots.register({ name: 'main', key: WORKSPACE_KEY }, CanvasWorkspace),
+        )
+        ctx.slots.inject('sidebar.panellist', () => {
+          let disposeEntry = null
+          const syncEntry = () => {
+            if (disposeEntry) {
+              disposeEntry()
+              disposeEntry = null
+            }
+            if (pluginPrefs.get().canvasWorkspace) {
+              disposeEntry = ctx.slots.register(
+                {
+                  name: 'sidebar.panellist',
+                  id: WORKSPACE_KEY,
+                  order: 20,
+                  label: () => 'MOSS 画板',
+                },
+                WorkspaceIcon,
+              )
+            }
+          }
+          const unsubscribeEntry = pluginPrefs.subscribe(syncEntry)
+          syncEntry()
+          return () => {
+            unsubscribeEntry()
+            if (disposeEntry) {
+              disposeEntry()
+              disposeEntry = null
+            }
+          }
+        })
       },
     }
     return {
