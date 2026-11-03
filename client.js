@@ -31,6 +31,8 @@ window.__ModuleLoader__.load({
         sampler: 'euler',
         scheduler: 'simple',
         seed: Math.floor(Math.random() * 1e15),
+        // 'random': a fresh seed on every quick generate; 'fixed': use the field.
+        seedMode: 'fixed',
       },
     }
 
@@ -48,6 +50,7 @@ window.__ModuleLoader__.load({
         zoomSummaryHeight: 54,
         zoomDescHeight: 68,
         zoomPanelWidth: 260,
+        canvasRuler: false,
         canvasModels: Object.assign({}, DEFAULT_CANVAS_MODELS),
       }
       try {
@@ -74,6 +77,7 @@ window.__ModuleLoader__.load({
                 typeof parsed.zoomDescHeight === 'number' ? parsed.zoomDescHeight : 68,
               zoomPanelWidth:
                 typeof parsed.zoomPanelWidth === 'number' ? parsed.zoomPanelWidth : 260,
+              canvasRuler: parsed.canvasRuler === true,
               canvasModels: (() => {
                 const raw =
                   parsed.canvasModels && typeof parsed.canvasModels === 'object' ? parsed.canvasModels : {}
@@ -97,6 +101,8 @@ window.__ModuleLoader__.load({
                 } else if (typeof merged.sampling.seed !== 'number') {
                   // Older preferences predate the seed field.
                   merged.sampling = Object.assign({}, DEFAULT_CANVAS_MODELS.sampling, merged.sampling)
+                } else if (merged.sampling.seedMode !== 'random' && merged.sampling.seedMode !== 'fixed') {
+                  merged.sampling = Object.assign({}, merged.sampling, { seedMode: 'fixed' })
                 }
                 return merged
               })(),
@@ -206,6 +212,13 @@ window.__ModuleLoader__.load({
         ['path', { d: 'M17 3h2a2 2 0 0 1 2 2v2' }],
         ['path', { d: 'M21 17v2a2 2 0 0 1-2 2h-2' }],
         ['path', { d: 'M7 21H5a2 2 0 0 1-2-2v-2' }],
+      ],
+      ruler: [
+        ['path', { d: 'M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z' }],
+        ['path', { d: 'm14.5 12.5 2-2' }],
+        ['path', { d: 'm11.5 9.5 2-2' }],
+        ['path', { d: 'm8.5 6.5 2-2' }],
+        ['path', { d: 'm17.5 15.5 2-2' }],
       ],
       sun: [
         ['circle', { cx: 12, cy: 12, r: 4 }],
@@ -3643,15 +3656,283 @@ window.__ModuleLoader__.load({
       return Math.min(480, Math.max(200, Math.round(n)))
     }
 
-    /** Inline red progress banner for the canvas sidebar (album-style, with stop). */
-    const RUNNING_BANNER = {
-      flex: 'none',
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8,
-      padding: '7px 14px',
-      borderBottom: '1px solid var(--dsw-alias-border-l2)',
-      background: 'var(--dsw-alias-bg-layer-1)',
+    /** Tick marks for one axis, spaced so around a dozen labels fit the canvas. */
+    function buildRulerTicks(logical) {
+      if (!logical) return []
+      const steps = [10, 20, 25, 50, 100, 200, 250, 500, 1000]
+      const step = steps.find((value) => value >= logical / 12) || 1000
+      const ticks = []
+      for (let value = 0; value <= logical; value += step) {
+        ticks.push({ ratio: value / logical, label: value })
+      }
+      return ticks
+    }
+
+    /**
+     * Ruler strips and layout guides drawn over one canvas wrapper.
+     *
+     * The host mounts it INSIDE the element whose rect is the picture, so every
+     * position is relative CSS — no measuring, and ticks always point outwards.
+     */
+    function RulerLayer(props) {
+      const width = props.width
+      const height = props.height
+      const [guideDraft, setGuideDraft] = useState(null)
+      const wrapOf = () => (props.wrapRef ? props.wrapRef.current : null)
+
+      const toLogical = (axis, event) => {
+        const wrap = wrapOf()
+        if (!wrap) return 0
+        const rect = wrap.getBoundingClientRect()
+        if (axis === 'h') {
+          return Math.round(clamp(((event.clientY - rect.top) / Math.max(1, rect.height)) * height, 0, height))
+        }
+        return Math.round(clamp(((event.clientX - rect.left) / Math.max(1, rect.width)) * width, 0, width))
+      }
+
+      const insideBoard = (event) => {
+        const wrap = wrapOf()
+        if (!wrap) return false
+        const rect = wrap.getBoundingClientRect()
+        return (
+          event.clientX >= rect.left &&
+          event.clientX <= rect.right &&
+          event.clientY >= rect.top &&
+          event.clientY <= rect.bottom
+        )
+      }
+
+      /** Pull a fresh guide out of a ruler; releasing outside the board cancels it. */
+      const startGuide = (axis, event) => {
+        if (event.button !== 0) return
+        event.preventDefault()
+        event.stopPropagation()
+        if (!wrapOf()) return
+        setGuideDraft({ axis, pos: toLogical(axis, event) })
+        const move = (e) => setGuideDraft({ axis, pos: toLogical(axis, e) })
+        const up = (e) => {
+          window.removeEventListener('pointermove', move)
+          window.removeEventListener('pointerup', up)
+          window.removeEventListener('pointercancel', up)
+          const pos = toLogical(axis, e)
+          setGuideDraft(null)
+          if (insideBoard(e) && props.onGuidesChange) {
+            props.onGuidesChange([...(props.guides || []), { axis, pos }])
+          }
+        }
+        window.addEventListener('pointermove', move)
+        window.addEventListener('pointerup', up)
+        window.addEventListener('pointercancel', up)
+      }
+
+      /** Move an existing guide; dragging it off the board removes it. */
+      const dragGuide = (index, event) => {
+        if (event.button !== 0) return
+        event.preventDefault()
+        event.stopPropagation()
+        const guide = (props.guides || [])[index]
+        if (!wrapOf() || !guide) return
+        setGuideDraft({ axis: guide.axis, pos: guide.pos })
+        const move = (e) => setGuideDraft({ axis: guide.axis, pos: toLogical(guide.axis, e) })
+        const up = (e) => {
+          window.removeEventListener('pointermove', move)
+          window.removeEventListener('pointerup', up)
+          window.removeEventListener('pointercancel', up)
+          const pos = toLogical(guide.axis, e)
+          setGuideDraft(null)
+          if (!props.onGuidesChange) return
+          const next = (props.guides || []).slice()
+          if (insideBoard(e)) next[index] = { axis: guide.axis, pos }
+          else next.splice(index, 1)
+          props.onGuidesChange(next)
+        }
+        window.addEventListener('pointermove', move)
+        window.addEventListener('pointerup', up)
+        window.addEventListener('pointercancel', up)
+      }
+
+      if (!props.rulerOn) return null
+
+      return h(
+        React.Fragment,
+        null,
+        h(
+          'div',
+          {
+            style: {
+              position: 'absolute',
+              left: 0,
+              top: -22,
+              width: '100%',
+              height: 22,
+              pointerEvents: 'auto',
+              cursor: 'row-resize',
+              zIndex: 4,
+            },
+            title: '拖动拉出水平参考线',
+            onPointerDown: (event) => startGuide('h', event),
+          },
+          ...buildRulerTicks(width).map((tick) =>
+            h('div', {
+              key: 'ruler-h-' + tick.label,
+              style: {
+                position: 'absolute',
+                left: tick.ratio * 100 + '%',
+                bottom: 0,
+                width: 1,
+                height: 5,
+                background: 'var(--dsw-alias-label-secondary)',
+                opacity: 0.45,
+              },
+            }),
+          ),
+          ...buildRulerTicks(width).map((tick) =>
+            h(
+              'span',
+              {
+                key: 'ruler-h-label-' + tick.label,
+                style: {
+                  position: 'absolute',
+                  left: 'calc(' + tick.ratio * 100 + '% + 3px)',
+                  bottom: 7,
+                  fontSize: 8.5,
+                  lineHeight: 1,
+                  color: 'var(--dsw-alias-label-secondary)',
+                  opacity: 0.7,
+                  whiteSpace: 'nowrap',
+                },
+              },
+              tick.label,
+            ),
+          ),
+        ),
+        h(
+          'div',
+          {
+            style: {
+              position: 'absolute',
+              left: -22,
+              top: 0,
+              width: 22,
+              height: '100%',
+              pointerEvents: 'auto',
+              cursor: 'col-resize',
+              zIndex: 4,
+            },
+            title: '拖动拉出垂直参考线',
+            onPointerDown: (event) => startGuide('v', event),
+          },
+          ...buildRulerTicks(height).map((tick) =>
+            h('div', {
+              key: 'ruler-v-' + tick.label,
+              style: {
+                position: 'absolute',
+                top: tick.ratio * 100 + '%',
+                right: 0,
+                width: 5,
+                height: 1,
+                background: 'var(--dsw-alias-label-secondary)',
+                opacity: 0.45,
+              },
+            }),
+          ),
+          ...buildRulerTicks(height).map((tick) =>
+            h(
+              'span',
+              {
+                key: 'ruler-v-label-' + tick.label,
+                style: {
+                  position: 'absolute',
+                  top: 'calc(' + tick.ratio * 100 + '% - 4px)',
+                  right: 7,
+                  fontSize: 8.5,
+                  lineHeight: 1,
+                  color: 'var(--dsw-alias-label-secondary)',
+                  opacity: 0.7,
+                  whiteSpace: 'nowrap',
+                  textAlign: 'right',
+                },
+              },
+              tick.label,
+            ),
+          ),
+        ),
+        ...(props.guides || []).map((guide, index) =>
+          h(
+            'div',
+            {
+              key: 'guide-' + index,
+              style: {
+                position: 'absolute',
+                ...(guide.axis === 'h'
+                  ? {
+                      left: 0,
+                      width: '100%',
+                      top: 'calc(' + (guide.pos / Math.max(1, height)) * 100 + '% - 4px)',
+                      height: 8,
+                    }
+                  : {
+                      top: 0,
+                      height: '100%',
+                      left: 'calc(' + (guide.pos / Math.max(1, width)) * 100 + '% - 4px)',
+                      width: 8,
+                    }),
+                zIndex: 5,
+                pointerEvents: 'auto',
+                cursor: guide.axis === 'h' ? 'row-resize' : 'col-resize',
+              },
+              title: '拖动移动参考线，拖出画布删除',
+              onPointerDown: (event) => dragGuide(index, event),
+            },
+            h('div', {
+              style:
+                guide.axis === 'h'
+                  ? {
+                      position: 'absolute',
+                      left: 0,
+                      right: 0,
+                      top: 3,
+                      height: 1,
+                      background: '#3b82f6',
+                      opacity: 0.9,
+                    }
+                  : {
+                      position: 'absolute',
+                      top: 0,
+                      bottom: 0,
+                      left: 3,
+                      width: 1,
+                      background: '#3b82f6',
+                      opacity: 0.9,
+                    },
+            }),
+          ),
+        ),
+        guideDraft
+          ? h('div', {
+              style: {
+                position: 'absolute',
+                ...(guideDraft.axis === 'h'
+                  ? {
+                      left: 0,
+                      right: 0,
+                      top: (guideDraft.pos / Math.max(1, height)) * 100 + '%',
+                      height: 1,
+                    }
+                  : {
+                      top: 0,
+                      bottom: 0,
+                      left: (guideDraft.pos / Math.max(1, width)) * 100 + '%',
+                      width: 1,
+                    }),
+                background: '#3b82f6',
+                opacity: 0.6,
+                zIndex: 6,
+                pointerEvents: 'none',
+              },
+            })
+          : null,
+      )
     }
 
     const MODAL_BACKDROP = {
@@ -4370,6 +4651,65 @@ window.__ModuleLoader__.load({
       return Math.min(max, Math.max(min, value))
     }
 
+    /** A guide is { axis: 'h' | 'v', pos } in canvas pixels; anything else is dropped. */
+    function normalizeGuide(entry) {
+      if (!entry || typeof entry !== 'object') return null
+      const axis = entry.axis === 'v' ? 'v' : entry.axis === 'h' ? 'h' : null
+      const pos = Number(entry.pos)
+      if (!axis || !Number.isFinite(pos)) return null
+      return { axis, pos: Math.round(pos) }
+    }
+
+    /**
+     * Snap a dragged box to guides, canvas edges/center and other boxes.
+     * The threshold arrives already converted from screen pixels to canvas pixels.
+     */
+    function snapBoxMove(x, y, width, height, context) {
+      const threshold = context.threshold
+      const xTargets = []
+      const yTargets = []
+      for (const guide of context.guides || []) {
+        if (guide.axis === 'v') xTargets.push(guide.pos)
+        else yTargets.push(guide.pos)
+      }
+      xTargets.push(0, context.size.width / 2, context.size.width)
+      yTargets.push(0, context.size.height / 2, context.size.height)
+      ;(context.boxes || []).forEach((box, index) => {
+        if (index === context.index) return
+        xTargets.push(box.x, box.x + box.width / 2, box.x + box.width)
+        yTargets.push(box.y, box.y + box.height / 2, box.y + box.height)
+      })
+
+      const pick = (ownValues, targets) => {
+        let best = null
+        for (const target of targets) {
+          for (const own of ownValues) {
+            const delta = target - own
+            if (Math.abs(delta) > threshold) continue
+            if (best === null || Math.abs(delta) < Math.abs(best.delta)) {
+              best = { delta, target }
+            }
+          }
+        }
+        return best
+      }
+
+      const lines = []
+      let nextX = x
+      let nextY = y
+      const bestX = pick([x, x + width / 2, x + width], xTargets)
+      if (bestX) {
+        nextX = x + bestX.delta
+        lines.push({ axis: 'v', pos: bestX.target })
+      }
+      const bestY = pick([y, y + height / 2, y + height], yTargets)
+      if (bestY) {
+        nextY = y + bestY.delta
+        lines.push({ axis: 'h', pos: bestY.target })
+      }
+      return { x: nextX, y: nextY, lines }
+    }
+
     // ------------------------------------------------------------ draft storage
 
     const DRAFT_PREFIX = 'dsh.comfy-canvas.draft.'
@@ -4531,6 +4871,7 @@ window.__ModuleLoader__.load({
     function Board(props) {
       const boardRef = useRef(null)
       const [drag, setDrag] = useState(null)
+      const [snapLines, setSnapLines] = useState(null)
 
       useEffect(() => {
         if (!drag) return undefined
@@ -4545,18 +4886,69 @@ window.__ModuleLoader__.load({
             const minimum = 16
             const maxWidth = Math.max(minimum, props.width - box.x)
             const maxHeight = Math.max(minimum, props.height - box.y)
+            let nextWidth = clamp(drag.origW + dx, minimum, maxWidth)
+            let nextHeight = clamp(drag.origH + dy, minimum, maxHeight)
+            // Resizing snaps to guides only (not to canvas edges or other boxes):
+            // the right/bottom edge is what the handle actually moves.
+            if (!event.shiftKey) {
+              const scale = rect.width / Math.max(1, props.width)
+              const threshold = 4 / Math.max(0.01, scale)
+              const lines = []
+              let bestX = null
+              let bestY = null
+              for (const guide of props.guides || []) {
+                if (guide.axis === 'v') {
+                  const delta = guide.pos - (box.x + nextWidth)
+                  if (Math.abs(delta) <= threshold && (bestX === null || Math.abs(delta) < Math.abs(bestX.delta))) {
+                    bestX = { delta, target: guide.pos }
+                  }
+                } else {
+                  const delta = guide.pos - (box.y + nextHeight)
+                  if (Math.abs(delta) <= threshold && (bestY === null || Math.abs(delta) < Math.abs(bestY.delta))) {
+                    bestY = { delta, target: guide.pos }
+                  }
+                }
+              }
+              if (bestX) {
+                nextWidth = clamp(bestX.target - box.x, minimum, maxWidth)
+                lines.push({ axis: 'v', pos: bestX.target })
+              }
+              if (bestY) {
+                nextHeight = clamp(bestY.target - box.y, minimum, maxHeight)
+                lines.push({ axis: 'h', pos: bestY.target })
+              }
+              setSnapLines(lines.length > 0 ? lines : null)
+            } else {
+              setSnapLines(null)
+            }
             props.onChange(drag.index, {
-              width: Math.round(clamp(drag.origW + dx, minimum, maxWidth)),
-              height: Math.round(clamp(drag.origH + dy, minimum, maxHeight)),
+              width: Math.round(nextWidth),
+              height: Math.round(nextHeight),
             })
             return
           }
+          const rawX = clamp(drag.origX + dx, 0, props.width - box.width)
+          const rawY = clamp(drag.origY + dy, 0, props.height - box.height)
+          const scale = rect.width / Math.max(1, props.width)
+          const snapped = event.shiftKey
+            ? { x: rawX, y: rawY, lines: [] }
+            : snapBoxMove(rawX, rawY, box.width, box.height, {
+                size: { width: props.width, height: props.height },
+                boxes: props.boxes,
+                guides: props.guides,
+                index: drag.index,
+                threshold: 4 / Math.max(0.01, scale),
+              })
+          setSnapLines(snapped.lines)
           props.onChange(drag.index, {
-            x: Math.round(clamp(drag.origX + dx, 0, props.width - box.width)),
-            y: Math.round(clamp(drag.origY + dy, 0, props.height - box.height)),
+            x: Math.round(clamp(snapped.x, 0, props.width - box.width)),
+            y: Math.round(clamp(snapped.y, 0, props.height - box.height)),
           })
         }
-        const onUp = () => setDrag(null)
+        const onUp = () => {
+          setDrag(null)
+          setSnapLines(null)
+        }
         window.addEventListener('pointermove', onMove)
         window.addEventListener('pointerup', onUp)
         window.addEventListener('pointercancel', onUp)
@@ -4574,13 +4966,19 @@ window.__ModuleLoader__.load({
         {
           ref: boardRef,
           className: 'dshCanvasBoard',
-          style: Object.assign({}, BOARD, {
-            // Width capped by BOTH the stage width and the ratio at max height:
-            // a portrait board sized `100%` wide is taller than its max height,
-            // which pushed its top edge past the stage and got clipped.
-            width: 'min(100%, calc(' + (props.maxHeight || BOARD_MAX_HEIGHT) + ' * ' + ratio + '))',
-            aspectRatio: props.width + ' / ' + props.height,
-          }),
+          style: Object.assign(
+            {},
+            BOARD,
+            props.fill
+              ? { width: '100%', height: '100%' }
+              : {
+                  // Width capped by BOTH the stage width and the ratio at max
+                  // height: a portrait board sized `100%` wide is taller than its
+                  // max height, which pushed its top edge past the stage.
+                  width: 'min(100%, calc(' + (props.maxHeight || BOARD_MAX_HEIGHT) + ' * ' + ratio + '))',
+                  aspectRatio: props.width + ' / ' + props.height,
+                },
+          ),
           onPointerDown: (event) => {
             // Left click only: a right press belongs to the context menu.
             if (event.button !== 0) return
@@ -4625,6 +5023,21 @@ window.__ModuleLoader__.load({
               },
             })
           : null,
+        ...(snapLines || []).map((line, index) =>
+          h('div', {
+            key: 'snap-line-' + index,
+            style: {
+              position: 'absolute',
+              ...(line.axis === 'h'
+                ? { left: 0, right: 0, top: (line.pos / Math.max(1, props.height)) * 100 + '%', height: 1 }
+                : { top: 0, bottom: 0, left: (line.pos / Math.max(1, props.width)) * 100 + '%', width: 1 }),
+              background: '#ec4899',
+              opacity: 0.9,
+              pointerEvents: 'none',
+              zIndex: 30,
+            },
+          }),
+        ),
         ...(props.preview ? [] : props.boxes.map((box, index) =>
           h(
             'div',
@@ -4948,6 +5361,8 @@ window.__ModuleLoader__.load({
       const liveSideRef = useRef(null)
       const sideHandlersRef = useRef(null)
       const [preview, setPreview] = useState(false)
+      const [rulerOn, setRulerOn] = usePref('canvasRuler')
+      const boardWrapRef = useRef(null)
       const [canvasModels, setCanvasModels] = usePref('canvasModels')
       const [modelPanel, setModelPanel] = useState(false)
       const [job, setJob] = useState(() => jobStore.get())
@@ -4987,6 +5402,7 @@ window.__ModuleLoader__.load({
       }, [jobActive])
 
       const jobElapsed = job && job.at && jobClock ? Math.max(0, Math.floor((jobClock - job.at) / 1000)) : 0
+
 
       const missingModels = Array.isArray(props.missingModels) ? props.missingModels : null
 
@@ -5314,6 +5730,11 @@ window.__ModuleLoader__.load({
             h('input', {
               type: 'number',
               value: (canvasModels.sampling && canvasModels.sampling.seed) || 0,
+              disabled: (canvasModels.sampling && canvasModels.sampling.seedMode) === 'random',
+              title:
+                (canvasModels.sampling && canvasModels.sampling.seedMode) === 'random'
+                  ? '随机模式：每次快速生成自动换种子'
+                  : '固定种子',
               style: {
                 flex: 'none',
                 width: 92,
@@ -5325,6 +5746,7 @@ window.__ModuleLoader__.load({
                 background: 'var(--dsw-alias-bg-layer-1)',
                 color: 'var(--dsw-alias-label-primary)',
                 fontFamily: 'inherit',
+                opacity: (canvasModels.sampling && canvasModels.sampling.seedMode) === 'random' ? 0.55 : 1,
               },
               onChange: (event) => {
                 const next = Number(event.target.value)
@@ -5339,16 +5761,31 @@ window.__ModuleLoader__.load({
               'button',
               {
                 className: 'dshCanvasBtn',
-                title: '随机种子',
-                style: { flexShrink: 0 },
+                title:
+                  (canvasModels.sampling && canvasModels.sampling.seedMode) === 'random'
+                    ? '随机模式已开启：每次快速生成换一个种子'
+                    : '开启随机模式：每次快速生成自动换种子',
+                style: Object.assign(
+                  {
+                    flexShrink: 0,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  },
+                  (canvasModels.sampling && canvasModels.sampling.seedMode) === 'random'
+                    ? { background: '#3b82f6', borderColor: '#3b82f6', color: '#ffffff', fontWeight: 600 }
+                    : null,
+                ),
                 onClick: () => {
-                  const sampling = Object.assign({}, canvasModels.sampling, {
-                    seed: Math.floor(Math.random() * 1e15),
-                  })
-                  setCanvasModels(Object.assign({}, canvasModels, { sampling }))
+                  const sampling = canvasModels.sampling || {}
+                  const nextMode = sampling.seedMode === 'random' ? 'fixed' : 'random'
+                  const patch = { seedMode: nextMode }
+                  if (nextMode === 'random') patch.seed = Math.floor(Math.random() * 1e15)
+                  setCanvasModels(Object.assign({}, canvasModels, { sampling: Object.assign({}, sampling, patch) }))
                 },
               },
               h(Icon, { name: 'shuffle', size: 12 }),
+              h('span', null, '随机'),
             ),
             h(
               'button',
@@ -5362,7 +5799,7 @@ window.__ModuleLoader__.load({
                   const seed =
                     meta && meta.sampler && typeof meta.sampler.seed === 'number' ? meta.sampler.seed : null
                   if (seed === null) return
-                  const sampling = Object.assign({}, canvasModels.sampling, { seed })
+                  const sampling = Object.assign({}, canvasModels.sampling, { seed, seedMode: 'fixed' })
                   setCanvasModels(Object.assign({}, canvasModels, { sampling }))
                 },
               },
@@ -5372,6 +5809,17 @@ window.__ModuleLoader__.load({
               'span',
               { style: Object.assign({}, CANVAS_SUB, { fontSize: 10.5, whiteSpace: 'nowrap' }) },
               props.boxes.length + ' 个框',
+            ),
+            h(
+              'button',
+              {
+                className: 'dshCanvasBtn',
+                title: '标尺',
+                style: { flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4 },
+                onClick: () => setRulerOn(!rulerOn),
+              },
+              h(Icon, { name: 'ruler', size: 12 }),
+              h('span', null, '标尺'),
             ),
             h(
               'button',
@@ -5449,32 +5897,54 @@ window.__ModuleLoader__.load({
                 // own height via cqh, instead of guessing from the viewport.
                 style: Object.assign({}, PANEL_STAGE, { containerType: 'size', position: 'relative' }),
               },
-              h(Board, {
-                width: props.width,
-                height: props.height,
-                boxes: props.boxes,
-                selected: props.selected,
-                onSelect: props.onSelect,
-                onChange: props.onChange,
-                onRemove: props.onRemove,
-                onAddAt: props.onAddAt,
-                // The overlay owns its editing session: routing it through the
-                // store costs a publish/notify round trip, and a stale closure
-                // there makes a double click silently do nothing.
-                editing: localEditing,
-                draft: localDraft,
-                // Plain (uncontrolled) editor, so the store re-renders cannot
-                // clobber an in-flight IME composition.
-                plainEditor: true,
-                reference: props.reference,
-                onReferenceError: props.onReferenceError,
-                onEditStart: startLocalEdit,
-                onDraftChange: setLocalDraft,
-                onEditCommit: commitLocalEdit,
-                onEditCancel: cancelLocalEdit,
-                maxHeight: '100cqh',
-                preview,
-              }),
+              h(
+                'div',
+                {
+                  ref: boardWrapRef,
+                  style: {
+                    position: 'relative',
+                    flex: 'none',
+                    width: 'min(100%, calc(100cqh * ' + (props.width / props.height) + '))',
+                    aspectRatio: props.width + ' / ' + props.height,
+                    display: 'flex',
+                  },
+                },
+                h(RulerLayer, {
+                  width: props.width,
+                  height: props.height,
+                  rulerOn,
+                  guides: props.guides,
+                  onGuidesChange: props.onGuidesChange,
+                  wrapRef: boardWrapRef,
+                }),
+                h(Board, {
+                  width: props.width,
+                  height: props.height,
+                  boxes: props.boxes,
+                  selected: props.selected,
+                  onSelect: props.onSelect,
+                  onChange: props.onChange,
+                  onRemove: props.onRemove,
+                  onAddAt: props.onAddAt,
+                  // The overlay owns its editing session: routing it through the
+                  // store costs a publish/notify round trip, and a stale closure
+                  // there makes a double click silently do nothing.
+                  editing: localEditing,
+                  draft: localDraft,
+                  // Plain (uncontrolled) editor, so the store re-renders cannot
+                  // clobber an in-flight IME composition.
+                  plainEditor: true,
+                  reference: props.reference,
+                  onReferenceError: props.onReferenceError,
+                  onEditStart: startLocalEdit,
+                  onDraftChange: setLocalDraft,
+                  onEditCommit: commitLocalEdit,
+                  onEditCancel: cancelLocalEdit,
+                  preview,
+                  fill: true,
+                  guides: props.guides,
+                }),
+              ),
               h(
                 'div',
                 {
@@ -5806,11 +6276,20 @@ window.__ModuleLoader__.load({
     const zoomStore = (() => {
       let state = null
       const listeners = new Set()
+      const notify = () => {
+        for (const listener of [...listeners]) listener()
+      }
       return {
         get: () => state,
         set(next) {
           state = next
-          for (const listener of [...listeners]) listener()
+          notify()
+        },
+        /** Open or close without discarding the working copy the canvas published. */
+        setOpen(open) {
+          if (!state) return
+          state = Object.assign({}, state, { open: Boolean(open) })
+          notify()
         },
         subscribe(listener) {
           listeners.add(listener)
@@ -5961,6 +6440,8 @@ window.__ModuleLoader__.load({
       const [nodeId, setNodeId] = useState(null)
       const [size, setSize] = useState({ width: 1024, height: 1024 })
       const [boxes, setBoxes] = useState([])
+      // Layout guides: { axis: 'h' | 'v', pos } in canvas pixels.
+      const [guides, setGuides] = useState([])
       const [selected, setSelected] = useState(null)
       const [dirty, setDirty] = useState(false)
       const [status, setStatus] = useState('')
@@ -5973,7 +6454,6 @@ window.__ModuleLoader__.load({
       const [mpMeta, setMpMeta] = useState({ min: 0.1, max: 16, step: 0.1 })
       const [confirmSend, setConfirmSend] = useState(false)
       const [confirmReset, setConfirmReset] = useState(false)
-      const [zoomMode, setZoomMode] = useState(false)
       const [reloadNonce, setReloadNonce] = useState(0)
       const [lastRemoved, setLastRemoved] = useState(null)
       const [editing, setEditing] = useState(null)
@@ -6229,6 +6709,7 @@ window.__ModuleLoader__.load({
             setMultiple(draft && typeof draft.multiple === 'number' ? draft.multiple : wfMultiple)
             setSummary(draft && typeof draft.summary === 'string' ? draft.summary : wfSummary)
             setBoxes(sanitizeBoxes(useBoxes, useWidth, useHeight))
+            setGuides(Array.isArray(draft && draft.guides) ? draft.guides.map(normalizeGuide).filter(Boolean) : [])
             setSelected(useBoxes.length > 0 ? 0 : null)
             // A local file's blob URL dies with the page, so only album references
             // are restored; the opacity choice still comes back either way.
@@ -6270,6 +6751,7 @@ window.__ModuleLoader__.load({
             multiple,
             summary,
             boxes,
+            guides,
             referenceUrl,
             referenceKind,
             referenceName,
@@ -6277,7 +6759,7 @@ window.__ModuleLoader__.load({
           })
         }, 400)
         return () => clearTimeout(timer)
-      }, [file, nodeId, dirty, size, ratio, megapixels, multiple, summary, boxes, referenceUrl, referenceKind, referenceName, referenceOpacity])
+      }, [file, nodeId, dirty, size, ratio, megapixels, multiple, summary, boxes, guides, referenceUrl, referenceKind, referenceName, referenceOpacity])
 
       const changeBox = (index, patch) => {
         setBoxes((current) =>
@@ -6391,6 +6873,12 @@ window.__ModuleLoader__.load({
             height: Math.max(8, Math.round(box.height * sy)),
           })),
         )
+        setGuides((current) =>
+          current.map((guide) => ({
+            ...guide,
+            pos: Math.round(guide.pos * (guide.axis === 'h' ? sy : sx)),
+          })),
+        )
         setSize(target)
         setRatio(nextRatio)
         setMegapixels(nextMegapixels)
@@ -6456,7 +6944,15 @@ window.__ModuleLoader__.load({
           return
         }
         const layout = buildMossLayout(summary, size.width, size.height, boxes)
-        const models = pluginPrefs.get().canvasModels || {}
+        const stored = pluginPrefs.get().canvasModels || {}
+        let sampling = stored.sampling || {}
+        if (sampling.seedMode === 'random') {
+          // Random mode: a fresh seed per submission, then shown in the field so
+          // the run can be reproduced.
+          sampling = Object.assign({}, sampling, { seed: Math.floor(Math.random() * 1e15) })
+          setCanvasModels(Object.assign({}, stored, { sampling }))
+        }
+        const models = Object.assign({}, stored, { sampling })
         setStatus('正在提交…')
         try {
           const res = await fetch('/plugin/comfy-canvas/generate', {
@@ -6488,11 +6984,11 @@ window.__ModuleLoader__.load({
 
       const hasNode = nodeId !== null
 
-      // Hand the working copy to the frame-wide overlay host. It renders outside
-      // this pane, so a fixed overlay here would be clipped by the column.
-      useEffect(() => {
+      /** Publish the working copy to the overlay store; `open` is explicit so the
+       *  open button hands over the freshest data the moment it opens. */
+      const publishZoom = (open) => {
         zoomStore.set({
-          open: zoomMode,
+          open: Boolean(open),
           width: size.width,
           height: size.height,
           boxes,
@@ -6510,7 +7006,7 @@ window.__ModuleLoader__.load({
           onEditCancel: cancelEdit,
           onAdd: addBox,
           onAddAt: addBoxAt,
-          onClose: () => setZoomMode(false),
+          onClose: () => zoomStore.setOpen(false),
           summary,
           onSummaryChange: (value) => {
             setSummary(value)
@@ -6537,9 +7033,19 @@ window.__ModuleLoader__.load({
           missingModels: quickMissing,
           onClearMissing: () => setQuickMissing(null),
           referenceMeta,
+          guides,
+          onGuidesChange: (next) => {
+            setGuides(Array.isArray(next) ? next : [])
+            setDirty(true)
+          },
         })
+      }
+
+      // Hand the working copy to the frame-wide overlay host. It renders outside
+      // this pane, so a fixed overlay here would be clipped by the column.
+      useEffect(() => {
+        publishZoom(Boolean(zoomStore.get() && zoomStore.get().open))
       }, [
-        zoomMode,
         size.width,
         size.height,
         boxes,
@@ -6560,10 +7066,11 @@ window.__ModuleLoader__.load({
         mpMeta,
         quickMissing,
         referenceMeta,
+        guides,
       ])
 
-      useEffect(() => () => zoomStore.set(null), [])
-
+      // The overlay owns its open flag in the store: unmounting this tab (an agent
+      // turn, a tab switch) must not slam the working view shut.
       let body
       if (error) body = h('div', { style: EMPTY }, error)
       else if (files === null) body = h('div', { style: EMPTY }, '正在读取工作流…')
@@ -6842,7 +7349,7 @@ window.__ModuleLoader__.load({
                     gap: 5,
                     boxShadow: '0 0 14px rgba(255, 92, 122, 0.3)',
                   },
-                  onClick: () => setZoomMode(true),
+                  onClick: () => publishZoom(true),
                 },
                 h(Icon, { name: 'maximize', size: 12 }),
                 '放大',
