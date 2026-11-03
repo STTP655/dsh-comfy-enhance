@@ -267,6 +267,12 @@ window.__ModuleLoader__.load({
         ['path', { d: 'M22 18h-5.9c-1.3 0-2.6-.7-3.3-1.8l-.5-.8' }],
         ['path', { d: 'm18 14 4 4-4 4' }],
       ],
+      images: [
+        ['path', { d: 'M18 22H4a2 2 0 0 1-2-2V6' }],
+        ['path', { d: 'm22 13-1.296-1.296a2.41 2.41 0 0 0-3.408 0L11 18' }],
+        ['circle', { cx: 12, cy: 8, r: 2 }],
+        ['rect', { width: 16, height: 16, x: 6, y: 2, rx: 2 }],
+      ],
     }
 
     function lucideParts(name) {
@@ -7587,6 +7593,7 @@ window.__ModuleLoader__.load({
 
     const WORKSPACE_KEY = 'dsh-comfy-workspace'
     const WORKSPACE_SHELL = {
+      position: 'relative',
       display: 'flex',
       flexDirection: 'column',
       height: '100%',
@@ -7690,6 +7697,7 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState('')
       const [preview, setPreview] = useState(false)
       const [modelPanel, setModelPanel] = useState(false)
+      const [albumOpen, setAlbumOpen] = useState(false)
       const [quickMissing, setQuickMissing] = useState(null)
       const [job, setJob] = useState(() => jobStore.get())
       const [jobClock, setJobClock] = useState(() => Date.now())
@@ -8322,7 +8330,30 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: WORKSPACE_BODY },
-          h('div', { style: WORKSPACE_STAGE }, stageContent),
+          h(
+            'div',
+            { style: WORKSPACE_STAGE },
+            stageContent,
+            h(
+              'button',
+              {
+                className: 'dshCanvasBtn',
+                style: {
+                  position: 'absolute',
+                  right: 18,
+                  bottom: 18,
+                  zIndex: 20,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                },
+                title: '相册',
+                onClick: () => setAlbumOpen(true),
+              },
+              h(Icon, { name: 'images', size: 14 }),
+              h('span', null, '相册'),
+            ),
+          ),
           h(
             'div',
             { style: WORKSPACE_SIDE },
@@ -8445,6 +8476,84 @@ window.__ModuleLoader__.load({
             ),
           ),
         ),
+        albumOpen
+          ? h(
+              'div',
+              {
+                style: {
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 40,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  background: 'var(--dsw-alias-bg-base)',
+                  animation: 'dshComfyOverlayIn 160ms ease both',
+                },
+              },
+              h(
+                'div',
+                {
+                  style: {
+                    flex: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '10px 14px',
+                    borderBottom: '1px solid var(--dsw-alias-border-l2)',
+                  },
+                },
+                h('span', { style: { fontWeight: 600, fontSize: 12 } }, '相册'),
+                h('span', { style: { flex: 1 } }),
+                h('button', { className: 'dshCanvasBtn', onClick: () => setAlbumOpen(false) }, '关闭'),
+              ),
+              h(
+                'div',
+                {
+                  style: {
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: 'auto',
+                    padding: 12,
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                    gap: 8,
+                  },
+                },
+                referenceOptions.length === 0 ? h('div', { style: EMPTY }, '相册里还没有输出图') : null,
+                ...referenceOptions.map((option) =>
+                  h(
+                    'button',
+                    {
+                      key: option.url,
+                      type: 'button',
+                      className: 'dshCanvasBtn',
+                      style: {
+                        padding: 0,
+                        border: 0,
+                        overflow: 'hidden',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        height: 110,
+                        background: 'transparent',
+                      },
+                      title: option.label,
+                      onClick: () => {
+                        setReferenceUrl(option.url)
+                        setDirty(true)
+                        setAlbumOpen(false)
+                      },
+                    },
+                    h('img', {
+                      src: option.url,
+                      alt: '',
+                      loading: 'lazy',
+                      style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
+                    }),
+                  ),
+                ),
+              ),
+            )
+          : null,
         h(ModelSettingsDialog, {
           open: modelPanel,
           models: canvasModels,
