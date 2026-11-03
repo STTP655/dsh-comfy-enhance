@@ -8634,65 +8634,46 @@ window.__ModuleLoader__.load({
                   })()
                 : null,
               h(
-                'div',
+                'label',
                 {
                   style: {
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
-                    gap: 8,
-                    marginTop: 8,
+                    display: 'block',
+                    fontSize: 10.5,
+                    color: 'var(--dsw-alias-label-secondary)',
+                    margin: '8px 0 4px',
                   },
                 },
-                h(
-                  'div',
-                  null,
-                  h(
-                    'label',
-                    {
-                      style: {
-                        display: 'block',
-                        fontSize: 10.5,
-                        color: 'var(--dsw-alias-label-secondary)',
-                        marginBottom: 4,
-                      },
-                    },
-                    '正面提示词',
-                  ),
-                  h('textarea', {
-                    value: summary,
-                    style: WORKSPACE_AREA_INPUT,
-                    onChange: (event) => {
-                      setSummary(event.target.value)
-                      setDirty(true)
-                    },
-                  }),
-                ),
-                h(
-                  'div',
-                  null,
-                  h(
-                    'label',
-                    {
-                      style: {
-                        display: 'block',
-                        fontSize: 10.5,
-                        color: 'var(--dsw-alias-label-secondary)',
-                        marginBottom: 4,
-                      },
-                    },
-                    '负面提示词',
-                  ),
-                  h('textarea', {
-                    value: negative,
-                    style: Object.assign({}, WORKSPACE_AREA_INPUT, { minHeight: 60 }),
-                    placeholder: '留空则沿用模板',
-                    onChange: (event) => {
-                      setNegative(event.target.value)
-                      setDirty(true)
-                    },
-                  }),
-                ),
+                '整图描述',
               ),
+              h('textarea', {
+                value: summary,
+                style: WORKSPACE_AREA_INPUT,
+                onChange: (event) => {
+                  setSummary(event.target.value)
+                  setDirty(true)
+                },
+              }),
+              h(
+                'label',
+                {
+                  style: {
+                    display: 'block',
+                    fontSize: 10.5,
+                    color: 'var(--dsw-alias-label-secondary)',
+                    margin: '10px 0 4px',
+                  },
+                },
+                '负面提示词',
+              ),
+              h('textarea', {
+                value: negative,
+                style: Object.assign({}, WORKSPACE_AREA_INPUT, { minHeight: 60 }),
+                placeholder: '留空则沿用模板',
+                onChange: (event) => {
+                  setNegative(event.target.value)
+                  setDirty(true)
+                },
+              }),
             ),
             h(
               'div',
