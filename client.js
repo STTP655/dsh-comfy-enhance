@@ -7780,6 +7780,8 @@ window.__ModuleLoader__.load({
             setSummary(stored && typeof stored.summary === 'string' ? stored.summary : wfSummary)
             setBoxes(sanitizeBoxes(stored ? stored.boxes : [], useWidth, useHeight))
             setGuides(Array.isArray(stored && stored.guides) ? stored.guides.map(normalizeGuide).filter(Boolean) : [])
+            // Whatever picture was being traced comes back with the draft.
+            setReferenceUrl(stored && typeof stored.referenceUrl === 'string' ? stored.referenceUrl : '')
             setSelected(null)
             setDirty(Boolean(stored))
             if (stored) setStatus('已恢复上次未发送的编辑')
@@ -7804,10 +7806,11 @@ window.__ModuleLoader__.load({
             summary,
             boxes,
             guides,
+            referenceUrl,
           })
         }, 400)
         return () => clearTimeout(timer)
-      }, [file, dirty, size, ratio, megapixels, multiple, summary, boxes, guides])
+      }, [file, dirty, size, ratio, megapixels, multiple, summary, boxes, guides, referenceUrl])
 
       useEffect(() => jobStore.subscribe(() => setJob(jobStore.get())), [])
 
@@ -8063,7 +8066,10 @@ window.__ModuleLoader__.load({
                 { value: '', label: '无' },
                 ...referenceOptions.map((option) => ({ value: option.url, label: option.label })),
               ],
-              onPick: (value) => setReferenceUrl(value),
+              onPick: (value) => {
+                setReferenceUrl(value)
+                setDirty(true)
+              },
               dark: canvasNight,
             }),
           ),
