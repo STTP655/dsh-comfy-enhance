@@ -474,8 +474,8 @@ async function runPolish(ctx, body, onEvent) {
   const messages = [{ role: 'user', content: [{ type: 'text', text: lines.join('\n') }] }]
   const options = { provider, model, system, messages }
   // Only forward an effort the exact model advertises: providers reject unknown
-  // efforts outright (UNSUPPORTED_REASONING_EFFORT).
-  if (effort === 'off' || effort === 'low' || effort === 'medium' || effort === 'high') {
+  // efforts outright (UNSUPPORTED_REASONING_EFFORT). Supported tiers: off/low/high/max.
+  if (effort === 'off' || effort === 'low' || effort === 'high' || effort === 'max') {
     try {
       const info = await ctx.llm.resolveModelInfo(provider, model)
       const efforts = info && info.reasoning && Array.isArray(info.reasoning.efforts) ? info.reasoning.efforts : []
