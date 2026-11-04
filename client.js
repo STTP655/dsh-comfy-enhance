@@ -1588,6 +1588,9 @@ window.__ModuleLoader__.load({
       justifyContent: 'center',
       width: '100%',
       height: '100%',
+      boxSizing: 'border-box',
+      // Reserve room for the floating info strip: the image never sits under it.
+      paddingBottom: 56,
       overflow: 'hidden',
     }
     const VIEWER_NAV = {
