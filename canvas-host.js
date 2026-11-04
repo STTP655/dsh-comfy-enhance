@@ -370,7 +370,9 @@ async function submitLayout(baseUrl, layout, models, width, height, negative) {
     if (negativeId) graph[negativeId].inputs.text = negative.trim()
   }
 
-  const clientId = 'dsh-canvas-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
+  // ComfyUI routes execution/progress events to the client_id that submitted the
+  // prompt. The Host's WebSocket subscribes with this same id, so keep it fixed.
+  const clientId = 'dsh-comfy-canvas'
   const res = await fetch(`${baseUrl}/prompt`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

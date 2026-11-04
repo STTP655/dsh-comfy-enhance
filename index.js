@@ -672,7 +672,7 @@ function createHandler(baseUrl) {
   const ensureUpstream = () => {
     if (upstreamSocket || eventClients.size === 0) return
     try {
-      const wsUrl = baseUrl.replace(/^http/i, 'ws') + '/ws?clientId=dsh-comfy-events'
+      const wsUrl = baseUrl.replace(/^http/i, 'ws') + '/ws?clientId=dsh-comfy-canvas'
       upstreamState = 'connecting'
       const socket = new WebSocket(wsUrl)
       upstreamSocket = socket
