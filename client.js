@@ -8104,6 +8104,12 @@ window.__ModuleLoader__.load({
       const [referenceOptions, setReferenceOptions] = useState([])
       const [referenceOpacity, setReferenceOpacity] = useState(55)
       const [negative, setNegative] = useState('')
+      const [polishMode, setPolishMode] = useState('single')
+      const [polishInstruction, setPolishInstruction] = useState('')
+      const [polishBusy, setPolishBusy] = useState(false)
+      const [polishResult, setPolishResult] = useState(null)
+      const [polishMsg, setPolishMsg] = useState('')
+      const [polishHistory, setPolishHistory] = useState([])
       const [panelWidth, setPanelWidthPref] = usePref('workspacePanelWidth')
       const [livePanelWidth, setLivePanelWidth] = useState(null)
       const panelDragRef = useRef(null)
@@ -8394,6 +8400,18 @@ window.__ModuleLoader__.load({
 
       useEffect(() => jobStore.subscribe(() => setJob(jobStore.get())), [])
 
+      // Polish chat history, kept per workflow file.
+      const polishKey = 'dsh.comfy-canvas.polish.' + encodeURIComponent(String(file || ''))
+      useEffect(() => {
+        try {
+          const raw = localStorage.getItem(polishKey)
+          const parsed = raw ? JSON.parse(raw) : null
+          setPolishHistory(parsed && Array.isArray(parsed.messages) ? parsed.messages : [])
+        } catch {
+          setPolishHistory([])
+        }
+      }, [polishKey])
+
       // The picture this workspace just produced becomes the reference underlay,
       // so the next pass can trace the result it got.
       useEffect(() => {
@@ -8546,6 +8564,143 @@ window.__ModuleLoader__.load({
           setStatus('已提交，正在生成')
         } catch (err) {
           setStatus('提交失败：' + String((err && err.message) || err))
+        }
+      }
+
+      const parsePolishJson = (text) => {
+        let raw = String(text || '').trim()
+        const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(raw)
+        if (fence) raw = fence[1].trim()
+        try {
+          const parsed = JSON.parse(raw)
+          const items = Array.isArray(parsed) ? parsed : parsed && Array.isArray(parsed.items) ? parsed.items : null
+          if (!items) return null
+          return items
+            .map((item) => ({
+              id: item && item.id !== undefined ? String(item.id) : '',
+              text: item && typeof item.text === 'string' ? item.text : '',
+            }))
+            .filter((item) => item.text)
+        } catch {
+          return null
+        }
+      }
+
+      const runPolishNow = async () => {
+        const instruction = polishInstruction.trim()
+        if (!instruction) {
+          setPolishMsg('先写润色要求')
+          return
+        }
+        const mode = polishMode === 'board' ? 'board' : 'single'
+        const selectedBox = selected !== null && boxes[selected] ? boxes[selected] : null
+        const describe = (box) => {
+          const meta = box.metadata || {}
+          return meta.type === 'text' ? String(meta.text || '') : String(meta.desc || '')
+        }
+        const targets =
+          mode === 'board'
+            ? boxes.map((box, index) => ({
+                id: String(index),
+                kind: (box.metadata || {}).type === 'text' ? 'text' : 'obj',
+                text: describe(box),
+              }))
+            : selectedBox
+              ? [
+                  {
+                    id: String(selected),
+                    kind: (selectedBox.metadata || {}).type === 'text' ? 'text' : 'obj',
+                    text: describe(selectedBox),
+                  },
+                ]
+              : []
+        if (targets.length === 0) {
+          setPolishMsg(mode === 'board' ? '画布上还没有框' : '先选中一个框')
+          return
+        }
+        setPolishBusy(true)
+        setPolishMsg('')
+        setPolishResult(null)
+        try {
+          const res = await fetch('/plugin/comfy-canvas/polish', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ mode, instruction, summary, targets, history: polishHistory }),
+          })
+          const data = await res.json().catch(() => null)
+          if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'HTTP ' + res.status)
+          const text = String(data.text || '')
+          if (mode === 'board') {
+            const parsed = parsePolishJson(text)
+            if (parsed && parsed.length > 0) {
+              setPolishResult({ items: parsed })
+              setPolishMsg('润色完成：' + parsed.length + ' 个框')
+            } else {
+              setPolishResult({ text })
+              setPolishMsg('模型返回的不是合法 JSON，已原样展示')
+            }
+          } else {
+            setPolishResult({ text })
+            setPolishMsg('润色完成')
+          }
+          const nextHistory = [
+            ...polishHistory,
+            { role: 'user', text: instruction },
+            { role: 'assistant', text },
+          ]
+          setPolishHistory(nextHistory)
+          try {
+            localStorage.setItem(polishKey, JSON.stringify({ messages: nextHistory }))
+          } catch {
+            // Storage full: history still lives in memory.
+          }
+        } catch (err) {
+          setPolishMsg('润色失败：' + String((err && err.message) || err))
+        } finally {
+          setPolishBusy(false)
+        }
+      }
+
+      const applyPolish = () => {
+        if (!polishResult) return
+        if (polishResult.items) {
+          const items = polishResult.items
+          const matched = boxes.filter((box, index) => items.some((item) => item.id === String(index))).length
+          setBoxes((current) =>
+            current.map((box, index) => {
+              const hit = items.find((item) => item.id === String(index))
+              if (!hit) return box
+              const meta = box.metadata || {}
+              return Object.assign({}, box, {
+                metadata: Object.assign({}, meta, meta.type === 'text' ? { text: hit.text } : { desc: hit.text }),
+              })
+            }),
+          )
+          setDirty(true)
+          setPolishMsg('已写入 ' + matched + ' 个框')
+          return
+        }
+        if (selected === null) {
+          setPolishMsg('先选中一个框')
+          return
+        }
+        const box = boxes[selected]
+        if (!box) return
+        const meta = box.metadata || {}
+        changeBox(selected, {
+          metadata: Object.assign({}, meta, meta.type === 'text' ? { text: polishResult.text } : { desc: polishResult.text }),
+        })
+        setPolishMsg('已写入当前框')
+      }
+
+      const clearPolishChat = () => {
+        setPolishHistory([])
+        setPolishResult(null)
+        setPolishMsg('对话已清除')
+        try {
+          localStorage.removeItem(polishKey)
+        } catch {
+          // Nothing stored.
         }
       }
 
@@ -9121,6 +9276,111 @@ window.__ModuleLoader__.load({
                   setDirty(true)
                 },
               }),
+              h(
+                'div',
+                {
+                  style: {
+                    marginTop: 10,
+                    borderTop: '1px solid var(--dsw-alias-border-l2)',
+                    paddingTop: 10,
+                  },
+                },
+                h(
+                  'div',
+                  { style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 } },
+                  h('span', { style: { fontSize: 10.5, fontWeight: 600 } }, 'AI 润色'),
+                  h('span', { style: { flex: 1 } }),
+                  h(
+                    'button',
+                    {
+                      className: 'dshCanvasBtn',
+                      style: { padding: '2px 8px', fontSize: 10 },
+                      onClick: clearPolishChat,
+                    },
+                    '清除对话',
+                  ),
+                ),
+                h(SegmentToggle, {
+                  value: polishMode,
+                  options: [
+                    { value: 'single', label: '选中框' },
+                    { value: 'board', label: '整个画板' },
+                  ],
+                  onChange: (value) => setPolishMode(value),
+                }),
+                h('textarea', {
+                  value: polishInstruction,
+                  style: Object.assign({}, WORKSPACE_AREA_INPUT, { minHeight: 52, marginTop: 6 }),
+                  placeholder: '怎么润色（例如：更有电影感、补充材质细节）',
+                  onChange: (event) => setPolishInstruction(event.target.value),
+                }),
+                h(
+                  'div',
+                  { style: { display: 'flex', gap: 6, marginTop: 6 } },
+                  h(
+                    'button',
+                    {
+                      className: 'dshCanvasBtn',
+                      style: { flex: 1 },
+                      disabled: polishBusy,
+                      onClick: runPolishNow,
+                    },
+                    polishBusy ? '润色中…' : '润色',
+                  ),
+                  polishResult
+                    ? h('button', { className: 'dshCanvasBtn', style: { flex: 1 }, onClick: applyPolish }, '写入画框')
+                    : null,
+                ),
+                polishMsg
+                  ? h(
+                      'div',
+                      { style: { marginTop: 6, fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
+                      polishMsg,
+                    )
+                  : null,
+                polishResult && polishResult.text
+                  ? h(
+                      'div',
+                      {
+                        style: Object.assign({}, WORKSPACE_AREA_INPUT, {
+                          minHeight: 40,
+                          maxHeight: 140,
+                          marginTop: 6,
+                          overflowY: 'auto',
+                          fontSize: 10.5,
+                          lineHeight: 1.5,
+                          whiteSpace: 'pre-wrap',
+                        }),
+                      },
+                      polishResult.text,
+                    )
+                  : null,
+                polishResult && polishResult.items
+                  ? h(
+                      'div',
+                      { style: { marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 } },
+                      ...polishResult.items.map((item, index) =>
+                        h(
+                          'div',
+                          {
+                            key: index,
+                            style: {
+                              fontSize: 10.5,
+                              lineHeight: 1.4,
+                              padding: '4px 6px',
+                              borderRadius: 6,
+                              background: 'var(--dsw-alias-bg-layer-1)',
+                              whiteSpace: 'pre-wrap',
+                              maxHeight: 90,
+                              overflowY: 'auto',
+                            },
+                          },
+                          (item.id ? '#' + (Number(item.id) + 1) + ' ' : '') + item.text,
+                        ),
+                      ),
+                    )
+                  : null,
+              ),
             ),
             h(
               'div',

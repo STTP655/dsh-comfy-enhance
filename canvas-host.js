@@ -10,6 +10,7 @@
 import { dirname, join, extname, resolve } from 'node:path'
 import { readFile, writeFile, readdir, stat, copyFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import { homedir } from 'node:os'
 
 const DEFAULT_URL = 'http://127.0.0.1:8188'
 const TIMEOUT_MS = 4000
@@ -387,6 +388,91 @@ async function submitLayout(baseUrl, layout, models, width, height, negative) {
   return { ok: true, promptId: (payload && payload.prompt_id) || '' }
 }
 
+// ------------------------------------------------------------ prompt polish
+
+const POLISH_SKILL_PATH = join(homedir(), '.dsh', 'skills', 'moss-image-prompt-enhancer', 'SKILL.md')
+let polishSkillCache = null
+
+async function loadPolishSkill() {
+  if (polishSkillCache !== null) return polishSkillCache
+  try {
+    polishSkillCache = await readFile(POLISH_SKILL_PATH, 'utf8')
+  } catch {
+    polishSkillCache = ''
+  }
+  return polishSkillCache
+}
+
+/** Reformulate box copy with the user's instruction, carrying the skill's rules. */
+async function runPolish(ctx, body) {
+  const instruction = typeof body.instruction === 'string' ? body.instruction.trim() : ''
+  const mode = body.mode === 'board' ? 'board' : 'single'
+  const targets = Array.isArray(body.targets) ? body.targets : []
+  const summary = typeof body.summary === 'string' ? body.summary : ''
+  const history = Array.isArray(body.history) ? body.history : []
+  if (!instruction) throw new Error('缺少润色要求')
+  if (targets.length === 0) throw new Error('没有可润色的框')
+  const llm = ctx && ctx.llm
+  if (!llm || typeof llm.stream !== 'function') throw new Error('LLM 服务不可用')
+  const selection =
+    ctx.agentDefaultModel && typeof ctx.agentDefaultModel.currentSelection === 'function'
+      ? ctx.agentDefaultModel.currentSelection()
+      : null
+  const provider = selection && selection.provider
+  const model = selection && selection.model
+  if (!provider || !model) throw new Error('没有可用的默认模型')
+
+  const skill = await loadPolishSkill()
+  const system = [
+    '你是 MOSS-Image 的提示词润色助手，只改写画面描述/文字内容的措辞。',
+    '必须保持画框的数量、编号和类型不变；不要编造新的框，也不要删除框。',
+    skill,
+  ].join('\n\n')
+
+  const lines = []
+  if (history.length > 0) {
+    lines.push('【之前的对话】')
+    for (const turn of history) {
+      const role = turn && turn.role === 'assistant' ? '助手' : '用户'
+      const text = turn && typeof turn.text === 'string' ? turn.text.trim() : ''
+      if (text) lines.push(role + '：' + text)
+    }
+    lines.push('')
+  }
+  lines.push('【本次润色要求】' + instruction)
+  if (mode === 'board') {
+    if (summary.trim()) lines.push('【整图描述】' + summary.trim())
+    lines.push('【画框列表】')
+    targets.forEach((target, index) => {
+      lines.push(
+        String(index + 1) +
+          '. id=' +
+          String(target.id) +
+          ' 类型=' +
+          (target.kind === 'text' ? '文字' : '画面元素') +
+          ' 描述=' +
+          String(target.text || ''),
+      )
+    })
+    lines.push('')
+    lines.push('请润色每个框的描述（保持 id 不变），只输出 JSON：{"items":[{"id":"<原 id>","text":"<润色后描述>"}]}')
+  } else {
+    lines.push('【待润色描述】' + String(targets[0].text || ''))
+  }
+
+  const messages = [{ role: 'user', content: [{ type: 'text', text: lines.join('\n') }] }]
+  let text = ''
+  let finishReason = ''
+  for await (const chunk of llm.stream({ provider, model, system, messages })) {
+    if (chunk && chunk.type === 'text-delta') text += chunk.text
+    else if (chunk && chunk.type === 'finish') finishReason = chunk.reason
+  }
+  if (!text.trim()) {
+    throw new Error('模型没有返回内容' + (finishReason && finishReason !== 'stop' ? '（' + finishReason + '）' : ''))
+  }
+  return { ok: true, text: text.trim() }
+}
+
 export function apply(ctx, config = {}) {
   const configured = config && typeof config.comfyUrl === 'string' ? config.comfyUrl.trim() : ''
   const envUrl = typeof process !== 'undefined' && process.env ? process.env.DSH_COMFY_URL : ''
@@ -525,6 +611,16 @@ export function apply(ctx, config = {}) {
       }
 
       return send(405, { ok: false, error: 'method not allowed' })
+    }
+
+    if (pathname === `${PREFIX}/polish`) {
+      if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const body = JSON.parse((await readBody(req)) || '{}')
+        return send(200, await runPolish(ctx, body))
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
     }
 
     return send(404, { ok: false, error: 'not found' })

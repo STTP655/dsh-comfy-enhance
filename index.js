@@ -21,7 +21,7 @@ const ALBUM_LIMIT = 24
 const ALBUM_CACHE_MS = 2000
 const PREFIX = '/plugin/comfy-status'
 
-export const inject = ['webServer']
+export const inject = ['webServer', 'llm', 'agentDefaultModel']
 
 /** Fetch JSON with a hard timeout; surfaces HTTP and network failures alike. */
 async function getJSON(url) {
