@@ -19,6 +19,12 @@ const MAX_BODY = 16 * 1024 * 1024
 /** Bundled, empty-board MOSS workflow installed on first use. */
 const TEMPLATE_NAME = 'moss-bbox-canvas.json'
 const TEMPLATE_URL = new URL('./templates/moss-bbox-canvas.json', import.meta.url)
+// Bundled canvas workflows for the two model families; installed on first use so
+// a fresh install only needs ComfyUI running, no manual download.
+const TEMPLATE_BASE_NAME = 'moss-base-canvas.json'
+const TEMPLATE_BASE_URL = new URL('./templates/moss-base-canvas.json', import.meta.url)
+const TEMPLATE_SFT_NAME = 'moss-sft-canvas.json'
+const TEMPLATE_SFT_URL = new URL('./templates/moss-sft-canvas.json', import.meta.url)
 /** Bundled API graph for quick generate (models + sampler, positive prompt empty). */
 const TEMPLATE_IMAGE_URL = new URL('./templates/moss-image-api.json', import.meta.url)
 
@@ -46,17 +52,24 @@ async function resolveWorkflowDir(baseUrl) {
  * existing setup survive; a read-only workflows directory just means no default.
  */
 async function ensureTemplate(dir) {
-  const target = join(dir, TEMPLATE_NAME)
-  try {
-    await stat(target)
-    return
-  } catch {
-    // Not installed yet: fall through.
-  }
-  try {
-    await copyFile(fileURLToPath(TEMPLATE_URL), target)
-  } catch {
-    // Read-only directory: the canvas simply has no default entry.
+  const entries = [
+    [TEMPLATE_NAME, TEMPLATE_URL],
+    [TEMPLATE_BASE_NAME, TEMPLATE_BASE_URL],
+    [TEMPLATE_SFT_NAME, TEMPLATE_SFT_URL],
+  ]
+  for (const [name, url] of entries) {
+    const target = join(dir, name)
+    try {
+      await stat(target)
+      continue
+    } catch {
+      // Not installed yet: fall through.
+    }
+    try {
+      await copyFile(fileURLToPath(url), target)
+    } catch {
+      // Read-only directory: the canvas simply has no default entry.
+    }
   }
 }
 
@@ -574,7 +587,9 @@ export function apply(ctx, config = {}) {
             // A file removed mid-listing is simply skipped.
           }
         }
-        files.sort((left, right) => right.mtime - left.mtime)
+        // The bundled base/sft canvas workflows stay pinned to the top.
+        const priority = (name) => (name === TEMPLATE_BASE_NAME ? 2 : name === TEMPLATE_SFT_NAME ? 1 : 0)
+        files.sort((left, right) => priority(right.name) - priority(left.name) || right.mtime - left.mtime)
         return send(200, { ok: true, dir, files })
       } catch (error) {
         return send(502, { ok: false, error: String((error && error.message) || error) })
