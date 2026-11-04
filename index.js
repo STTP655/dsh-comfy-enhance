@@ -641,6 +641,59 @@ function createHandler(baseUrl) {
     }
   }
 
+  // ---- live events ---------------------------------------------------------
+  // One upstream WebSocket to ComfyUI, fanned out to browsers as SSE. The UI
+  // needs prompt start/progress/done the moment ComfyUI reports them, which
+  // polling can only approximate.
+  const eventClients = new Set()
+  let upstreamSocket = null
+  let upstreamTimer = null
+
+  const broadcastEvent = (payload) => {
+    const frame = 'data: ' + JSON.stringify(payload) + '\n\n'
+    for (const client of [...eventClients]) {
+      try {
+        client.write(frame)
+      } catch {
+        eventClients.delete(client)
+      }
+    }
+  }
+
+  const ensureUpstream = () => {
+    if (upstreamSocket || eventClients.size === 0) return
+    try {
+      const wsUrl = baseUrl.replace(/^http/i, 'ws') + '/ws?clientId=dsh-comfy-events'
+      const socket = new WebSocket(wsUrl)
+      upstreamSocket = socket
+      socket.onmessage = (message) => {
+        try {
+          broadcastEvent(JSON.parse(message.data))
+        } catch {
+          // Binary preview frames are not JSON and are ignored.
+        }
+      }
+      socket.onclose = () => {
+        upstreamSocket = null
+        if (eventClients.size > 0) {
+          upstreamTimer = setTimeout(() => {
+            upstreamTimer = null
+            ensureUpstream()
+          }, 2000)
+        }
+      }
+      socket.onerror = () => {
+        try {
+          socket.close()
+        } catch {
+          // Ignore close failures; onclose handles the retry.
+        }
+      }
+    } catch {
+      upstreamSocket = null
+    }
+  }
+
   let cachedOutputDir = null
   const outputDir = async () => {
     if (cachedOutputDir !== null) return cachedOutputDir
@@ -756,6 +809,43 @@ function createHandler(baseUrl) {
       } catch (error) {
         return send(404, { ok: false, error: String((error && error.message) || error) })
       }
+    }
+
+    // Live execution events as Server-Sent Events; the browser subscribes once
+    // and gets started/progress/done without polling.
+    if (pathname === `${PREFIX}/events`) {
+      if (req.method !== 'GET') return send(405, { ok: false, error: 'method not allowed' })
+      res.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      })
+      res.write('retry: 2000\n\n')
+      eventClients.add(res)
+      ensureUpstream()
+      const ping = setInterval(() => {
+        try {
+          res.write(': ping\n\n')
+        } catch {
+          // The client is gone; cleanup runs on close.
+        }
+      }, 25000)
+      const cleanup = () => {
+        clearInterval(ping)
+        eventClients.delete(res)
+        if (eventClients.size === 0 && upstreamSocket) {
+          try {
+            upstreamSocket.close()
+          } catch {
+            // Ignore.
+          }
+          upstreamSocket = null
+        }
+      }
+      req.on('close', cleanup)
+      req.on('error', cleanup)
+      return
     }
 
     return send(404, { ok: false, error: 'not found' })

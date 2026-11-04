@@ -1123,8 +1123,6 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         let alive = true
-        let timer = null
-        let busy = false
         const load = async () => {
           try {
             const res = await fetch(ALBUM_ENDPOINT, { cache: 'no-store' })
@@ -1133,19 +1131,22 @@ window.__ModuleLoader__.load({
             if (!alive) return
             setAlbum(data)
             setError(null)
-            busy = Boolean(data && data.running && data.running.length > 0)
           } catch (e) {
             if (!alive) return
             setError(String((e && e.message) || e))
-          } finally {
-            // A live job changes every few seconds; an idle gallery does not.
-            if (alive) timer = setTimeout(load, busy ? 4000 : ALBUM_POLL_MS)
           }
         }
         load()
+        // Completion events arrive live; the list refreshes when one lands.
+        const unsubscribeEvents = comfyEvents.subscribe((event) => {
+          const type = event && event.type
+          if (type === 'execution_success' || type === 'executed') {
+            if (alive) load()
+          }
+        })
         return () => {
           alive = false
-          if (timer) clearTimeout(timer)
+          unsubscribeEvents()
         }
       }, [nonce])
 
@@ -1658,6 +1659,55 @@ window.__ModuleLoader__.load({
      * text, which needs room a floating strip cannot give it.
      */
     /**
+     * ComfyUI execution events relayed by the Host over SSE.
+     *
+     * One shared EventSource for the whole plugin: subscribers receive every
+     * frame and filter by prompt id. The browser reconnects on its own (SSE
+     * `retry`), so no polling loop is needed.
+     */
+    const comfyEvents = (() => {
+      let source = null
+      let retryTimer = null
+      const listeners = new Set()
+      const connect = () => {
+        if (source) return
+        try {
+          source = new EventSource('/plugin/comfy-status/events')
+        } catch {
+          source = null
+          return
+        }
+        source.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data)
+            for (const listener of [...listeners]) listener(payload)
+          } catch {
+            // Malformed frames are ignored.
+          }
+        }
+        source.onerror = () => {
+          if (source) {
+            source.close()
+            source = null
+          }
+          if (retryTimer === null) {
+            retryTimer = window.setTimeout(() => {
+              retryTimer = null
+              if (listeners.size > 0) connect()
+            }, 3000)
+          }
+        }
+      }
+      return {
+        subscribe(listener) {
+          listeners.add(listener)
+          connect()
+          return () => listeners.delete(listener)
+        },
+      }
+    })()
+
+    /**
      * One shared tracker for the job the user started from the album.
      *
      * It lives at module scope on purpose. A completion chime has to survive the
@@ -1666,7 +1716,6 @@ window.__ModuleLoader__.load({
      */
     const jobStore = (() => {
       let state = null
-      let timer = null
       let ctx = null
       const listeners = new Set()
 
@@ -1708,78 +1757,79 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const stopTimer = () => {
-        if (timer) {
-          clearInterval(timer)
-          timer = null
-        }
-      }
-
-      let tick // assigned below; set() runs only after module load
-
       const set = (next) => {
         state = next
         notify()
-        if (!next || next.status === 'done' || next.status === 'error') {
-          stopTimer()
-        } else if (!timer) {
-          tick()
-          timer = setInterval(tick, 3000)
+      }
+
+      /** Output captured from `executed` until `execution_success` names the job. */
+      let pendingOutput = null
+      let watchdog = null
+
+      const clearWatchdog = () => {
+        if (watchdog) {
+          clearTimeout(watchdog)
+          watchdog = null
         }
       }
 
-      tick = async () => {
+      const settle = (next) => {
+        clearWatchdog()
+        set(next)
+      }
+
+      const onEvent = (event) => {
         const current = state
         if (!current || !current.id) return
-        if (current.status === 'done' || current.status === 'error') return
-        try {
-          const snapRes = await fetch(SNAPSHOT, { cache: 'no-store' })
-          const snap = await snapRes.json()
-          const last = snap && snap.last
-          if (last && last.promptId === current.id && last.status === 'error') {
-            set({ status: 'error', message: 'ComfyUI 执行失败', id: current.id, at: current.at })
-            return
+        const type = event && event.type
+        const data = (event && event.data) || {}
+        if (type === 'executed') {
+          if (data.prompt_id !== current.id) return
+          const images = data.output && Array.isArray(data.output.images) ? data.output.images : []
+          if (images.length === 0) return
+          const image = images.find((entry) => entry && entry.type === 'output') || images[0]
+          if (!image || !image.filename) return
+          pendingOutput = {
+            url:
+              '/plugin/comfy-status/view?filename=' +
+              encodeURIComponent(image.filename) +
+              '&subfolder=' +
+              encodeURIComponent(image.subfolder || '') +
+              '&type=' +
+              encodeURIComponent(image.type || 'output'),
+            filename: image.filename,
           }
-          // A failed job may never produce an image, so the album alone cannot
-          // tell us it is over; stop waiting after five minutes regardless.
-          if (current.at && Date.now() - current.at > 300000) {
-            set({ status: 'error', message: '超时未检测到结果，请查看 ComfyUI 控制台', id: current.id, at: current.at })
-            return
-          }
-          const queue = (snap && snap.queue) || {}
-          const runningIds = Array.isArray(queue.runningIds) ? queue.runningIds : []
-          const pendingIds = Array.isArray(queue.pendingIds) ? queue.pendingIds : []
-          if (runningIds.indexOf(current.id) >= 0) {
-            if (current.status !== 'running') set({ ...current, status: 'running', message: '正在生成…' })
-            return
-          }
-          if (pendingIds.indexOf(current.id) >= 0) {
-            if (current.status !== 'queued') set({ ...current, status: 'queued', message: '排队中…' })
-            return
-          }
-          const albumRes = await fetch(ALBUM_ENDPOINT, { cache: 'no-store' })
-          const album = await albumRes.json()
-          const item = (album.items || []).find((entry) => entry.id === current.id)
-          if (!item) return
-          if (item.completed) {
-            const first = Array.isArray(item.images) && item.images.length > 0 ? item.images[0] : null
-            set({
-              status: 'done',
-              message: '生成完成，已加入相册',
-              id: current.id,
-              at: current.at,
-              origin: current.origin,
-              imageUrl: first ? first.url : '',
-              filename: first ? first.filename : '',
-            })
-            if (pluginPrefs.get().sound !== false) ding()
-          } else if (item.status === 'error') {
-            set({ status: 'error', message: 'ComfyUI 执行失败', id: current.id, at: current.at, origin: current.origin })
-          }
-        } catch {
-          // A transient network failure: the next tick retries.
+          return
+        }
+        if (type === 'execution_start' && data.prompt_id === current.id) {
+          if (current.status !== 'running') set({ ...current, status: 'running', message: '正在生成…' })
+          return
+        }
+        if (type === 'executing' && data.node !== null && data.prompt_id === current.id) {
+          if (current.status !== 'running') set({ ...current, status: 'running', message: '正在生成…' })
+          return
+        }
+        if (type === 'execution_success' && data.prompt_id === current.id) {
+          settle({
+            status: 'done',
+            message: '生成完成，已加入相册',
+            id: current.id,
+            at: current.at,
+            origin: current.origin,
+            imageUrl: pendingOutput ? pendingOutput.url : '',
+            filename: pendingOutput ? pendingOutput.filename : '',
+          })
+          pendingOutput = null
+          if (pluginPrefs.get().sound !== false) ding()
+          return
+        }
+        if (type === 'execution_error' && data.prompt_id === current.id) {
+          pendingOutput = null
+          settle({ status: 'error', message: 'ComfyUI 执行失败', id: current.id, at: current.at, origin: current.origin })
         }
       }
+
+      comfyEvents.subscribe(onEvent)
 
       return {
         get: () => state,
@@ -1788,6 +1838,8 @@ window.__ModuleLoader__.load({
           return () => listeners.delete(listener)
         },
         start(promptId, origin) {
+          pendingOutput = null
+          clearWatchdog()
           set({
             status: 'queued',
             message: '已交给 ComfyUI，等待生成…',
@@ -1795,6 +1847,20 @@ window.__ModuleLoader__.load({
             at: Date.now(),
             origin: origin || 'album',
           })
+          // A failed job may never emit success or error; stop waiting eventually.
+          watchdog = setTimeout(() => {
+            watchdog = null
+            const current = state
+            if (current && current.id === promptId && (current.status === 'queued' || current.status === 'running')) {
+              set({
+                status: 'error',
+                message: '超时未检测到结果，请查看 ComfyUI 控制台',
+                id: current.id,
+                at: current.at,
+                origin: current.origin,
+              })
+            }
+          }, 600000)
         },
         fail(message) {
           set({ status: 'error', message })
@@ -6743,16 +6809,20 @@ window.__ModuleLoader__.load({
             })
           } catch {
             // The album plugin may be switched off; the file picker still works.
-          } finally {
-            if (alive) timer = setTimeout(load, 15000)
           }
         }
 
         load()
         refreshAlbum.current = load
+        const unsubscribeEvents = comfyEvents.subscribe((event) => {
+          const type = event && event.type
+          if (type === 'execution_success' || type === 'executed') {
+            if (alive) load()
+          }
+        })
         return () => {
           alive = false
-          if (timer) clearTimeout(timer)
+          unsubscribeEvents()
         }
       }, [])
 
@@ -7981,14 +8051,18 @@ window.__ModuleLoader__.load({
             setAlbumMetaByUrl(metaByUrl)
           } catch {
             // The album plugin may be off; the reference picker just stays empty.
-          } finally {
-            if (alive) timer = setTimeout(load, 15000)
           }
         }
         load()
+        const unsubscribeEvents = comfyEvents.subscribe((event) => {
+          const type = event && event.type
+          if (type === 'execution_success' || type === 'executed') {
+            if (alive) load()
+          }
+        })
         return () => {
           alive = false
-          if (timer) clearTimeout(timer)
+          unsubscribeEvents()
         }
       }, [])
 
