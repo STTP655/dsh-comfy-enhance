@@ -1,0 +1,1045 @@
+{
+ "id": "602a9b4a-8b28-4c64-a19e-fb35024af9c8",
+ "revision": 2,
+ "last_node_id": 25,
+ "last_link_id": 30,
+ "nodes": [
+  {
+   "id": 4,
+   "type": "CLIPTextEncode",
+   "pos": [
+    590.980723946239,
+    282.97746942714315
+   ],
+   "size": [
+    430,
+    240
+   ],
+   "flags": {},
+   "order": 5,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "clip",
+     "type": "CLIP",
+     "link": 28
+    }
+   ],
+   "outputs": [
+    {
+     "name": "CONDITIONING",
+     "type": "CONDITIONING",
+     "slot_index": 0,
+     "links": [
+      18
+     ]
+    }
+   ],
+   "title": "moss-image Positive",
+   "properties": {
+    "Node name for S&R": "CLIPTextEncode"
+   },
+   "widgets_values": [
+    "A wide view of a refrigerator beside a kitchen counter with a fruit bowl. A small sticky note on the refrigerator door is handwritten in Chinese:\n\"记得买牛奶和鸡蛋！\n牛奶两盒，鸡蛋一打。\n顺便带一袋面包。\""
+   ],
+   "widgets_values_named": {
+    "text": "A wide view of a refrigerator beside a kitchen counter with a fruit bowl. A small sticky note on the refrigerator door is handwritten in Chinese:\n\"记得买牛奶和鸡蛋！\n牛奶两盒，鸡蛋一打。\n顺便带一袋面包。\""
+   }
+  },
+  {
+   "id": 5,
+   "type": "CLIPTextEncode",
+   "pos": [
+    592.3876751767972,
+    586.4494144007078
+   ],
+   "size": [
+    430,
+    200
+   ],
+   "flags": {},
+   "order": 6,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "clip",
+     "type": "CLIP",
+     "link": 29
+    }
+   ],
+   "outputs": [
+    {
+     "name": "CONDITIONING",
+     "type": "CONDITIONING",
+     "slot_index": 0,
+     "links": [
+      19
+     ]
+    }
+   ],
+   "title": "moss-image Negative",
+   "properties": {
+    "Node name for S&R": "CLIPTextEncode"
+   },
+   "widgets_values": [
+    "nsfw, worst quality, bad anatomy, watermark, jpeg artifact"
+   ],
+   "widgets_values_named": {
+    "text": ""
+   }
+  },
+  {
+   "id": 6,
+   "type": "EmptyFlux2LatentImage",
+   "pos": [
+    1076.8709415117667,
+    40.14629806728207
+   ],
+   "size": [
+    300,
+    180
+   ],
+   "flags": {},
+   "order": 0,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "LATENT",
+     "type": "LATENT",
+     "slot_index": 0,
+     "links": [
+      20
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "EmptyFlux2LatentImage"
+   },
+   "widgets_values": [
+    1024,
+    1024,
+    1
+   ],
+   "widgets_values_named": {
+    "width": 1024,
+    "height": 1024,
+    "batch_size": 1
+   }
+  },
+  {
+   "id": 13,
+   "type": "SkipLayerGuidanceDiTSimple",
+   "pos": [
+    1085.9671994568102,
+    810.0057777710338
+   ],
+   "size": [
+    340,
+    260
+   ],
+   "flags": {},
+   "order": 7,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "model",
+     "type": "MODEL",
+     "link": 16
+    }
+   ],
+   "outputs": [
+    {
+     "name": "MODEL",
+     "type": "MODEL",
+     "slot_index": 0,
+     "links": [
+      17
+     ]
+    }
+   ],
+   "title": "Uncond skip (empty = off)",
+   "properties": {
+    "Node name for S&R": "SkipLayerGuidanceDiTSimple"
+   },
+   "widgets_values": [
+    "",
+    "22",
+    0,
+    1
+   ],
+   "widgets_values_named": {
+    "double_layers": "",
+    "single_layers": "22",
+    "start_percent": 0,
+    "end_percent": 1
+   }
+  },
+  {
+   "id": 15,
+   "type": "ModelSamplingSD3",
+   "pos": [
+    635.5243515640974,
+    833.754663701251
+   ],
+   "size": [
+    310,
+    90
+   ],
+   "flags": {},
+   "order": 4,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "model",
+     "type": "MODEL",
+     "link": 27
+    }
+   ],
+   "outputs": [
+    {
+     "name": "MODEL",
+     "type": "MODEL",
+     "slot_index": 0,
+     "links": [
+      16
+     ]
+    }
+   ],
+   "title": "Official Flow sigma shift",
+   "properties": {
+    "Node name for S&R": "ModelSamplingSD3"
+   },
+   "widgets_values": [
+    5
+   ],
+   "widgets_values_named": {
+    "shift": 5
+   }
+  },
+  {
+   "id": 16,
+   "type": "KSampler",
+   "pos": [
+    1462.4773114331942,
+    579.4775120615249
+   ],
+   "size": [
+    270,
+    474
+   ],
+   "flags": {},
+   "order": 8,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "model",
+     "type": "MODEL",
+     "link": 17
+    },
+    {
+     "name": "positive",
+     "type": "CONDITIONING",
+     "link": 18
+    },
+    {
+     "name": "negative",
+     "type": "CONDITIONING",
+     "link": 19
+    },
+    {
+     "name": "latent_image",
+     "type": "LATENT",
+     "link": 20
+    }
+   ],
+   "outputs": [
+    {
+     "name": "LATENT",
+     "type": "LATENT",
+     "links": [
+      22
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "KSampler"
+   },
+   "widgets_values": [
+    42,
+    "fixed",
+    50,
+    3,
+    "euler",
+    "sgm_uniform",
+    1
+   ],
+   "widgets_values_named": {
+    "seed": 42,
+    "control_after_generate": "fixed",
+    "steps": 50,
+    "cfg": 3,
+    "sampler_name": "euler",
+    "scheduler": "sgm_uniform",
+    "denoise": 1
+   }
+  },
+  {
+   "id": 17,
+   "type": "VAEDecode",
+   "pos": [
+    1866.0458086602723,
+    593.1343463769351
+   ],
+   "size": [
+    300,
+    180
+   ],
+   "flags": {},
+   "order": 9,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "samples",
+     "type": "LATENT",
+     "link": 22
+    },
+    {
+     "name": "vae",
+     "type": "VAE",
+     "link": 30
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "slot_index": 0,
+     "links": [
+      21
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "VAEDecode"
+   }
+  },
+  {
+   "id": 18,
+   "type": "SaveImage",
+   "pos": [
+    2267.030358480412,
+    597.7554837229761
+   ],
+   "size": [
+    480,
+    600
+   ],
+   "flags": {},
+   "order": 10,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 21
+    }
+   ],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": []
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "SaveImage"
+   },
+   "widgets_values": [
+    "moss-image"
+   ],
+   "widgets_values_named": {
+    "filename_prefix": "moss-image"
+   }
+  },
+  {
+   "id": 20,
+   "type": "MOSSImageUNETLoader",
+   "pos": [
+    108.25581677741914,
+    534.5600783323451
+   ],
+   "size": [
+    333.183203125,
+    82
+   ],
+   "flags": {},
+   "order": 1,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "MODEL",
+     "type": "MODEL",
+     "links": [
+      27
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "MOSSImageUNETLoader"
+   },
+   "widgets_values": [
+    "moss-image-sft-dit-int8-convrot.safetensors",
+    "default"
+   ],
+   "widgets_values_named": {
+    "unet_name": "moss-image-sft-dit-int8.safetensors",
+    "weight_dtype": "default"
+   }
+  },
+  {
+   "id": 21,
+   "type": "MOSSImageCLIPLoader",
+   "pos": [
+    103.86961675746264,
+    699.8493345306907
+   ],
+   "size": [
+    287.8609375,
+    82
+   ],
+   "flags": {},
+   "order": 2,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "CLIP",
+     "type": "CLIP",
+     "links": [
+      28,
+      29
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "MOSSImageCLIPLoader"
+   },
+   "widgets_values": [
+    "moss-image-sft-qwen35-int8-convrot.safetensors",
+    "default"
+   ],
+   "widgets_values_named": {
+    "clip_name": "moss-image-sft-qwen35-int8.safetensors",
+    "device": "default"
+   }
+  },
+  {
+   "id": 22,
+   "type": "VAELoader",
+   "pos": [
+    127.82638152549406,
+    874.154368339856
+   ],
+   "size": [
+    270,
+    58
+   ],
+   "flags": {},
+   "order": 3,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "VAE",
+     "type": "VAE",
+     "links": [
+      30
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "VAELoader"
+   },
+   "widgets_values": [
+    "moss-image-sft-vae.safetensors"
+   ],
+   "widgets_values_named": {
+    "vae_name": "diffusion_pytorch_model.safetensors"
+   }
+  },
+  {
+   "id": 23,
+   "type": "CreateBoundingBoxes",
+   "pos": [
+    -900,
+    100
+   ],
+   "size": [
+    440,
+    680
+   ],
+   "flags": {},
+   "order": 5,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "背景",
+     "name": "background",
+     "shape": 7,
+     "type": "IMAGE",
+     "link": null
+    },
+    {
+     "localized_name": "bboxes",
+     "name": "bboxes",
+     "shape": 7,
+     "type": "BOUNDING_BOX,ARRAY,STRING",
+     "link": null
+    },
+    {
+     "localized_name": "宽度",
+     "name": "width",
+     "type": "INT",
+     "widget": {
+      "name": "width"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "高度",
+     "name": "height",
+     "type": "INT",
+     "widget": {
+      "name": "height"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "编辑器状态",
+     "name": "editor_state",
+     "type": "BOUNDING_BOXES",
+     "widget": {
+      "name": "editor_state"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "last_incoming",
+     "name": "last_incoming",
+     "shape": 7,
+     "type": "BOUNDING_BOXES",
+     "widget": {
+      "name": "last_incoming"
+     },
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "预览",
+     "name": "preview",
+     "type": "IMAGE",
+     "links": null
+    },
+    {
+     "localized_name": "边界框",
+     "name": "bboxes",
+     "type": "BOUNDING_BOX",
+     "links": null
+    },
+    {
+     "localized_name": "元素",
+     "name": "elements",
+     "type": "ARRAY",
+     "links": null
+    }
+   ],
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "0.43.2",
+    "Node name for S&R": "CreateBoundingBoxes"
+   },
+   "widgets_values": [
+    1024,
+    1024,
+    [
+     {
+      "x": 154,
+      "y": 123,
+      "width": 748,
+      "height": 676,
+      "metadata": {
+       "type": "obj",
+       "text": "",
+       "desc": "A floating weathered bark fragment covered in velvet moss, pale pink peonies and tiny white umbel flowers, clusters of translucent quartz crystals growing out of the wood, dark olive gradient background, cinematic soft light",
+       "palette": []
+      }
+     },
+     {
+      "x": 635,
+      "y": 799,
+      "width": 384,
+      "height": 164,
+      "metadata": {
+       "type": "text",
+       "text": "MOSS",
+       "desc": "The word MOSS in a lime-green geometric display face, two stacked rows, bottom right",
+       "palette": []
+      }
+     },
+     {
+      "x": 41,
+      "y": 41,
+      "width": 594,
+      "height": 215,
+      "metadata": {
+       "type": "text",
+       "text": "floating bark, velvet moss, pale peonies, quartz crystals, dark olive gradient",
+       "desc": "Small white monospaced text block in the top left, like a prompt readout",
+       "palette": []
+      }
+     },
+     {
+      "x": 41,
+      "y": 922,
+      "width": 51,
+      "height": 51,
+      "metadata": {
+       "type": "text",
+       "text": "+",
+       "desc": "A thin white plus mark, bottom left",
+       "palette": []
+      }
+     }
+    ],
+    [
+     {
+      "x": 154,
+      "y": 123,
+      "width": 748,
+      "height": 676,
+      "metadata": {
+       "type": "obj",
+       "text": "",
+       "desc": "A floating weathered bark fragment covered in velvet moss, pale pink peonies and tiny white umbel flowers, clusters of translucent quartz crystals growing out of the wood, dark olive gradient background, cinematic soft light",
+       "palette": []
+      }
+     },
+     {
+      "x": 635,
+      "y": 799,
+      "width": 384,
+      "height": 164,
+      "metadata": {
+       "type": "text",
+       "text": "MOSS",
+       "desc": "The word MOSS in a lime-green geometric display face, two stacked rows, bottom right",
+       "palette": []
+      }
+     },
+     {
+      "x": 41,
+      "y": 41,
+      "width": 594,
+      "height": 215,
+      "metadata": {
+       "type": "text",
+       "text": "floating bark, velvet moss, pale peonies, quartz crystals, dark olive gradient",
+       "desc": "Small white monospaced text block in the top left, like a prompt readout",
+       "palette": []
+      }
+     },
+     {
+      "x": 41,
+      "y": 922,
+      "width": 51,
+      "height": 51,
+      "metadata": {
+       "type": "text",
+       "text": "+",
+       "desc": "A thin white plus mark, bottom left",
+       "palette": []
+      }
+     }
+    ]
+   ],
+   "widgets_values_named": {
+    "width": 1024,
+    "height": 1024,
+    "editor_state": [
+     {
+      "x": 154,
+      "y": 123,
+      "width": 748,
+      "height": 676,
+      "metadata": {
+       "type": "obj",
+       "text": "",
+       "desc": "A floating weathered bark fragment covered in velvet moss, pale pink peonies and tiny white umbel flowers, clusters of translucent quartz crystals growing out of the wood, dark olive gradient background, cinematic soft light",
+       "palette": []
+      }
+     },
+     {
+      "x": 635,
+      "y": 799,
+      "width": 384,
+      "height": 164,
+      "metadata": {
+       "type": "text",
+       "text": "MOSS",
+       "desc": "The word MOSS in a lime-green geometric display face, two stacked rows, bottom right",
+       "palette": []
+      }
+     },
+     {
+      "x": 41,
+      "y": 41,
+      "width": 594,
+      "height": 215,
+      "metadata": {
+       "type": "text",
+       "text": "floating bark, velvet moss, pale peonies, quartz crystals, dark olive gradient",
+       "desc": "Small white monospaced text block in the top left, like a prompt readout",
+       "palette": []
+      }
+     },
+     {
+      "x": 41,
+      "y": 922,
+      "width": 51,
+      "height": 51,
+      "metadata": {
+       "type": "text",
+       "text": "+",
+       "desc": "A thin white plus mark, bottom left",
+       "palette": []
+      }
+     }
+    ],
+    "last_incoming": [
+     {
+      "x": 154,
+      "y": 123,
+      "width": 748,
+      "height": 676,
+      "metadata": {
+       "type": "obj",
+       "text": "",
+       "desc": "A floating weathered bark fragment covered in velvet moss, pale pink peonies and tiny white umbel flowers, clusters of translucent quartz crystals growing out of the wood, dark olive gradient background, cinematic soft light",
+       "palette": []
+      }
+     },
+     {
+      "x": 635,
+      "y": 799,
+      "width": 384,
+      "height": 164,
+      "metadata": {
+       "type": "text",
+       "text": "MOSS",
+       "desc": "The word MOSS in a lime-green geometric display face, two stacked rows, bottom right",
+       "palette": []
+      }
+     },
+     {
+      "x": 41,
+      "y": 41,
+      "width": 594,
+      "height": 215,
+      "metadata": {
+       "type": "text",
+       "text": "floating bark, velvet moss, pale peonies, quartz crystals, dark olive gradient",
+       "desc": "Small white monospaced text block in the top left, like a prompt readout",
+       "palette": []
+      }
+     },
+     {
+      "x": 41,
+      "y": 922,
+      "width": 51,
+      "height": 51,
+      "metadata": {
+       "type": "text",
+       "text": "+",
+       "desc": "A thin white plus mark, bottom left",
+       "palette": []
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 24,
+   "type": "ResolutionSelector",
+   "pos": [
+    -580,
+    100
+   ],
+   "size": [
+    280,
+    190
+   ],
+   "flags": {},
+   "order": 2,
+   "mode": 0,
+   "showAdvanced": true,
+   "inputs": [
+    {
+     "localized_name": "宽高比",
+     "name": "aspect_ratio",
+     "type": "COMBO",
+     "widget": {
+      "name": "aspect_ratio"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "百万像素",
+     "name": "megapixels",
+     "type": "FLOAT",
+     "widget": {
+      "name": "megapixels"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "倍数",
+     "name": "multiple",
+     "type": "INT",
+     "widget": {
+      "name": "multiple"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "预览",
+     "name": "preview",
+     "shape": 7,
+     "type": "RESOLUTION_PREVIEW",
+     "widget": {
+      "name": "preview"
+     },
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "宽度",
+     "name": "width",
+     "type": "INT",
+     "links": null
+    },
+    {
+     "localized_name": "高度",
+     "name": "height",
+     "type": "INT",
+     "links": null
+    }
+   ],
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "0.43.2",
+    "Node name for S&R": "ResolutionSelector"
+   },
+   "widgets_values": [
+    "1:1 (Square)",
+    1,
+    16
+   ],
+   "widgets_values_named": {
+    "aspect_ratio": "1:1 (Square)",
+    "megapixels": 1,
+    "multiple": 16
+   }
+  },
+  {
+   "id": 25,
+   "type": "MOSSImageLayoutPrompt",
+   "pos": [
+    -260,
+    100
+   ],
+   "size": [
+    420,
+    340
+   ],
+   "flags": {},
+   "order": 6,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "元素",
+     "name": "element",
+     "type": "ARRAY",
+     "link": null
+    },
+    {
+     "localized_name": "提示词",
+     "name": "prompt",
+     "type": "STRING",
+     "widget": {
+      "name": "prompt"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "宽度",
+     "name": "width",
+     "type": "INT",
+     "widget": {
+      "name": "width"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "高度",
+     "name": "height",
+     "type": "INT",
+     "widget": {
+      "name": "height"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "角色方框",
+     "name": "character_boxes",
+     "type": "STRING",
+     "widget": {
+      "name": "character_boxes"
+     },
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "提示词",
+     "name": "prompt",
+     "type": "STRING",
+     "links": null
+    }
+   ],
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "0.43.2",
+    "Node name for S&R": "MOSSImageLayoutPrompt"
+   },
+   "widgets_values": [
+    "Premium 3D render on a dark olive gradient background: a floating weathered bark fragment covered in velvet moss, pale pink peonies and tiny white umbel flowers, clusters of translucent quartz crystals growing out of the wood, cinematic rim light, soft shadow, ultra realistic product photography. Bottom right the word MOSS is set in a lime-green geometric display face stacked on two rows, a small block of white monospaced text sits in the top left, and a thin white plus mark in the bottom left corner. 4k, no watermark.",
+    1024,
+    1024,
+    "1"
+   ],
+   "widgets_values_named": {
+    "prompt": "Premium 3D render on a dark olive gradient background: a floating weathered bark fragment covered in velvet moss, pale pink peonies and tiny white umbel flowers, clusters of translucent quartz crystals growing out of the wood, cinematic rim light, soft shadow, ultra realistic product photography. Bottom right the word MOSS is set in a lime-green geometric display face stacked on two rows, a small block of white monospaced text sits in the top left, and a thin white plus mark in the bottom left corner. 4k, no watermark.",
+    "width": 1024,
+    "height": 1024,
+    "character_boxes": "1"
+   }
+  }
+ ],
+ "links": [
+  [
+   16,
+   15,
+   0,
+   13,
+   0,
+   "MODEL"
+  ],
+  [
+   17,
+   13,
+   0,
+   16,
+   0,
+   "MODEL"
+  ],
+  [
+   18,
+   4,
+   0,
+   16,
+   1,
+   "CONDITIONING"
+  ],
+  [
+   19,
+   5,
+   0,
+   16,
+   2,
+   "CONDITIONING"
+  ],
+  [
+   20,
+   6,
+   0,
+   16,
+   3,
+   "LATENT"
+  ],
+  [
+   21,
+   17,
+   0,
+   18,
+   0,
+   "IMAGE"
+  ],
+  [
+   22,
+   16,
+   0,
+   17,
+   0,
+   "LATENT"
+  ],
+  [
+   27,
+   20,
+   0,
+   15,
+   0,
+   "MODEL"
+  ],
+  [
+   28,
+   21,
+   0,
+   4,
+   0,
+   "CLIP"
+  ],
+  [
+   29,
+   21,
+   0,
+   5,
+   0,
+   "CLIP"
+  ],
+  [
+   30,
+   22,
+   0,
+   17,
+   1,
+   "VAE"
+  ]
+ ],
+ "groups": [],
+ "config": {},
+ "extra": {
+  "ds": {
+   "scale": 0.8052550000000055,
+   "offset": [
+    -622.1472402618422,
+    -410.32581838321397
+   ]
+  },
+  "frontendVersion": "1.55.17"
+ },
+ "version": 0.4
+}
