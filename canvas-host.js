@@ -125,8 +125,10 @@ async function loadImageTemplate() {
 
 /** Loader node types the template can carry, and the value each one reads. */
 const MODEL_FIELDS = [
-  ['MOSSImageUNETLoader', 'unet_name', 'unet'],
-  ['MOSSImageCLIPLoader', 'clip_name', 'clip'],
+  // The bundled template follows the official MOSS workflow, which loads the
+  // model through the plain UNETLoader/CLIPLoader (so fp8 checkpoints work).
+  ['UNETLoader', 'unet_name', 'unet'],
+  ['CLIPLoader', 'clip_name', 'clip'],
   ['VAELoader', 'vae_name', 'vae'],
   ['LoraLoaderModelOnly', 'lora_name', 'lora'],
 ]
@@ -190,26 +192,24 @@ function normalizeLoras(models) {
  * chain tail (or straight at the UNET node when the list is empty).
  */
 function rewriteLoraChain(graph, loras) {
-  const unet = findNodeWithId(graph, 'MOSSImageUNETLoader')
+  const unet = findNodeWithId(graph, 'UNETLoader') || findNodeWithId(graph, 'MOSSImageUNETLoader')
   if (!unet) return
 
-  let loraId = null
+  const loraIds = new Set()
   for (const [id, node] of Object.entries(graph)) {
-    if (node && node.class_type === 'LoraLoaderModelOnly') {
-      loraId = id
-      break
-    }
+    if (node && node.class_type === 'LoraLoaderModelOnly') loraIds.add(String(id))
   }
-  if (!loraId) return
-
+  // Every model consumer that pointed at the loader or an old LoRA is rewired to
+  // the tail of the rebuilt chain (official templates carry no LoRA by default).
+  const sources = new Set([String(unet.id), ...loraIds])
   const consumers = []
   for (const [id, node] of Object.entries(graph)) {
-    if (!node || !node.inputs || id === loraId) continue
+    if (!node || !node.inputs || loraIds.has(String(id))) continue
     for (const [field, value] of Object.entries(node.inputs)) {
-      if (Array.isArray(value) && String(value[0]) === String(loraId)) consumers.push([id, field])
+      if (Array.isArray(value) && sources.has(String(value[0]))) consumers.push({ id, field })
     }
   }
-  delete graph[loraId]
+  for (const id of loraIds) delete graph[id]
 
   let prevId = unet.id
   loras.forEach((entry, index) => {
@@ -220,9 +220,8 @@ function rewriteLoraChain(graph, loras) {
     }
     prevId = id
   })
-
-  for (const [consumerId, field] of consumers) {
-    graph[consumerId].inputs[field] = [prevId, 0]
+  for (const consumer of consumers) {
+    graph[consumer.id].inputs[consumer.field] = [prevId, 0]
   }
 }
 
