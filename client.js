@@ -2011,6 +2011,39 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * Pull the polished copy out of a free-form reply: prefer the JSON contract,
+     * otherwise strip titles, prefaces, English alternates and trailing offers.
+     */
+    function extractPolishText(raw) {
+      const text = String(raw || '').trim()
+      try {
+        const parsed = JSON.parse(text)
+        if (typeof parsed === 'string') return parsed.trim()
+        if (parsed && typeof parsed.text === 'string') return parsed.text.trim()
+      } catch {
+        // Not JSON: fall through to heuristic cleanup.
+      }
+      let body = text
+      const fence = /```(?:json)?\s*([\s\S]*?)\s*```/i.exec(body)
+      if (fence) body = fence[1].trim()
+      const lines = body.split('\n')
+      const kept = []
+      let started = false
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!started) {
+          if (!trimmed) continue
+          if (/^\*\*.+\*\*$/.test(trimmed) || /^#{1,6}\s/.test(trimmed) || /^【.+】$/.test(trimmed)) continue
+          if (/^(润色后|润色结果|中文版?|英文|caption|result|以下|这是)/i.test(trimmed)) continue
+          started = true
+        }
+        if (/^如果|^若是|^需要的话|^另外|^注[：:]|^提示[：:]|^如果你需要|^English|^\*\*英文/i.test(trimmed)) break
+        kept.push(line)
+      }
+      return kept.join('\n').trim() || body
+    }
+
     function formatTokenUsage(usage) {
       if (!usage) return ''
       const input = Number(usage.inputTokens) || 0
@@ -2113,7 +2146,7 @@ window.__ModuleLoader__.load({
           if (failure) throw new Error(failure)
           const finalText = streamed.trim()
           if (!finalText) throw new Error('模型没有返回内容')
-          let result = { text: finalText }
+          let result = null
           let message = '润色完成'
           if (mode === 'board') {
             const parsed = parsePolishJsonText(finalText)
@@ -2121,8 +2154,11 @@ window.__ModuleLoader__.load({
               result = { items: parsed }
               message = '润色完成：' + parsed.length + ' 个框'
             } else {
+              result = { text: finalText }
               message = '模型返回的不是合法 JSON，已原样展示'
             }
+          } else {
+            result = { text: extractPolishText(finalText) }
           }
           const nextHistory = [
             ...(Array.isArray(history) ? history : []),
