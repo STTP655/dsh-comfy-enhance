@@ -5629,6 +5629,10 @@ window.__ModuleLoader__.load({
                   zIndex: props.selected === index ? 20 : 1,
                   transform: box.rotation ? 'rotate(' + box.rotation + 'deg)' : undefined,
                   transformOrigin: '50% 50%',
+                  // While zooming, boxes (and their labels) fade so the reference
+                  // underneath can be inspected.
+                  opacity: props.dimBoxes ? 0.35 : 1,
+                  transition: 'opacity .15s ease',
                 },
               ),
               onPointerDown: (event) => {
@@ -8390,6 +8394,11 @@ window.__ModuleLoader__.load({
       const [panelWidth, setPanelWidthPref] = usePref('workspacePanelWidth')
       const [livePanelWidth, setLivePanelWidth] = useState(null)
       const panelDragRef = useRef(null)
+      const [zoom, setZoom] = useState(1)
+      const [zoomOrigin, setZoomOrigin] = useState({ x: 50, y: 50 })
+      const [zooming, setZooming] = useState(false)
+      const zoomTimerRef = useRef(null)
+      const stageRef = useRef(null)
       const [albumMetaByUrl, setAlbumMetaByUrl] = useState({})
       const [albumPick, setAlbumPick] = useState('')
       const [albumZoom, setAlbumZoom] = useState({ scale: 1, x: 0, y: 0 })
@@ -8688,6 +8697,35 @@ window.__ModuleLoader__.load({
           polishStore.setHistory([])
         }
       }, [polishKey])
+
+      // Wheel zooms the board around the cursor; boxes fade and the reference
+      // goes full opacity while scaling so the freshly generated picture can be
+      // inspected underneath the layout.
+      useEffect(() => {
+        const node = stageRef.current
+        if (!node) return undefined
+        const onWheel = (event) => {
+          event.preventDefault()
+          const rect = node.getBoundingClientRect()
+          if (rect.width === 0 || rect.height === 0) return
+          setZoomOrigin({
+            x: ((event.clientX - rect.left) / rect.width) * 100,
+            y: ((event.clientY - rect.top) / rect.height) * 100,
+          })
+          setZoom((current) => clamp(current * (event.deltaY < 0 ? 1.12 : 0.89), 0.5, 4))
+          setZooming(true)
+          if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current)
+          zoomTimerRef.current = setTimeout(() => {
+            zoomTimerRef.current = null
+            setZooming(false)
+          }, 700)
+        }
+        node.addEventListener('wheel', onWheel, { passive: false })
+        return () => {
+          node.removeEventListener('wheel', onWheel)
+          if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current)
+        }
+      }, [])
 
       // The picture this workspace just produced becomes the reference underlay,
       // so the next pass can trace the result it got.
@@ -9040,6 +9078,9 @@ window.__ModuleLoader__.load({
                   width: 'min(100%, calc(100cqh * ' + (size.width / Math.max(1, size.height)) + '))',
                   aspectRatio: size.width + ' / ' + size.height,
                   display: 'flex',
+                  transform: 'scale(' + zoom + ')',
+                  transformOrigin: zoomOrigin.x + '% ' + zoomOrigin.y + '%',
+                  transition: 'transform .12s ease-out',
                 },
               },
               h(RulerLayer, {
@@ -9073,7 +9114,10 @@ window.__ModuleLoader__.load({
                 guides,
                 rotatable: true,
                 showDimensions: true,
-                reference: referenceUrl ? { url: referenceUrl, opacity: referenceOpacity / 100 } : null,
+                dimBoxes: zooming,
+                reference: referenceUrl
+                  ? { url: referenceUrl, opacity: zooming ? 1 : referenceOpacity / 100 }
+                  : null,
               }),
             )
 
@@ -9394,11 +9438,7 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: WORKSPACE_BODY },
-          h(
-            'div',
-            { style: WORKSPACE_STAGE },
-            stageContent,
-          ),
+          h('div', { ref: stageRef, style: WORKSPACE_STAGE }, stageContent),
           h(
             'div',
             { style: Object.assign({}, WORKSPACE_SIDE, { width: sidePx, position: 'relative' }) },
