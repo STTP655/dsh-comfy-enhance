@@ -8405,6 +8405,7 @@ window.__ModuleLoader__.load({
       const [viewing, setViewing] = useState(false)
       const [pan, setPan] = useState({ x: 0, y: 0 })
       const panDragRef = useRef(null)
+      const lastMiddleDownRef = useRef(0)
       const [albumMetaByUrl, setAlbumMetaByUrl] = useState({})
       const [albumPick, setAlbumPick] = useState('')
       const [albumZoom, setAlbumZoom] = useState({ scale: 1, x: 0, y: 0 })
@@ -9119,7 +9120,7 @@ window.__ModuleLoader__.load({
                 width: size.width,
                 height: size.height,
                 rulerOn,
-                guides,
+                guides: viewing ? [] : guides,
                 onGuidesChange: (next) => {
                   setGuides(next)
                   setDirty(true)
@@ -9483,6 +9484,18 @@ window.__ModuleLoader__.load({
               onPointerDown: (event) => {
                 if (event.button !== 1) return
                 event.preventDefault()
+                // Middle double click resets zoom and pan.
+                const now = Date.now()
+                if (now - lastMiddleDownRef.current < 350) {
+                  lastMiddleDownRef.current = 0
+                  setZoom(1)
+                  setZoomOrigin({ x: 50, y: 50 })
+                  setPan({ x: 0, y: 0 })
+                  panDragRef.current = null
+                  setViewing(false)
+                  return
+                }
+                lastMiddleDownRef.current = now
                 panDragRef.current = {
                   startX: event.clientX,
                   startY: event.clientY,
@@ -9507,7 +9520,7 @@ window.__ModuleLoader__.load({
                   userSelect: 'none',
                 },
               },
-              '按住中键拖动：隐藏画框，预览参考图',
+              '按住中键拖动：隐藏画框，预览参考图 · 双击中键复位',
             ),
           ),
           h(
