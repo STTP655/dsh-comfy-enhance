@@ -36,6 +36,35 @@ window.__ModuleLoader__.load({
       },
     }
 
+    /** Merge stored model prefs over the defaults, migrating older shapes. */
+    function normalizeModels(raw) {
+      const source = raw && typeof raw === 'object' ? raw : {}
+      const merged = Object.assign({}, DEFAULT_CANVAS_MODELS, source)
+      if (!Array.isArray(merged.loras)) {
+        // Migrate the old single-LoRA preference into the list form.
+        merged.loras =
+          typeof source.lora === 'string' && source.lora.trim()
+            ? [
+                {
+                  name: source.lora.trim(),
+                  strength: typeof source.loraStrength === 'number' ? source.loraStrength : 1,
+                },
+              ]
+            : []
+      }
+      delete merged.lora
+      delete merged.loraStrength
+      if (!merged.sampling || typeof merged.sampling !== 'object') {
+        merged.sampling = Object.assign({}, DEFAULT_CANVAS_MODELS.sampling)
+      } else if (typeof merged.sampling.seed !== 'number') {
+        // Older preferences predate the seed field.
+        merged.sampling = Object.assign({}, DEFAULT_CANVAS_MODELS.sampling, merged.sampling)
+      } else if (merged.sampling.seedMode !== 'random' && merged.sampling.seedMode !== 'fixed') {
+        merged.sampling = Object.assign({}, merged.sampling, { seedMode: 'fixed' })
+      }
+      return merged
+    }
+
     const pluginPrefs = (() => {
       let state = {
         status: true,
@@ -52,8 +81,11 @@ window.__ModuleLoader__.load({
         zoomPanelWidth: 260,
         workspacePanelWidth: 280,
         canvasRuler: false,
+        workspaceCanvasRuler: false,
+        workspaceTheme: 'dark',
         canvasWorkspace: true,
         canvasModels: Object.assign({}, DEFAULT_CANVAS_MODELS),
+        workspaceCanvasModels: Object.assign({}, DEFAULT_CANVAS_MODELS),
       }
       try {
         const raw = localStorage.getItem(PREF_KEY)
@@ -82,35 +114,11 @@ window.__ModuleLoader__.load({
               workspacePanelWidth:
                 typeof parsed.workspacePanelWidth === 'number' ? parsed.workspacePanelWidth : 280,
               canvasRuler: parsed.canvasRuler === true,
+              workspaceCanvasRuler: parsed.workspaceCanvasRuler === true,
+              workspaceTheme: parsed.workspaceTheme === 'light' ? 'light' : 'dark',
               canvasWorkspace: parsed.canvasWorkspace !== false,
-              canvasModels: (() => {
-                const raw =
-                  parsed.canvasModels && typeof parsed.canvasModels === 'object' ? parsed.canvasModels : {}
-                const merged = Object.assign({}, DEFAULT_CANVAS_MODELS, raw)
-                if (!Array.isArray(merged.loras)) {
-                  // Migrate the old single-LoRA preference into the list form.
-                  merged.loras =
-                    typeof raw.lora === 'string' && raw.lora.trim()
-                      ? [
-                          {
-                            name: raw.lora.trim(),
-                            strength: typeof raw.loraStrength === 'number' ? raw.loraStrength : 1,
-                          },
-                        ]
-                      : []
-                }
-                delete merged.lora
-                delete merged.loraStrength
-                if (!merged.sampling || typeof merged.sampling !== 'object') {
-                  merged.sampling = Object.assign({}, DEFAULT_CANVAS_MODELS.sampling)
-                } else if (typeof merged.sampling.seed !== 'number') {
-                  // Older preferences predate the seed field.
-                  merged.sampling = Object.assign({}, DEFAULT_CANVAS_MODELS.sampling, merged.sampling)
-                } else if (merged.sampling.seedMode !== 'random' && merged.sampling.seedMode !== 'fixed') {
-                  merged.sampling = Object.assign({}, merged.sampling, { seedMode: 'fixed' })
-                }
-                return merged
-              })(),
+              canvasModels: normalizeModels(parsed.canvasModels),
+              workspaceCanvasModels: normalizeModels(parsed.workspaceCanvasModels),
             }
           }
         }
@@ -4789,16 +4797,18 @@ window.__ModuleLoader__.load({
     // ------------------------------------------------------------ draft storage
 
     const DRAFT_PREFIX = 'dsh.comfy-canvas.draft.'
+    /** The standalone workspace keeps its own copies so the two surfaces never mix. */
+    const WORKSPACE_DRAFT_PREFIX = 'dsh.comfy-canvas.workspace-draft.'
 
     /** One draft per workflow file, so switching files never mixes two edits. */
-    function draftKeyOf(file) {
-      return DRAFT_PREFIX + encodeURIComponent(String(file || ''))
+    function draftKeyOf(file, prefix) {
+      return (prefix || DRAFT_PREFIX) + encodeURIComponent(String(file || ''))
     }
 
-    function readDraft(file) {
+    function readDraft(file, prefix) {
       if (!file) return null
       try {
-        const raw = localStorage.getItem(draftKeyOf(file))
+        const raw = localStorage.getItem(draftKeyOf(file, prefix))
         if (!raw) return null
         const parsed = JSON.parse(raw)
         return parsed && typeof parsed === 'object' && Array.isArray(parsed.boxes) ? parsed : null
@@ -4807,19 +4817,19 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function writeDraft(file, value) {
+    function writeDraft(file, value, prefix) {
       if (!file) return
       try {
-        localStorage.setItem(draftKeyOf(file), JSON.stringify(value))
+        localStorage.setItem(draftKeyOf(file, prefix), JSON.stringify(value))
       } catch {
         // Storage unavailable or full: editing still works in memory.
       }
     }
 
-    function clearDraft(file) {
+    function clearDraft(file, prefix) {
       if (!file) return
       try {
-        localStorage.removeItem(draftKeyOf(file))
+        localStorage.removeItem(draftKeyOf(file, prefix))
       } catch {
         // Nothing to remove.
       }
@@ -7112,7 +7122,7 @@ window.__ModuleLoader__.load({
           return
         }
         const layout = buildMossLayout(summary, size.width, size.height, boxes)
-        const stored = pluginPrefs.get().canvasModels || {}
+        const stored = canvasModels || {}
         let sampling = stored.sampling || {}
         if (sampling.seedMode === 'random') {
           // Random mode: a fresh seed per submission, then shown in the field so
@@ -7837,10 +7847,10 @@ window.__ModuleLoader__.load({
      */
     function CanvasWorkspace() {
       const [enabled] = usePref('canvasWorkspace')
-      const [canvasTheme] = usePref('albumTheme')
+      const [canvasTheme, setCanvasTheme] = usePref('workspaceTheme')
       const canvasNight = canvasTheme !== 'light'
-      const [canvasModels, setCanvasModels] = usePref('canvasModels')
-      const [rulerOn, setRulerOn] = usePref('canvasRuler')
+      const [canvasModels, setCanvasModels] = usePref('workspaceCanvasModels')
+      const [rulerOn, setRulerOn] = usePref('workspaceCanvasRuler')
       const [files, setFiles] = useState(null)
       const [file, setFile] = useState('')
       const [size, setSize] = useState({ width: 1024, height: 1024 })
@@ -8093,7 +8103,7 @@ window.__ModuleLoader__.load({
               layoutNode && Array.isArray(layoutNode.widgets_values) && typeof layoutNode.widgets_values[0] === 'string'
                 ? layoutNode.widgets_values[0]
                 : ''
-            const stored = readDraft(file)
+            const stored = readDraft(file, WORKSPACE_DRAFT_PREFIX)
             const useWidth = stored && typeof stored.width === 'number' ? stored.width : width
             const useHeight = stored && typeof stored.height === 'number' ? stored.height : height
             setSize({ width: useWidth, height: useHeight })
@@ -8136,7 +8146,7 @@ window.__ModuleLoader__.load({
             referenceUrl,
             referenceOpacity,
             negative,
-          })
+          }, WORKSPACE_DRAFT_PREFIX)
         }, 400)
         return () => clearTimeout(timer)
       }, [file, dirty, size, ratio, megapixels, multiple, summary, boxes, guides, referenceUrl, referenceOpacity, negative])
@@ -8253,7 +8263,7 @@ window.__ModuleLoader__.load({
           return
         }
         const layout = buildMossLayout(summary, size.width, size.height, boxes)
-        const stored = pluginPrefs.get().canvasModels || {}
+        const stored = canvasModels || {}
         let sampling = stored.sampling || {}
         if (sampling.seedMode === 'random') {
           sampling = Object.assign({}, sampling, { seed: Math.floor(Math.random() * 1e15) })
@@ -8649,6 +8659,16 @@ window.__ModuleLoader__.load({
             },
             h(Icon, { name: 'sliders-horizontal', size: 12 }),
             h('span', null, '模型'),
+          ),
+          h(
+            'button',
+            {
+              className: 'dshCanvasBtn',
+              style: { flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4 },
+              title: '切换深浅主题',
+              onClick: () => setCanvasTheme(canvasNight ? 'light' : 'dark'),
+            },
+            canvasNight ? '浅色' : '深色',
           ),
           h('button', { className: 'dshCanvasBtn', style: { flexShrink: 0 }, onClick: addBox }, '加框'),
           h(
