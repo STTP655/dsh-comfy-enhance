@@ -649,9 +649,16 @@ function createHandler(baseUrl) {
   let upstreamSocket = null
   let upstreamTimer = null
 
+  let eventCount = 0
+  let lastEventAt = 0
+  let upstreamState = 'idle'
+  const recentEvents = []
+
   const broadcastEvent = (payload) => {
     eventCount += 1
     lastEventAt = Date.now()
+    if (recentEvents.length >= 8) recentEvents.shift()
+    recentEvents.push({ type: (payload && payload.type) || '', at: lastEventAt })
     const frame = 'data: ' + JSON.stringify(payload) + '\n\n'
     for (const client of [...eventClients]) {
       try {
@@ -662,15 +669,16 @@ function createHandler(baseUrl) {
     }
   }
 
-  let eventCount = 0
-  let lastEventAt = 0
-
   const ensureUpstream = () => {
     if (upstreamSocket || eventClients.size === 0) return
     try {
       const wsUrl = baseUrl.replace(/^http/i, 'ws') + '/ws?clientId=dsh-comfy-events'
+      upstreamState = 'connecting'
       const socket = new WebSocket(wsUrl)
       upstreamSocket = socket
+      socket.onopen = () => {
+        upstreamState = 'open'
+      }
       socket.onmessage = (message) => {
         try {
           broadcastEvent(JSON.parse(message.data))
@@ -679,6 +687,7 @@ function createHandler(baseUrl) {
         }
       }
       socket.onclose = () => {
+        upstreamState = 'closed'
         upstreamSocket = null
         if (eventClients.size > 0) {
           upstreamTimer = setTimeout(() => {
@@ -688,6 +697,7 @@ function createHandler(baseUrl) {
         }
       }
       socket.onerror = () => {
+        upstreamState = 'error'
         try {
           socket.close()
         } catch {
@@ -861,9 +871,10 @@ function createHandler(baseUrl) {
       return send(200, {
         ok: true,
         clients: eventClients.size,
-        upstream: upstreamSocket ? 'connected' : 'none',
+        upstream: upstreamState,
         events: eventCount,
         lastEventAt,
+        recent: recentEvents,
       })
     }
 
