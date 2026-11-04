@@ -83,6 +83,7 @@ window.__ModuleLoader__.load({
         canvasRuler: false,
         workspaceCanvasRuler: false,
         workspaceTheme: 'dark',
+        workspaceFile: '',
         canvasWorkspace: true,
         canvasModels: Object.assign({}, DEFAULT_CANVAS_MODELS),
         workspaceCanvasModels: Object.assign({}, DEFAULT_CANVAS_MODELS),
@@ -116,6 +117,7 @@ window.__ModuleLoader__.load({
               canvasRuler: parsed.canvasRuler === true,
               workspaceCanvasRuler: parsed.workspaceCanvasRuler === true,
               workspaceTheme: parsed.workspaceTheme === 'light' ? 'light' : 'dark',
+              workspaceFile: typeof parsed.workspaceFile === 'string' ? parsed.workspaceFile : '',
               canvasWorkspace: parsed.canvasWorkspace !== false,
               canvasModels: normalizeModels(parsed.canvasModels),
               workspaceCanvasModels: normalizeModels(parsed.workspaceCanvasModels),
@@ -8025,7 +8027,7 @@ window.__ModuleLoader__.load({
       const [canvasModels, setCanvasModels] = usePref('workspaceCanvasModels')
       const [rulerOn, setRulerOn] = usePref('workspaceCanvasRuler')
       const [files, setFiles] = useState(null)
-      const [file, setFile] = useState('')
+      const [file, setFile] = usePref('workspaceFile')
       const [size, setSize] = useState({ width: 1024, height: 1024 })
       const [ratio, setRatio] = useState('')
       const [ratioOptions, setRatioOptions] = useState([])
@@ -8076,7 +8078,11 @@ window.__ModuleLoader__.load({
             if (!data.ok) throw new Error(data.error || '无法读取工作流目录')
             const list = data.files || []
             setFiles(list)
-            if (list.length > 0) setFile((current) => current || list[0].name)
+            if (list.length > 0) {
+              const saved = pluginPrefs.get().workspaceFile
+              const valid = typeof saved === 'string' && list.some((item) => item.name === saved)
+              setFile(valid ? saved : list[0].name)
+            }
           })
           .catch((err) => {
             if (alive) setError(String((err && err.message) || err))
