@@ -1125,7 +1125,8 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         let alive = true
-        let timer = null
+        let pollTimer = null
+        let refreshTimer = null
         const load = async () => {
           try {
             const res = await fetch(ALBUM_ENDPOINT, { cache: 'no-store' })
@@ -1137,25 +1138,37 @@ window.__ModuleLoader__.load({
             // While something is actually running, keep the banner honest even if
             // a live event is missed; an idle gallery does not poll.
             if (data && Array.isArray(data.running) && data.running.length > 0) {
-              if (timer) clearTimeout(timer)
-              timer = setTimeout(load, 3000)
+              if (pollTimer) clearTimeout(pollTimer)
+              pollTimer = setTimeout(load, 3000)
             }
           } catch (e) {
             if (!alive) return
             setError(String((e && e.message) || e))
           }
         }
+        // ComfyUI may still be writing history when the completion event lands,
+        // and the Host caches /album for two seconds: one delayed pass makes
+        // sure the new card actually appears.
+        const refreshSoon = () => {
+          if (!alive) return
+          load()
+          if (refreshTimer) clearTimeout(refreshTimer)
+          refreshTimer = setTimeout(() => {
+            refreshTimer = null
+            if (alive) load()
+          }, 2500)
+        }
         load()
-        // Completion events arrive live; the list refreshes when one lands.
         const unsubscribeEvents = comfyEvents.subscribe((event) => {
           const type = event && event.type
           if (type === 'execution_success' || type === 'executed') {
-            if (alive) load()
+            refreshSoon()
           }
         })
         return () => {
           alive = false
-          if (timer) clearTimeout(timer)
+          if (pollTimer) clearTimeout(pollTimer)
+          if (refreshTimer) clearTimeout(refreshTimer)
           unsubscribeEvents()
         }
       }, [nonce])
@@ -6916,16 +6929,25 @@ window.__ModuleLoader__.load({
           }
         }
 
+        let refreshTimer = null
+        const refreshSoon = () => {
+          if (!alive) return
+          load()
+          if (refreshTimer) clearTimeout(refreshTimer)
+          refreshTimer = setTimeout(() => {
+            refreshTimer = null
+            if (alive) load()
+          }, 2500)
+        }
         load()
         refreshAlbum.current = load
         const unsubscribeEvents = comfyEvents.subscribe((event) => {
           const type = event && event.type
-          if (type === 'execution_success' || type === 'executed') {
-            if (alive) load()
-          }
+          if (type === 'execution_success' || type === 'executed') refreshSoon()
         })
         return () => {
           alive = false
+          if (refreshTimer) clearTimeout(refreshTimer)
           unsubscribeEvents()
         }
       }, [])
@@ -8161,15 +8183,24 @@ window.__ModuleLoader__.load({
             // The album plugin may be off; the reference picker just stays empty.
           }
         }
+        let refreshTimer = null
+        const refreshSoon = () => {
+          if (!alive) return
+          load()
+          if (refreshTimer) clearTimeout(refreshTimer)
+          refreshTimer = setTimeout(() => {
+            refreshTimer = null
+            if (alive) load()
+          }, 2500)
+        }
         load()
         const unsubscribeEvents = comfyEvents.subscribe((event) => {
           const type = event && event.type
-          if (type === 'execution_success' || type === 'executed') {
-            if (alive) load()
-          }
+          if (type === 'execution_success' || type === 'executed') refreshSoon()
         })
         return () => {
           alive = false
+          if (refreshTimer) clearTimeout(refreshTimer)
           unsubscribeEvents()
         }
       }, [])
