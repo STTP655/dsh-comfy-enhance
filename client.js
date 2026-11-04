@@ -1960,6 +1960,9 @@ window.__ModuleLoader__.load({
         },
         start(promptId, origin) {
           pendingOutput = null
+          // Unlock the audio context inside the user gesture (the click that
+          // submitted the job), so the later completion chime is allowed to play.
+          ensureAudio()
           clearWatchdog()
           set({
             status: 'queued',
