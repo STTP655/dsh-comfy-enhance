@@ -1773,8 +1773,69 @@ window.__ModuleLoader__.load({
         }
       }
 
+      /**
+       * Safety net: if an SSE frame is missed (or the live channel is down),
+       * reconcile against ComfyUI's queue/album so the strip never sticks in
+       * "排队中" after the job is actually over.
+       */
+      let fallbackTimer = null
+      const stopFallback = () => {
+        if (fallbackTimer) {
+          clearInterval(fallbackTimer)
+          fallbackTimer = null
+        }
+      }
+      const startFallback = () => {
+        stopFallback()
+        fallbackTimer = setInterval(async () => {
+          const current = state
+          if (!current || !current.id) return
+          if (current.status === 'done' || current.status === 'error') {
+            stopFallback()
+            return
+          }
+          try {
+            const snapRes = await fetch(SNAPSHOT, { cache: 'no-store' })
+            const snap = await snapRes.json()
+            const queue = (snap && snap.queue) || {}
+            const runningIds = Array.isArray(queue.runningIds) ? queue.runningIds : []
+            const pendingIds = Array.isArray(queue.pendingIds) ? queue.pendingIds : []
+            if (runningIds.indexOf(current.id) >= 0) {
+              if (current.status !== 'running') set({ ...current, status: 'running', message: '正在生成…' })
+              return
+            }
+            if (pendingIds.indexOf(current.id) >= 0) {
+              if (current.status !== 'queued') set({ ...current, status: 'queued', message: '排队中…' })
+              return
+            }
+            const albumRes = await fetch(ALBUM_ENDPOINT, { cache: 'no-store' })
+            const album = await albumRes.json()
+            const item = (album.items || []).find((entry) => entry.id === current.id)
+            if (!item) return
+            if (item.completed) {
+              const first = Array.isArray(item.images) && item.images.length > 0 ? item.images[0] : null
+              settle({
+                status: 'done',
+                message: '生成完成，已加入相册',
+                id: current.id,
+                at: current.at,
+                origin: current.origin,
+                imageUrl: first ? first.url : '',
+                filename: first ? first.filename : '',
+              })
+              if (pluginPrefs.get().sound !== false) ding()
+            } else if (item.status === 'error') {
+              settle({ status: 'error', message: 'ComfyUI 执行失败', id: current.id, at: current.at, origin: current.origin })
+            }
+          } catch {
+            // Retry on the next tick.
+          }
+        }, 5000)
+      }
+
       const settle = (next) => {
         clearWatchdog()
+        stopFallback()
         set(next)
       }
 
@@ -1861,6 +1922,7 @@ window.__ModuleLoader__.load({
               })
             }
           }, 600000)
+          startFallback()
         },
         fail(message) {
           set({ status: 'error', message })
