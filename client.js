@@ -8256,6 +8256,8 @@ window.__ModuleLoader__.load({
       alignItems: 'center',
       justifyContent: 'center',
       padding: 20,
+      // Zoomed content must stay inside the stage instead of covering the page.
+      overflow: 'hidden',
       containerType: 'size',
     }
     const WORKSPACE_SIDE = {
