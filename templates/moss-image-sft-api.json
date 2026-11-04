@@ -1,0 +1,190 @@
+{
+  "4": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "21",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "moss-image Positive",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.1"
+    }
+  },
+  "5": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "21",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "moss-image Negative",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.1"
+    }
+  },
+  "6": {
+    "inputs": {
+      "width": 976,
+      "height": 1216,
+      "batch_size": 1
+    },
+    "class_type": "EmptyFlux2LatentImage",
+    "_meta": {
+      "title": "空Latent图像（Flux2）",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.1"
+    }
+  },
+  "13": {
+    "inputs": {
+      "double_layers": "",
+      "single_layers": "22",
+      "start_percent": 0,
+      "end_percent": 1,
+      "model": [
+        "15",
+        0
+      ]
+    },
+    "class_type": "SkipLayerGuidanceDiTSimple",
+    "_meta": {
+      "title": "Uncond skip (empty = off)",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.1"
+    }
+  },
+  "15": {
+    "inputs": {
+      "shift": 5,
+      "model": [
+        "28",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "Official Flow sigma shift",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.1"
+    }
+  },
+  "16": {
+    "inputs": {
+      "seed": 310731460758410,
+      "steps": 16,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "13",
+        0
+      ],
+      "positive": [
+        "4",
+        0
+      ],
+      "negative": [
+        "5",
+        0
+      ],
+      "latent_image": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "K采样器",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.1"
+    }
+  },
+  "17": {
+    "inputs": {
+      "samples": [
+        "16",
+        0
+      ],
+      "vae": [
+        "22",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.1"
+    }
+  },
+  "18": {
+    "inputs": {
+      "filename_prefix": "moss-image",
+      "images": [
+        "17",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存图像",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.1"
+    }
+  },
+  "20": {
+    "inputs": {
+      "unet_name": "moss-image-sft-dit-int8-convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "MOSSImageUNETLoader",
+    "_meta": {
+      "title": "MOSS-Image Load Diffusion Model"
+    }
+  },
+  "21": {
+    "inputs": {
+      "clip_name": "moss-image-sft-qwen35-int8-convrot.safetensors",
+      "device": "default"
+    },
+    "class_type": "MOSSImageCLIPLoader",
+    "_meta": {
+      "title": "MOSS-Image Load Qwen3.5"
+    }
+  },
+  "22": {
+    "inputs": {
+      "vae_name": "moss-image-sft-vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "加载VAE",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.1"
+    }
+  },
+  "28": {
+    "inputs": {
+      "lora_name": "lodestones-8-steps-dmd2-lora.safetensors",
+      "strength_model": 1,
+      "model": [
+        "20",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoRA加载器（仅模型）",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.1"
+    }
+  }
+}
