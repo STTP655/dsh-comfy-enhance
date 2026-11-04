@@ -1989,6 +1989,198 @@ window.__ModuleLoader__.load({
       }
     })()
 
+    /** Parse the model's JSON reply into per-box items (tolerant of code fences). */
+    function parsePolishJsonText(text) {
+      let raw = String(text || '').trim()
+      const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(raw)
+      if (fence) raw = fence[1].trim()
+      try {
+        const parsed = JSON.parse(raw)
+        const items = Array.isArray(parsed) ? parsed : parsed && Array.isArray(parsed.items) ? parsed.items : null
+        if (!items) return null
+        return items
+          .map((item) => ({
+            id: item && item.id !== undefined ? String(item.id) : '',
+            text: item && typeof item.text === 'string' ? item.text : '',
+          }))
+          .filter((item) => item.text)
+      } catch {
+        return null
+      }
+    }
+
+    function formatTokenUsage(usage) {
+      if (!usage) return ''
+      const input = Number(usage.inputTokens) || 0
+      const output = Number(usage.outputTokens) || 0
+      const total = Number(usage.totalTokens) || input + output
+      return 'token 输入 ' + input + ' / 输出 ' + output + ' / 合计 ' + total
+    }
+
+    /**
+     * AI polish runs at module scope: switching away from the workspace unmounts
+     * the panel, but the stream and its progress must survive so returning shows
+     * the live state instead of a silent restart.
+     */
+    const polishStore = (() => {
+      let state = { status: 'idle', stream: '', result: null, message: '', usage: null, history: [] }
+      const listeners = new Set()
+      const notify = () => {
+        for (const listener of [...listeners]) listener()
+      }
+      const set = (patch) => {
+        state = { ...state, ...patch }
+        notify()
+      }
+      let controller = null
+
+      const start = async (options) => {
+        const { mode, instruction, targets, summary, history, effort, key } = options
+        const text = String(instruction || '').trim()
+        if (!text) {
+          set({ message: '先写润色要求' })
+          return
+        }
+        if (!Array.isArray(targets) || targets.length === 0) {
+          set({ message: mode === 'board' ? '画布上还没有框' : '先选中一个框' })
+          return
+        }
+        if (state.status === 'running') return
+        if (controller) {
+          try {
+            controller.abort()
+          } catch {
+            // Previous request was already gone.
+          }
+          controller = null
+        }
+        set({ status: 'running', stream: '', result: null, message: '润色中…', usage: null })
+        const abort = new AbortController()
+        controller = abort
+        try {
+          const res = await fetch('/plugin/comfy-canvas/polish', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ mode, instruction: text, summary, targets, history, effort: effort || undefined }),
+            signal: abort.signal,
+          })
+          if (!res.ok || !res.body) {
+            const data = await res.json().catch(() => null)
+            throw new Error((data && data.error) || 'HTTP ' + res.status)
+          }
+          const reader = res.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
+          let streamed = ''
+          let usage = null
+          let failure = ''
+          const handleLine = (line) => {
+            let event = null
+            try {
+              event = JSON.parse(line)
+            } catch {
+              return
+            }
+            if (!event) return
+            if (event.type === 'delta' && typeof event.text === 'string') {
+              streamed += event.text
+              set({ stream: streamed })
+            } else if (event.type === 'usage' && event.usage) {
+              usage = event.usage
+            } else if (event.type === 'done' && event.usage) {
+              usage = event.usage
+            } else if (event.type === 'error') {
+              failure = String(event.error || '润色失败')
+            }
+          }
+          for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            let newline = buffer.indexOf('\n')
+            while (newline >= 0) {
+              const line = buffer.slice(0, newline).trim()
+              buffer = buffer.slice(newline + 1)
+              if (line) handleLine(line)
+              newline = buffer.indexOf('\n')
+            }
+          }
+          if (buffer.trim()) handleLine(buffer.trim())
+          if (failure) throw new Error(failure)
+          const finalText = streamed.trim()
+          if (!finalText) throw new Error('模型没有返回内容')
+          let result = { text: finalText }
+          let message = '润色完成'
+          if (mode === 'board') {
+            const parsed = parsePolishJsonText(finalText)
+            if (parsed && parsed.length > 0) {
+              result = { items: parsed }
+              message = '润色完成：' + parsed.length + ' 个框'
+            } else {
+              message = '模型返回的不是合法 JSON，已原样展示'
+            }
+          }
+          const nextHistory = [
+            ...(Array.isArray(history) ? history : []),
+            { role: 'user', text },
+            { role: 'assistant', text: finalText, tokens: usage },
+          ]
+          if (key) {
+            try {
+              localStorage.setItem(key, JSON.stringify({ messages: nextHistory }))
+            } catch {
+              // Storage full: history still lives in memory.
+            }
+          }
+          set({
+            status: 'done',
+            stream: '',
+            result,
+            usage,
+            message: message + (usage ? ' · ' + formatTokenUsage(usage) : ''),
+            history: nextHistory,
+          })
+        } catch (error) {
+          if (abort.signal.aborted) {
+            set({ status: 'idle', stream: '', message: '已取消' })
+          } else {
+            set({ status: 'error', stream: '', message: '润色失败：' + String((error && error.message) || error) })
+          }
+        } finally {
+          if (controller === abort) controller = null
+        }
+      }
+
+      const setMessage = (message) => {
+        set({ message })
+      }
+
+      const clear = (key) => {
+        try {
+          if (key) localStorage.removeItem(key)
+        } catch {
+          // Nothing stored.
+        }
+        set({ status: 'idle', stream: '', result: null, message: '对话已清除', usage: null, history: [] })
+      }
+
+      const setHistory = (history) => {
+        set({ history: Array.isArray(history) ? history : [] })
+      }
+
+      return {
+        get: () => state,
+        subscribe(listener) {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
+        start,
+        clear,
+        setMessage,
+        setHistory,
+      }
+    })()
+
     /** Ask ComfyUI to drop the tracked job: queue delete when pending, interrupt when running. */
     async function cancelTrackedJob() {
       const job = jobStore.get()
@@ -8110,13 +8302,17 @@ window.__ModuleLoader__.load({
       const [negative, setNegative] = useState('')
       const [polishMode, setPolishMode] = useState('single')
       const [polishInstruction, setPolishInstruction] = useState('')
-      const [polishBusy, setPolishBusy] = useState(false)
-      const [polishResult, setPolishResult] = useState(null)
-      const [polishMsg, setPolishMsg] = useState('')
-      const [polishHistory, setPolishHistory] = useState([])
       const [polishChatOpen, setPolishChatOpen] = useState(false)
-      const [polishStream, setPolishStream] = useState('')
       const [polishEffort, setPolishEffort] = usePref('workspacePolishEffort')
+      // The polish run lives at module scope: switching panels must not stop the
+      // stream, and coming back should restore the live state.
+      const [polish, setPolish] = useState(() => polishStore.get())
+      useEffect(() => polishStore.subscribe(() => setPolish(polishStore.get())), [])
+      const polishBusy = polish.status === 'running'
+      const polishStream = polish.stream
+      const polishResult = polish.result
+      const polishMsg = polish.message
+      const polishHistory = polish.history
       const [panelWidth, setPanelWidthPref] = usePref('workspacePanelWidth')
       const [livePanelWidth, setLivePanelWidth] = useState(null)
       const panelDragRef = useRef(null)
@@ -8413,9 +8609,9 @@ window.__ModuleLoader__.load({
         try {
           const raw = localStorage.getItem(polishKey)
           const parsed = raw ? JSON.parse(raw) : null
-          setPolishHistory(parsed && Array.isArray(parsed.messages) ? parsed.messages : [])
+          polishStore.setHistory(parsed && Array.isArray(parsed.messages) ? parsed.messages : [])
         } catch {
-          setPolishHistory([])
+          polishStore.setHistory([])
         }
       }, [polishKey])
 
@@ -8611,12 +8807,8 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const runPolishNow = async () => {
+      const runPolishNow = () => {
         const instruction = polishInstruction.trim()
-        if (!instruction) {
-          setPolishMsg('先写润色要求')
-          return
-        }
         const mode = polishMode === 'board' ? 'board' : 'single'
         const selectedBox = selected !== null && boxes[selected] ? boxes[selected] : null
         const describe = (box) => {
@@ -8639,102 +8831,15 @@ window.__ModuleLoader__.load({
                   },
                 ]
               : []
-        if (targets.length === 0) {
-          setPolishMsg(mode === 'board' ? '画布上还没有框' : '先选中一个框')
-          return
-        }
-        setPolishBusy(true)
-        setPolishMsg('')
-        setPolishResult(null)
-        setPolishStream('')
-        try {
-          const res = await fetch('/plugin/comfy-canvas/polish', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              mode,
-              instruction,
-              summary,
-              targets,
-              history: polishHistory,
-              effort: polishEffort || undefined,
-            }),
-          })
-          if (!res.ok || !res.body) {
-            const data = await res.json().catch(() => null)
-            throw new Error((data && data.error) || 'HTTP ' + res.status)
-          }
-          const reader = res.body.getReader()
-          const decoder = new TextDecoder()
-          let buffer = ''
-          let streamed = ''
-          let usage = null
-          let failure = ''
-          const handleLine = (line) => {
-            let event = null
-            try {
-              event = JSON.parse(line)
-            } catch {
-              return
-            }
-            if (!event) return
-            if (event.type === 'delta' && typeof event.text === 'string') {
-              streamed += event.text
-              setPolishStream(streamed)
-            } else if (event.type === 'usage' && event.usage) {
-              usage = event.usage
-            } else if (event.type === 'done' && event.usage) {
-              usage = event.usage
-            } else if (event.type === 'error') {
-              failure = String(event.error || '润色失败')
-            }
-          }
-          for (;;) {
-            const { done, value } = await reader.read()
-            if (done) break
-            buffer += decoder.decode(value, { stream: true })
-            let newline = buffer.indexOf('\n')
-            while (newline >= 0) {
-              const line = buffer.slice(0, newline).trim()
-              buffer = buffer.slice(newline + 1)
-              if (line) handleLine(line)
-              newline = buffer.indexOf('\n')
-            }
-          }
-          if (buffer.trim()) handleLine(buffer.trim())
-          if (failure) throw new Error(failure)
-          const text = streamed.trim()
-          if (!text) throw new Error('模型没有返回内容')
-          if (mode === 'board') {
-            const parsed = parsePolishJson(text)
-            if (parsed && parsed.length > 0) {
-              setPolishResult({ items: parsed })
-              setPolishMsg('润色完成：' + parsed.length + ' 个框' + (usage ? ' · ' + formatTokens(usage) : ''))
-            } else {
-              setPolishResult({ text })
-              setPolishMsg('模型返回的不是合法 JSON，已原样展示' + (usage ? ' · ' + formatTokens(usage) : ''))
-            }
-          } else {
-            setPolishResult({ text })
-            setPolishMsg('润色完成' + (usage ? ' · ' + formatTokens(usage) : ''))
-          }
-          const nextHistory = [
-            ...polishHistory,
-            { role: 'user', text: instruction },
-            { role: 'assistant', text, tokens: usage },
-          ]
-          setPolishHistory(nextHistory)
-          try {
-            localStorage.setItem(polishKey, JSON.stringify({ messages: nextHistory }))
-          } catch {
-            // Storage full: history still lives in memory.
-          }
-        } catch (err) {
-          setPolishMsg('润色失败：' + String((err && err.message) || err))
-        } finally {
-          setPolishBusy(false)
-          setPolishStream('')
-        }
+        polishStore.start({
+          mode,
+          instruction,
+          targets,
+          summary,
+          history: polishHistory,
+          effort: polishEffort,
+          key: polishKey,
+        })
       }
 
       const applyPolish = () => {
@@ -8753,11 +8858,11 @@ window.__ModuleLoader__.load({
             }),
           )
           setDirty(true)
-          setPolishMsg('已写入 ' + matched + ' 个框')
+          polishStore.setMessage('已写入 ' + matched + ' 个框')
           return
         }
         if (selected === null) {
-          setPolishMsg('先选中一个框')
+          polishStore.setMessage('先选中一个框')
           return
         }
         const box = boxes[selected]
@@ -8766,18 +8871,11 @@ window.__ModuleLoader__.load({
         changeBox(selected, {
           metadata: Object.assign({}, meta, meta.type === 'text' ? { text: polishResult.text } : { desc: polishResult.text }),
         })
-        setPolishMsg('已写入当前框')
+        polishStore.setMessage('已写入当前框')
       }
 
       const clearPolishChat = () => {
-        setPolishHistory([])
-        setPolishResult(null)
-        setPolishMsg('对话已清除')
-        try {
-          localStorage.removeItem(polishKey)
-        } catch {
-          // Nothing stored.
-        }
+        polishStore.clear(polishKey)
       }
 
       /** Copy the sidebar's canvas-tab board into this workspace (one shot). */
