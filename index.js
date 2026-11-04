@@ -650,6 +650,8 @@ function createHandler(baseUrl) {
   let upstreamTimer = null
 
   const broadcastEvent = (payload) => {
+    eventCount += 1
+    lastEventAt = Date.now()
     const frame = 'data: ' + JSON.stringify(payload) + '\n\n'
     for (const client of [...eventClients]) {
       try {
@@ -659,6 +661,9 @@ function createHandler(baseUrl) {
       }
     }
   }
+
+  let eventCount = 0
+  let lastEventAt = 0
 
   const ensureUpstream = () => {
     if (upstreamSocket || eventClients.size === 0) return
@@ -822,6 +827,8 @@ function createHandler(baseUrl) {
         'x-accel-buffering': 'no',
       })
       res.write('retry: 2000\n\n')
+      // A hello frame proves the stream is flowing end to end.
+      res.write('data: {"type":"hello","data":{}}\n\n')
       eventClients.add(res)
       ensureUpstream()
       const ping = setInterval(() => {
@@ -846,6 +853,18 @@ function createHandler(baseUrl) {
       req.on('close', cleanup)
       req.on('error', cleanup)
       return
+    }
+
+    // Diagnostics for the live channel: how many browsers are attached and
+    // whether the upstream ComfyUI socket is connected.
+    if (pathname === `${PREFIX}/events-status`) {
+      return send(200, {
+        ok: true,
+        clients: eventClients.size,
+        upstream: upstreamSocket ? 'connected' : 'none',
+        events: eventCount,
+        lastEventAt,
+      })
     }
 
     return send(404, { ok: false, error: 'not found' })
