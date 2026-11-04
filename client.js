@@ -84,6 +84,7 @@ window.__ModuleLoader__.load({
         workspaceCanvasRuler: false,
         workspaceTheme: 'dark',
         workspaceFile: '',
+        workspacePolishEffort: '',
         canvasWorkspace: true,
         canvasModels: Object.assign({}, DEFAULT_CANVAS_MODELS),
         workspaceCanvasModels: Object.assign({}, DEFAULT_CANVAS_MODELS),
@@ -118,6 +119,8 @@ window.__ModuleLoader__.load({
               workspaceCanvasRuler: parsed.workspaceCanvasRuler === true,
               workspaceTheme: parsed.workspaceTheme === 'light' ? 'light' : 'dark',
               workspaceFile: typeof parsed.workspaceFile === 'string' ? parsed.workspaceFile : '',
+              workspacePolishEffort:
+                typeof parsed.workspacePolishEffort === 'string' ? parsed.workspacePolishEffort : '',
               canvasWorkspace: parsed.canvasWorkspace !== false,
               canvasModels: normalizeModels(parsed.canvasModels),
               workspaceCanvasModels: normalizeModels(parsed.workspaceCanvasModels),
@@ -4827,6 +4830,7 @@ window.__ModuleLoader__.load({
           '@keyframes dshComfyOverlayOut{from{opacity:1}to{opacity:0}}',
           '@keyframes dshComfyPanelIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}',
           '@keyframes dshComfyPanelOut{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.98)}}',
+          '@keyframes dshComfySpin{to{transform:rotate(360deg)}}',
           '@keyframes dshComfyDropIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}',
           '@keyframes dshComfyJobSlide{0%{transform:translateX(-110%)}100%{transform:translateX(360%)}}',
           '@keyframes dshComfyJobPulse{0%,100%{opacity:.45}50%{opacity:1}}',
@@ -8111,6 +8115,8 @@ window.__ModuleLoader__.load({
       const [polishMsg, setPolishMsg] = useState('')
       const [polishHistory, setPolishHistory] = useState([])
       const [polishChatOpen, setPolishChatOpen] = useState(false)
+      const [polishStream, setPolishStream] = useState('')
+      const [polishEffort, setPolishEffort] = usePref('workspacePolishEffort')
       const [panelWidth, setPanelWidthPref] = usePref('workspacePanelWidth')
       const [livePanelWidth, setLivePanelWidth] = useState(null)
       const panelDragRef = useRef(null)
@@ -8640,16 +8646,65 @@ window.__ModuleLoader__.load({
         setPolishBusy(true)
         setPolishMsg('')
         setPolishResult(null)
+        setPolishStream('')
         try {
           const res = await fetch('/plugin/comfy-canvas/polish', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ mode, instruction, summary, targets, history: polishHistory }),
+            body: JSON.stringify({
+              mode,
+              instruction,
+              summary,
+              targets,
+              history: polishHistory,
+              effort: polishEffort || undefined,
+            }),
           })
-          const data = await res.json().catch(() => null)
-          if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'HTTP ' + res.status)
-          const text = String(data.text || '')
-          const usage = data.usage && typeof data.usage === 'object' ? data.usage : null
+          if (!res.ok || !res.body) {
+            const data = await res.json().catch(() => null)
+            throw new Error((data && data.error) || 'HTTP ' + res.status)
+          }
+          const reader = res.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
+          let streamed = ''
+          let usage = null
+          let failure = ''
+          const handleLine = (line) => {
+            let event = null
+            try {
+              event = JSON.parse(line)
+            } catch {
+              return
+            }
+            if (!event) return
+            if (event.type === 'delta' && typeof event.text === 'string') {
+              streamed += event.text
+              setPolishStream(streamed)
+            } else if (event.type === 'usage' && event.usage) {
+              usage = event.usage
+            } else if (event.type === 'done' && event.usage) {
+              usage = event.usage
+            } else if (event.type === 'error') {
+              failure = String(event.error || '润色失败')
+            }
+          }
+          for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            let newline = buffer.indexOf('\n')
+            while (newline >= 0) {
+              const line = buffer.slice(0, newline).trim()
+              buffer = buffer.slice(newline + 1)
+              if (line) handleLine(line)
+              newline = buffer.indexOf('\n')
+            }
+          }
+          if (buffer.trim()) handleLine(buffer.trim())
+          if (failure) throw new Error(failure)
+          const text = streamed.trim()
+          if (!text) throw new Error('模型没有返回内容')
           if (mode === 'board') {
             const parsed = parsePolishJson(text)
             if (parsed && parsed.length > 0) {
@@ -8678,6 +8733,7 @@ window.__ModuleLoader__.load({
           setPolishMsg('润色失败：' + String((err && err.message) || err))
         } finally {
           setPolishBusy(false)
+          setPolishStream('')
         }
       }
 
@@ -9336,6 +9392,24 @@ window.__ModuleLoader__.load({
                   h('span', { style: { fontSize: 10.5, fontWeight: 600 } }, 'AI 润色'),
                   h('span', { style: { flex: 1 } }),
                   h(
+                    'div',
+                    { style: { width: 96, flex: 'none' } },
+                    h(Dropdown, {
+                      title: '思考模式',
+                      placeholder: '思考：默认',
+                      value: polishEffort || '',
+                      options: [
+                        { value: '', label: '思考：默认' },
+                        { value: 'off', label: '思考：关' },
+                        { value: 'low', label: '思考：低' },
+                        { value: 'medium', label: '思考：中' },
+                        { value: 'high', label: '思考：高' },
+                      ],
+                      onPick: (value) => setPolishEffort(value),
+                      dark: canvasNight,
+                    }),
+                  ),
+                  h(
                     'button',
                     {
                       className: 'dshCanvasBtn',
@@ -9345,6 +9419,47 @@ window.__ModuleLoader__.load({
                     '清除对话',
                   ),
                 ),
+                h(
+                  'div',
+                  { style: { position: 'relative', marginTop: 6 } },
+                  h('textarea', {
+                    value: polishInstruction,
+                    style: Object.assign({}, WORKSPACE_AREA_INPUT, { minHeight: 52 }),
+                    placeholder: '怎么润色（例如：更有电影感、补充材质细节）',
+                    onChange: (event) => setPolishInstruction(event.target.value),
+                  }),
+                  polishBusy
+                    ? h(
+                        'div',
+                        {
+                          style: {
+                            position: 'absolute',
+                            inset: 0,
+                            borderRadius: 6,
+                            background: 'rgba(0, 0, 0, 0.38)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 8,
+                            color: '#ffffff',
+                            fontSize: 11,
+                            backdropFilter: 'blur(1px)',
+                          },
+                        },
+                        h('span', {
+                          style: {
+                            width: 14,
+                            height: 14,
+                            borderRadius: '50%',
+                            border: '2px solid rgba(255, 255, 255, 0.3)',
+                            borderTopColor: '#ffffff',
+                            animation: 'dshComfySpin 0.8s linear infinite',
+                          },
+                        }),
+                        '润色中…',
+                      )
+                    : null,
+                ),
                 h(SegmentToggle, {
                   value: polishMode,
                   options: [
@@ -9352,12 +9467,6 @@ window.__ModuleLoader__.load({
                     { value: 'board', label: '整个画板' },
                   ],
                   onChange: (value) => setPolishMode(value),
-                }),
-                h('textarea', {
-                  value: polishInstruction,
-                  style: Object.assign({}, WORKSPACE_AREA_INPUT, { minHeight: 52, marginTop: 6 }),
-                  placeholder: '怎么润色（例如：更有电影感、补充材质细节）',
-                  onChange: (event) => setPolishInstruction(event.target.value),
                 }),
                 h(
                   'div',
@@ -9385,6 +9494,26 @@ window.__ModuleLoader__.load({
                     polishChatOpen ? '收起对话' : '查看对话',
                   ),
                 ),
+                polishBusy && polishStream
+                  ? h(
+                      'div',
+                      {
+                        style: {
+                          marginTop: 6,
+                          maxHeight: 150,
+                          overflowY: 'auto',
+                          padding: '6px 8px',
+                          borderRadius: 6,
+                          background: 'var(--dsw-alias-bg-layer-1)',
+                          fontSize: 10.5,
+                          lineHeight: 1.5,
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                        },
+                      },
+                      polishStream,
+                    )
+                  : null,
                 polishMsg
                   ? h(
                       'div',

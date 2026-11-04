@@ -404,12 +404,14 @@ async function loadPolishSkill() {
 }
 
 /** Reformulate box copy with the user's instruction, carrying the skill's rules. */
-async function runPolish(ctx, body) {
+async function runPolish(ctx, body, onEvent) {
+  const emit = typeof onEvent === 'function' ? onEvent : () => {}
   const instruction = typeof body.instruction === 'string' ? body.instruction.trim() : ''
   const mode = body.mode === 'board' ? 'board' : 'single'
   const targets = Array.isArray(body.targets) ? body.targets : []
   const summary = typeof body.summary === 'string' ? body.summary : ''
   const history = Array.isArray(body.history) ? body.history : []
+  const effort = typeof body.effort === 'string' ? body.effort.trim() : ''
   if (!instruction) throw new Error('缺少润色要求')
   if (targets.length === 0) throw new Error('没有可润色的框')
   const llm = ctx && ctx.llm
@@ -461,17 +463,30 @@ async function runPolish(ctx, body) {
   }
 
   const messages = [{ role: 'user', content: [{ type: 'text', text: lines.join('\n') }] }]
+  const options = { provider, model, system, messages }
+  if (effort === 'off' || effort === 'low' || effort === 'medium' || effort === 'high') {
+    options.reasoningEffort = effort
+  }
   let text = ''
   let finishReason = ''
   let usage = null
-  for await (const chunk of llm.stream({ provider, model, system, messages })) {
-    if (chunk && chunk.type === 'text-delta') text += chunk.text
-    else if (chunk && chunk.type === 'usage') usage = chunk.usage
-    else if (chunk && chunk.type === 'finish') finishReason = chunk.reason
+  for await (const chunk of llm.stream(options)) {
+    if (!chunk) continue
+    if (chunk.type === 'text-delta') {
+      text += chunk.text
+      emit({ type: 'delta', text: chunk.text })
+    } else if (chunk.type === 'reasoning-delta') {
+      emit({ type: 'reasoning', text: chunk.text })
+    } else if (chunk.type === 'usage') {
+      usage = chunk.usage
+    } else if (chunk.type === 'finish') {
+      finishReason = chunk.reason
+    }
   }
   if (!text.trim()) {
     throw new Error('模型没有返回内容' + (finishReason && finishReason !== 'stop' ? '（' + finishReason + '）' : ''))
   }
+  emit({ type: 'done', usage: usage || null })
   return { ok: true, text: text.trim(), usage: usage || null }
 }
 
@@ -617,12 +632,34 @@ export function apply(ctx, config = {}) {
 
     if (pathname === `${PREFIX}/polish`) {
       if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
+      let body = null
       try {
-        const body = JSON.parse((await readBody(req)) || '{}')
-        return send(200, await runPolish(ctx, body))
-      } catch (error) {
-        return send(502, { ok: false, error: String((error && error.message) || error) })
+        body = JSON.parse((await readBody(req)) || '{}')
+      } catch {
+        return send(400, { ok: false, error: 'invalid JSON body' })
       }
+      // Stream progress as NDJSON: the panel shows the text as the model writes
+      // it instead of waiting for the whole reply.
+      res.writeHead(200, {
+        'content-type': 'application/x-ndjson; charset=utf-8',
+        'cache-control': 'no-store',
+        'x-accel-buffering': 'no',
+      })
+      const write = (event) => {
+        try {
+          res.write(JSON.stringify(event) + '\n')
+        } catch {
+          // Client went away.
+        }
+      }
+      try {
+        await runPolish(ctx, body, write)
+      } catch (error) {
+        write({ type: 'error', error: String((error && error.message) || error) })
+      } finally {
+        res.end()
+      }
+      return
     }
 
     return send(404, { ok: false, error: 'not found' })
