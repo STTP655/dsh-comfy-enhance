@@ -463,14 +463,16 @@ async function runPolish(ctx, body) {
   const messages = [{ role: 'user', content: [{ type: 'text', text: lines.join('\n') }] }]
   let text = ''
   let finishReason = ''
+  let usage = null
   for await (const chunk of llm.stream({ provider, model, system, messages })) {
     if (chunk && chunk.type === 'text-delta') text += chunk.text
+    else if (chunk && chunk.type === 'usage') usage = chunk.usage
     else if (chunk && chunk.type === 'finish') finishReason = chunk.reason
   }
   if (!text.trim()) {
     throw new Error('模型没有返回内容' + (finishReason && finishReason !== 'stop' ? '（' + finishReason + '）' : ''))
   }
-  return { ok: true, text: text.trim() }
+  return { ok: true, text: text.trim(), usage: usage || null }
 }
 
 export function apply(ctx, config = {}) {

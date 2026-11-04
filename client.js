@@ -8110,6 +8110,7 @@ window.__ModuleLoader__.load({
       const [polishResult, setPolishResult] = useState(null)
       const [polishMsg, setPolishMsg] = useState('')
       const [polishHistory, setPolishHistory] = useState([])
+      const [polishChatOpen, setPolishChatOpen] = useState(false)
       const [panelWidth, setPanelWidthPref] = usePref('workspacePanelWidth')
       const [livePanelWidth, setLivePanelWidth] = useState(null)
       const panelDragRef = useRef(null)
@@ -8567,6 +8568,24 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const polishTotals = polishHistory.reduce(
+        (acc, turn) => {
+          if (!turn || turn.role !== 'assistant' || !turn.tokens) return acc
+          acc.input += Number(turn.tokens.inputTokens) || 0
+          acc.output += Number(turn.tokens.outputTokens) || 0
+          return acc
+        },
+        { input: 0, output: 0 },
+      )
+
+      const formatTokens = (usage) => {
+        if (!usage) return ''
+        const input = Number(usage.inputTokens) || 0
+        const output = Number(usage.outputTokens) || 0
+        const total = Number(usage.totalTokens) || input + output
+        return 'token 输入 ' + input + ' / 输出 ' + output + ' / 合计 ' + total
+      }
+
       const parsePolishJson = (text) => {
         let raw = String(text || '').trim()
         const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(raw)
@@ -8630,23 +8649,24 @@ window.__ModuleLoader__.load({
           const data = await res.json().catch(() => null)
           if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'HTTP ' + res.status)
           const text = String(data.text || '')
+          const usage = data.usage && typeof data.usage === 'object' ? data.usage : null
           if (mode === 'board') {
             const parsed = parsePolishJson(text)
             if (parsed && parsed.length > 0) {
               setPolishResult({ items: parsed })
-              setPolishMsg('润色完成：' + parsed.length + ' 个框')
+              setPolishMsg('润色完成：' + parsed.length + ' 个框' + (usage ? ' · ' + formatTokens(usage) : ''))
             } else {
               setPolishResult({ text })
-              setPolishMsg('模型返回的不是合法 JSON，已原样展示')
+              setPolishMsg('模型返回的不是合法 JSON，已原样展示' + (usage ? ' · ' + formatTokens(usage) : ''))
             }
           } else {
             setPolishResult({ text })
-            setPolishMsg('润色完成')
+            setPolishMsg('润色完成' + (usage ? ' · ' + formatTokens(usage) : ''))
           }
           const nextHistory = [
             ...polishHistory,
             { role: 'user', text: instruction },
-            { role: 'assistant', text },
+            { role: 'assistant', text, tokens: usage },
           ]
           setPolishHistory(nextHistory)
           try {
@@ -9355,6 +9375,15 @@ window.__ModuleLoader__.load({
                   polishResult
                     ? h('button', { className: 'dshCanvasBtn', style: { flex: 1 }, onClick: applyPolish }, '写入画框')
                     : null,
+                  h(
+                    'button',
+                    {
+                      className: 'dshCanvasBtn',
+                      style: { flex: 'none' },
+                      onClick: () => setPolishChatOpen(!polishChatOpen),
+                    },
+                    polishChatOpen ? '收起对话' : '查看对话',
+                  ),
                 ),
                 polishMsg
                   ? h(
@@ -9403,6 +9432,60 @@ window.__ModuleLoader__.load({
                           (item.id ? '#' + (Number(item.id) + 1) + ' ' : '') + item.text,
                         ),
                       ),
+                    )
+                  : null,
+                polishChatOpen
+                  ? h(
+                      'div',
+                      {
+                        style: {
+                          marginTop: 6,
+                          maxHeight: 220,
+                          overflowY: 'auto',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 6,
+                        },
+                      },
+                      polishHistory.length === 0
+                        ? h(
+                            'div',
+                            { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
+                            '还没有对话',
+                          )
+                        : h(
+                            React.Fragment,
+                            null,
+                            ...polishHistory.map((turn, index) =>
+                              h(
+                                'div',
+                                {
+                                  key: index,
+                                  style: {
+                                    fontSize: 10.5,
+                                    lineHeight: 1.45,
+                                    padding: '4px 6px',
+                                    borderRadius: 6,
+                                    background:
+                                      turn.role === 'assistant'
+                                        ? 'var(--dsw-alias-bg-layer-1)'
+                                        : 'var(--dsw-alias-bg-layer-2)',
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-word',
+                                  },
+                                },
+                                (turn.role === 'assistant' ? '助手' : '你') +
+                                  (turn.tokens ? ' · ' + formatTokens(turn.tokens) : '') +
+                                  '：\n' +
+                                  String(turn.text || ''),
+                              ),
+                            ),
+                            h(
+                              'div',
+                              { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
+                              '累计 token：输入 ' + polishTotals.input + ' / 输出 ' + polishTotals.output,
+                            ),
+                          ),
                     )
                   : null,
               ),
