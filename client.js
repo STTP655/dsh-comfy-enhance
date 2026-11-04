@@ -9232,6 +9232,31 @@ window.__ModuleLoader__.load({
                             metadata: Object.assign({}, meta, { desc: event.target.value }),
                           }),
                       }),
+                      !isText
+                        ? h(
+                            'label',
+                            {
+                              style: {
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                marginTop: 6,
+                                fontSize: 10.5,
+                                color: 'var(--dsw-alias-label-secondary)',
+                                cursor: 'pointer',
+                              },
+                            },
+                            h('input', {
+                              type: 'checkbox',
+                              checked: Boolean(meta.character),
+                              onChange: (event) =>
+                                changeBox(selected, {
+                                  metadata: Object.assign({}, meta, { character: event.target.checked }),
+                                }),
+                            }),
+                            h('span', null, '标记为人物（character）'),
+                          )
+                        : null,
                     )
                   })()
                 : null,
