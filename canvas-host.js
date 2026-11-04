@@ -27,6 +27,8 @@ const TEMPLATE_SFT_NAME = 'moss-sft-canvas.json'
 const TEMPLATE_SFT_URL = new URL('./templates/moss-sft-canvas.json', import.meta.url)
 /** Bundled API graph for quick generate (models + sampler, positive prompt empty). */
 const TEMPLATE_IMAGE_URL = new URL('./templates/moss-image-api.json', import.meta.url)
+/** SFT checkpoints need the MOSS-specific loaders; base/fp8 use the plain ones. */
+const TEMPLATE_IMAGE_SFT_URL = new URL('./templates/moss-image-sft-api.json', import.meta.url)
 
 export const inject = ['webServer']
 
@@ -126,9 +128,12 @@ function findNegativeTextNode(nodes) {
 }
 
 /** The bundled API template: quick generate does not depend on history. */
-async function loadImageTemplate() {
+async function loadImageTemplate(models) {
+  const wanted = models && typeof models === 'object' ? models : {}
+  const sft = /sft/i.test(String(wanted.clip || '')) || /sft/i.test(String(wanted.unet || ''))
+  const url = sft ? TEMPLATE_IMAGE_SFT_URL : TEMPLATE_IMAGE_URL
   try {
-    const text = await readFile(fileURLToPath(TEMPLATE_IMAGE_URL), 'utf8')
+    const text = await readFile(fileURLToPath(url), 'utf8')
     const parsed = JSON.parse(text)
     return parsed && typeof parsed === 'object' ? parsed : null
   } catch {
@@ -137,14 +142,22 @@ async function loadImageTemplate() {
 }
 
 /** Loader node types the template can carry, and the value each one reads. */
-const MODEL_FIELDS = [
-  // The bundled template follows the official MOSS workflow, which loads the
-  // model through the plain UNETLoader/CLIPLoader (so fp8 checkpoints work).
+const MODEL_FIELDS_BASE = [
+  // Base/fp8 checkpoints ride the plain loaders (official workflow structure).
   ['UNETLoader', 'unet_name', 'unet'],
   ['CLIPLoader', 'clip_name', 'clip'],
   ['VAELoader', 'vae_name', 'vae'],
   ['LoraLoaderModelOnly', 'lora_name', 'lora'],
 ]
+const MODEL_FIELDS_SFT = [
+  // SFT int8 checkpoints need the MOSS-specific loader nodes.
+  ['MOSSImageUNETLoader', 'unet_name', 'unet'],
+  ['MOSSImageCLIPLoader', 'clip_name', 'clip'],
+  ['VAELoader', 'vae_name', 'vae'],
+  ['LoraLoaderModelOnly', 'lora_name', 'lora'],
+]
+// The options listing uses the base set; both loaders read the same directories.
+const MODEL_FIELDS = MODEL_FIELDS_BASE
 
 let modelOptionsCache = null
 let modelOptionsAt = 0
@@ -281,7 +294,11 @@ async function getModelOptions(baseUrl) {
  * MOSSImage node is only the fallback for installs that predate the template.
  */
 async function submitLayout(baseUrl, layout, models, width, height, negative) {
-  let template = await loadImageTemplate()
+  const wantedModels = models && typeof models === 'object' ? models : {}
+  const isSft =
+    /sft/i.test(String(wantedModels.clip || '')) || /sft/i.test(String(wantedModels.unet || ''))
+  const modelFields = isSft ? MODEL_FIELDS_SFT : MODEL_FIELDS_BASE
+  let template = await loadImageTemplate(wantedModels)
   if (!template) {
     const history = await getJSON(`${baseUrl}/history?max_items=50`)
     for (const entry of Object.values(history || {})) {
@@ -302,7 +319,7 @@ async function submitLayout(baseUrl, layout, models, width, height, negative) {
   const wanted = models && typeof models === 'object' ? models : {}
 
   // The user's picks override the template; anything unset keeps its value.
-  for (const [type, field, key] of MODEL_FIELDS) {
+  for (const [type, field, key] of modelFields) {
     if (key === 'lora') continue
     const node = findNodeByType(graph, type)
     if (!node || !node.inputs) continue
@@ -355,7 +372,7 @@ async function submitLayout(baseUrl, layout, models, width, height, negative) {
   // Fail fast with a payload the UI can explain, instead of ComfyUI's node_errors.
   const options = await getModelOptions(baseUrl)
   const missing = []
-  for (const [type, field, key] of MODEL_FIELDS) {
+  for (const [type, field, key] of modelFields) {
     if (key === 'lora') continue
     const node = findNodeByType(graph, type)
     if (!node || !node.inputs) continue
