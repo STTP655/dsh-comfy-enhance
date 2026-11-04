@@ -8321,6 +8321,28 @@ window.__ModuleLoader__.load({
      * It owns a working copy of its own, sharing the per-file draft storage with
      * the right-side canvas tab so both surfaces see the same edits.
      */
+    // ------------------------------------------------------------ board snapshots
+
+    const SNAPSHOT_KEY = 'dsh.comfy-canvas.snapshots'
+
+    function loadSnapshotList() {
+      try {
+        const raw = localStorage.getItem(SNAPSHOT_KEY)
+        const parsed = raw ? JSON.parse(raw) : null
+        return Array.isArray(parsed) ? parsed : []
+      } catch {
+        return []
+      }
+    }
+
+    function persistSnapshots(list) {
+      try {
+        localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(list))
+      } catch {
+        // Storage full: the snapshot simply does not persist.
+      }
+    }
+
     function CanvasWorkspace() {
       const [enabled] = usePref('canvasWorkspace')
       const [canvasTheme, setCanvasTheme] = usePref('workspaceTheme')
@@ -8360,6 +8382,8 @@ window.__ModuleLoader__.load({
       const [polishInstruction, setPolishInstruction] = useState('')
       const [polishChatOpen, setPolishChatOpen] = useState(false)
       const [polishEffort, setPolishEffort] = usePref('workspacePolishEffort')
+      const [snapshotOpen, setSnapshotOpen] = useState(false)
+      const [snapshots, setSnapshots] = useState(() => loadSnapshotList())
       // The polish run lives at module scope: switching panels must not stop the
       // stream, and coming back should restore the live state.
       const [polish, setPolish] = useState(() => polishStore.get())
@@ -9023,6 +9047,57 @@ window.__ModuleLoader__.load({
         polishStore.clear(polishKey)
       }
 
+      /** Freeze the whole board into a named archive that can be reloaded later. */
+      const saveSnapshotNow = () => {
+        const entry = {
+          id: 'snap-' + Date.now().toString(36),
+          name: (file ? file.replace(/\.json$/i, '') : '画板') + ' · ' + new Date().toLocaleString(),
+          savedAt: Date.now(),
+          file,
+          width: size.width,
+          height: size.height,
+          ratio,
+          megapixels,
+          multiple,
+          summary,
+          boxes,
+          guides,
+          referenceUrl,
+          referenceOpacity,
+          negative,
+        }
+        const next = [entry, ...loadSnapshotList()].slice(0, 50)
+        persistSnapshots(next)
+        setSnapshots(next)
+        setStatus('已保存画板：' + entry.name)
+      }
+
+      const applySnapshot = (entry) => {
+        if (!entry) return
+        const useWidth = typeof entry.width === 'number' ? entry.width : size.width
+        const useHeight = typeof entry.height === 'number' ? entry.height : size.height
+        setSize({ width: useWidth, height: useHeight })
+        if (typeof entry.ratio === 'string') setRatio(entry.ratio)
+        if (typeof entry.megapixels === 'number') setMegapixels(entry.megapixels)
+        if (typeof entry.multiple === 'number') setMultiple(entry.multiple)
+        setSummary(typeof entry.summary === 'string' ? entry.summary : '')
+        setBoxes(sanitizeBoxes(Array.isArray(entry.boxes) ? entry.boxes : [], useWidth, useHeight))
+        setGuides(Array.isArray(entry.guides) ? entry.guides.map(normalizeGuide).filter(Boolean) : [])
+        setReferenceUrl(typeof entry.referenceUrl === 'string' ? entry.referenceUrl : '')
+        setReferenceOpacity(typeof entry.referenceOpacity === 'number' ? clamp(entry.referenceOpacity, 0, 100) : 55)
+        setNegative(typeof entry.negative === 'string' ? entry.negative : '')
+        setSelected(null)
+        setDirty(true)
+        setSnapshotOpen(false)
+        setStatus('已载入画板：' + entry.name)
+      }
+
+      const removeSnapshot = (id) => {
+        const next = loadSnapshotList().filter((item) => item && item.id !== id)
+        persistSnapshots(next)
+        setSnapshots(next)
+      }
+
       /** Copy the sidebar's canvas-tab board into this workspace (one shot). */
       const importFromSidebar = () => {
         if (!file) return
@@ -9506,6 +9581,94 @@ window.__ModuleLoader__.load({
               },
             },
             stageContent,
+            h(
+              'div',
+              {
+                style: {
+                  position: 'absolute',
+                  top: 10,
+                  left: 12,
+                  zIndex: 20,
+                  display: 'flex',
+                  gap: 6,
+                },
+              },
+              h(
+                'button',
+                {
+                  className: 'dshCanvasBtn',
+                  style: { padding: '3px 8px', fontSize: 10.5 },
+                  onClick: saveSnapshotNow,
+                },
+                '保存画板',
+              ),
+              h(
+                'button',
+                {
+                  className: 'dshCanvasBtn',
+                  style: { padding: '3px 8px', fontSize: 10.5 },
+                  onClick: () => {
+                    setSnapshots(loadSnapshotList())
+                    setSnapshotOpen(!snapshotOpen)
+                  },
+                },
+                '档案',
+              ),
+              snapshotOpen
+                ? h(
+                    'div',
+                    {
+                      style: {
+                        position: 'absolute',
+                        top: 32,
+                        left: 0,
+                        width: 300,
+                        maxHeight: 280,
+                        overflowY: 'auto',
+                        padding: 6,
+                        borderRadius: 8,
+                        border: '1px solid var(--dsw-alias-border-l2)',
+                        background: 'var(--dsw-alias-bg-base)',
+                        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.18)',
+                      },
+                    },
+                    snapshots.length === 0
+                      ? h(
+                          'div',
+                          { style: { padding: 6, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } },
+                          '还没有保存的画板',
+                        )
+                      : snapshots.map((entry) =>
+                          h(
+                            'div',
+                            {
+                              key: entry.id,
+                              style: { display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0' },
+                            },
+                            h(
+                              'button',
+                              {
+                                className: 'dshCanvasBtn',
+                                style: { flex: 1, textAlign: 'left', fontSize: 10.5, padding: '3px 6px' },
+                                title: entry.name,
+                                onClick: () => applySnapshot(entry),
+                              },
+                              entry.name + ' · ' + (entry.width || '?') + '×' + (entry.height || '?'),
+                            ),
+                            h(
+                              'button',
+                              {
+                                className: 'dshCanvasBtn',
+                                style: { padding: '2px 6px', fontSize: 10 },
+                                onClick: () => removeSnapshot(entry.id),
+                              },
+                              '删',
+                            ),
+                          ),
+                        ),
+                  )
+                : null,
+            ),
             h(
               'div',
               {
