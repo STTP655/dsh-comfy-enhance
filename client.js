@@ -1401,7 +1401,9 @@ window.__ModuleLoader__.load({
     }
     const VIEWER_BAR = {
       position: 'absolute',
-      bottom: 16,
+      // 6 logical px lower than the old bottom:16, divided by UI_SCALE so a wide
+      // 2K panel (which scales the whole surface up) keeps the same visual offset.
+      bottom: 16 - 6 / UI_SCALE,
       left: '50%',
       transform: 'translateX(-50%)',
       display: 'flex',
