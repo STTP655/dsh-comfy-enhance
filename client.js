@@ -5631,7 +5631,8 @@ window.__ModuleLoader__.load({
                   transformOrigin: '50% 50%',
                   // While zooming, boxes (and their labels) fade so the reference
                   // underneath can be inspected.
-                  opacity: props.dimBoxes ? 0.35 : 1,
+                  opacity: props.hideBoxes ? 0 : props.dimBoxes ? 0.35 : 1,
+                  pointerEvents: props.hideBoxes ? 'none' : undefined,
                   transition: 'opacity .15s ease',
                 },
               ),
@@ -8401,6 +8402,9 @@ window.__ModuleLoader__.load({
       const [zooming, setZooming] = useState(false)
       const zoomTimerRef = useRef(null)
       const stageRef = useRef(null)
+      const [viewing, setViewing] = useState(false)
+      const [pan, setPan] = useState({ x: 0, y: 0 })
+      const panDragRef = useRef(null)
       const [albumMetaByUrl, setAlbumMetaByUrl] = useState({})
       const [albumPick, setAlbumPick] = useState('')
       const [albumZoom, setAlbumZoom] = useState({ scale: 1, x: 0, y: 0 })
@@ -8728,6 +8732,32 @@ window.__ModuleLoader__.load({
           if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current)
         }
       }, [])
+
+      // Middle-button drag: hide the boxes and pan the board to inspect the
+      // reference picture without leaving the workspace.
+      useEffect(() => {
+        if (!viewing) return undefined
+        const onMove = (event) => {
+          const drag = panDragRef.current
+          if (!drag) return
+          setPan({
+            x: drag.startPanX + (event.clientX - drag.startX),
+            y: drag.startPanY + (event.clientY - drag.startY),
+          })
+        }
+        const onUp = () => {
+          panDragRef.current = null
+          setViewing(false)
+        }
+        window.addEventListener('pointermove', onMove)
+        window.addEventListener('pointerup', onUp)
+        window.addEventListener('pointercancel', onUp)
+        return () => {
+          window.removeEventListener('pointermove', onMove)
+          window.removeEventListener('pointerup', onUp)
+          window.removeEventListener('pointercancel', onUp)
+        }
+      }, [viewing])
 
       // The picture this workspace just produced becomes the reference underlay,
       // so the next pass can trace the result it got.
@@ -9080,7 +9110,7 @@ window.__ModuleLoader__.load({
                   width: 'min(100%, calc(100cqh * ' + (size.width / Math.max(1, size.height)) + '))',
                   aspectRatio: size.width + ' / ' + size.height,
                   display: 'flex',
-                  transform: 'scale(' + zoom + ')',
+                  transform: 'translate(' + pan.x + 'px, ' + pan.y + 'px) scale(' + zoom + ')',
                   transformOrigin: zoomOrigin.x + '% ' + zoomOrigin.y + '%',
                   transition: 'transform .12s ease-out',
                 },
@@ -9117,8 +9147,9 @@ window.__ModuleLoader__.load({
                 rotatable: true,
                 showDimensions: true,
                 dimBoxes: zooming,
+                hideBoxes: viewing,
                 reference: referenceUrl
-                  ? { url: referenceUrl, opacity: zooming ? 1 : referenceOpacity / 100 }
+                  ? { url: referenceUrl, opacity: zooming || viewing ? 1 : referenceOpacity / 100 }
                   : null,
               }),
             )
@@ -9440,7 +9471,45 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: WORKSPACE_BODY },
-          h('div', { ref: stageRef, style: WORKSPACE_STAGE }, stageContent),
+          h(
+            'div',
+            {
+              ref: stageRef,
+              style: WORKSPACE_STAGE,
+              onMouseDown: (event) => {
+                // Suppress the middle-button autoscroll.
+                if (event.button === 1) event.preventDefault()
+              },
+              onPointerDown: (event) => {
+                if (event.button !== 1) return
+                event.preventDefault()
+                panDragRef.current = {
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  startPanX: pan.x,
+                  startPanY: pan.y,
+                }
+                setViewing(true)
+              },
+            },
+            stageContent,
+            h(
+              'div',
+              {
+                style: {
+                  position: 'absolute',
+                  right: 12,
+                  bottom: 8,
+                  fontSize: 10,
+                  color: 'var(--dsw-alias-label-secondary)',
+                  opacity: 0.55,
+                  pointerEvents: 'none',
+                  userSelect: 'none',
+                },
+              },
+              '按住中键拖动：隐藏画框，预览参考图',
+            ),
+          ),
           h(
             'div',
             { style: Object.assign({}, WORKSPACE_SIDE, { width: sidePx, position: 'relative' }) },
