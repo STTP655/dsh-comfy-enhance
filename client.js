@@ -1125,6 +1125,7 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         let alive = true
+        let timer = null
         const load = async () => {
           try {
             const res = await fetch(ALBUM_ENDPOINT, { cache: 'no-store' })
@@ -1133,6 +1134,12 @@ window.__ModuleLoader__.load({
             if (!alive) return
             setAlbum(data)
             setError(null)
+            // While something is actually running, keep the banner honest even if
+            // a live event is missed; an idle gallery does not poll.
+            if (data && Array.isArray(data.running) && data.running.length > 0) {
+              if (timer) clearTimeout(timer)
+              timer = setTimeout(load, 3000)
+            }
           } catch (e) {
             if (!alive) return
             setError(String((e && e.message) || e))
@@ -1148,6 +1155,7 @@ window.__ModuleLoader__.load({
         })
         return () => {
           alive = false
+          if (timer) clearTimeout(timer)
           unsubscribeEvents()
         }
       }, [nonce])
