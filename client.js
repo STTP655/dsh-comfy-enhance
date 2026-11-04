@@ -1255,6 +1255,24 @@ window.__ModuleLoader__.load({
         return () => clearInterval(timer)
       }, [])
 
+      const [progress, setProgress] = useState(null)
+      useEffect(() => {
+        setProgress(null)
+      }, [job && job.id])
+      useEffect(() => {
+        const unsubscribe = comfyEvents.subscribe((event) => {
+          if (!event || event.type !== 'progress') return
+          const data = event.data || {}
+          if (!job || !job.id || data.prompt_id !== job.id) return
+          const value = Number(data.value)
+          const max = Number(data.max)
+          if (Number.isFinite(value) && Number.isFinite(max) && max > 0) {
+            setProgress({ value: Math.max(0, Math.round(value)), max: Math.max(1, Math.round(max)) })
+          }
+        })
+        return unsubscribe
+      }, [job && job.id])
+
       const elapsed = Math.max(0, Math.floor((now - startedAt) / 1000))
       const head = meta.positive && meta.positive.text ? meta.positive.text.replace(/\s+/g, ' ').trim() : ''
 
@@ -1262,7 +1280,7 @@ window.__ModuleLoader__.load({
       const samplerLine = sampler
         ? [sampler.steps !== null ? sampler.steps + ' 步' : '', sampler.cfg !== null ? 'CFG ' + sampler.cfg : '', sampler.seed !== null ? 'seed ' + sampler.seed : '']
             .filter(Boolean)
-            .join(' · ')
+            .join(' · ') + (progress ? ' · 进度 ' + progress.value + '/' + progress.max : '')
         : ''
 
       return h(
@@ -1334,11 +1352,12 @@ window.__ModuleLoader__.load({
           },
           h('div', {
             style: {
-              width: '38%',
+              width: progress ? (progress.value / progress.max) * 100 + '%' : '38%',
               height: '100%',
               borderRadius: 99,
               background: 'linear-gradient(90deg, #ff4d4d, #ff9a4a)',
-              animation: 'dshComfyJobSlide 1.15s ease-in-out infinite',
+              transition: 'width .3s ease',
+              ...(progress ? {} : { animation: 'dshComfyJobSlide 1.15s ease-in-out infinite' }),
             },
           }),
         ),
