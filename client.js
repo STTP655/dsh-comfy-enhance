@@ -1866,6 +1866,19 @@ window.__ModuleLoader__.load({
           if (current.status !== 'running') set({ ...current, status: 'running', message: '正在生成…' })
           return
         }
+        if (type === 'progress' && data.prompt_id === current.id) {
+          const value = Number(data.value)
+          const max = Number(data.max)
+          if (Number.isFinite(value) && Number.isFinite(max) && max > 0) {
+            set({
+              ...current,
+              status: 'running',
+              message: '正在生成…',
+              progress: { value: Math.max(0, Math.round(value)), max: Math.max(1, Math.round(max)) },
+            })
+          }
+          return
+        }
         if (type === 'executing' && data.node !== null && data.prompt_id === current.id) {
           if (current.status !== 'running') set({ ...current, status: 'running', message: '正在生成…' })
           return
@@ -8327,6 +8340,13 @@ window.__ModuleLoader__.load({
         setDirty(true)
       }, [job])
 
+      // Settled jobs must replace the stale "已提交，正在生成" note in the header.
+      useEffect(() => {
+        if (!job) return
+        if (job.status === 'done') setStatus('生成完成')
+        else if (job.status === 'error') setStatus(job.message || '生成失败')
+      }, [job])
+
       const jobActive = job !== null && (job.status === 'queued' || job.status === 'running')
       useEffect(() => {
         if (!jobActive) return undefined
@@ -8760,6 +8780,19 @@ window.__ModuleLoader__.load({
                   { style: { fontSize: 10.5, fontWeight: 600, color: '#ff6b6b', whiteSpace: 'nowrap' } },
                   job.status === 'running' ? '正在生成' : '排队中',
                 ),
+                job.progress
+                  ? h(
+                      'span',
+                      {
+                        style: {
+                          fontSize: 10,
+                          color: 'rgba(255, 107, 107, 0.85)',
+                          fontVariantNumeric: 'tabular-nums',
+                        },
+                      },
+                      job.progress.value + '/' + job.progress.max,
+                    )
+                  : null,
                 h(
                   'span',
                   {
