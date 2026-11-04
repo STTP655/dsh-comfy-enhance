@@ -2025,7 +2025,7 @@ window.__ModuleLoader__.load({
      * the live state instead of a silent restart.
      */
     const polishStore = (() => {
-      let state = { status: 'idle', stream: '', result: null, message: '', usage: null, history: [] }
+      let state = { status: 'idle', stream: '', result: null, message: '', usage: null, history: [], skillLength: null }
       const listeners = new Set()
       const notify = () => {
         for (const listener of [...listeners]) listener()
@@ -2076,6 +2076,7 @@ window.__ModuleLoader__.load({
           let streamed = ''
           let usage = null
           let failure = ''
+          let skillLength = null
           const handleLine = (line) => {
             let event = null
             try {
@@ -2089,8 +2090,9 @@ window.__ModuleLoader__.load({
               set({ stream: streamed })
             } else if (event.type === 'usage' && event.usage) {
               usage = event.usage
-            } else if (event.type === 'done' && event.usage) {
-              usage = event.usage
+            } else if (event.type === 'done') {
+              if (event.usage) usage = event.usage
+              if (Number.isFinite(event.skillLength)) skillLength = Number(event.skillLength)
             } else if (event.type === 'error') {
               failure = String(event.error || '润色失败')
             }
@@ -2141,6 +2143,7 @@ window.__ModuleLoader__.load({
             usage,
             message: message + (usage ? ' · ' + formatTokenUsage(usage) : ''),
             history: nextHistory,
+            skillLength,
           })
         } catch (error) {
           if (abort.signal.aborted) {
@@ -9650,6 +9653,15 @@ window.__ModuleLoader__.load({
                       'div',
                       { style: { marginTop: 6, fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
                       polishMsg,
+                    )
+                  : null,
+                polish.skillLength !== null && polish.skillLength !== undefined
+                  ? h(
+                      'div',
+                      { style: { marginTop: 4, fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
+                      polish.skillLength > 0
+                        ? 'moss skill：已加载（' + polish.skillLength + ' 字符）'
+                        : 'moss skill：未加载（文件缺失？）',
                     )
                   : null,
                 polishResult && polishResult.text

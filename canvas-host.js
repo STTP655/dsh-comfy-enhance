@@ -486,8 +486,8 @@ async function runPolish(ctx, body, onEvent) {
   if (!text.trim()) {
     throw new Error('模型没有返回内容' + (finishReason && finishReason !== 'stop' ? '（' + finishReason + '）' : ''))
   }
-  emit({ type: 'done', usage: usage || null })
-  return { ok: true, text: text.trim(), usage: usage || null }
+  emit({ type: 'done', usage: usage || null, skillLength: skill.length })
+  return { ok: true, text: text.trim(), usage: usage || null, skillLength: skill.length }
 }
 
 export function apply(ctx, config = {}) {
