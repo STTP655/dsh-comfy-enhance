@@ -5312,6 +5312,29 @@ window.__ModuleLoader__.load({
                   onPointerDown: (event) => onRotateStart(event, index, box),
                 })
               : null,
+            props.showDimensions && drag && drag.index === index
+              ? h(
+                  'div',
+                  {
+                    style: {
+                      position: 'absolute',
+                      left: '50%',
+                      top: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      padding: '2px 6px',
+                      borderRadius: 5,
+                      fontSize: 9.5,
+                      fontVariantNumeric: 'tabular-nums',
+                      color: '#ffffff',
+                      background: 'rgba(0, 0, 0, 0.72)',
+                      whiteSpace: 'nowrap',
+                      pointerEvents: 'none',
+                      zIndex: 8,
+                    },
+                  },
+                  Math.round(box.width) + ' × ' + Math.round(box.height),
+                )
+              : null,
           ),
         )),
       )
@@ -8426,6 +8449,7 @@ window.__ModuleLoader__.load({
                 fill: true,
                 guides,
                 rotatable: true,
+                showDimensions: true,
                 reference: referenceUrl ? { url: referenceUrl, opacity: referenceOpacity / 100 } : null,
               }),
             )
