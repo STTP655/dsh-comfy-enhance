@@ -81,6 +81,7 @@ window.__ModuleLoader__.load({
         zoomPanelWidth: 260,
         workspacePanelWidth: 280,
         canvasRuler: false,
+        canvasFile: '',
         workspaceCanvasRuler: false,
         workspaceTheme: 'dark',
         workspaceFile: '',
@@ -116,6 +117,7 @@ window.__ModuleLoader__.load({
               workspacePanelWidth:
                 typeof parsed.workspacePanelWidth === 'number' ? parsed.workspacePanelWidth : 280,
               canvasRuler: parsed.canvasRuler === true,
+              canvasFile: typeof parsed.canvasFile === 'string' ? parsed.canvasFile : '',
               workspaceCanvasRuler: parsed.workspaceCanvasRuler === true,
               workspaceTheme: parsed.workspaceTheme === 'light' ? 'light' : 'dark',
               workspaceFile: typeof parsed.workspaceFile === 'string' ? parsed.workspaceFile : '',
@@ -7018,7 +7020,7 @@ window.__ModuleLoader__.load({
 
     function CanvasTab(props) {
       const [files, setFiles] = useState(null)
-      const [file, setFile] = useState('')
+      const [file, setFile] = usePref('canvasFile')
       const [nodeId, setNodeId] = useState(null)
       const [size, setSize] = useState({ width: 1024, height: 1024 })
       const [boxes, setBoxes] = useState([])
@@ -7244,8 +7246,13 @@ window.__ModuleLoader__.load({
           .then((data) => {
             if (!alive) return
             if (!data.ok) throw new Error(data.error || '无法读取工作流目录')
-            setFiles(data.files || [])
-            if ((data.files || []).length > 0) setFile(data.files[0].name)
+            const list = data.files || []
+            setFiles(list)
+            if (list.length > 0) {
+              const saved = pluginPrefs.get().canvasFile
+              const valid = typeof saved === 'string' && list.some((item) => item.name === saved)
+              setFile(valid ? saved : list[0].name)
+            }
           })
           .catch((err) => {
             if (alive) setError(String((err && err.message) || err))
