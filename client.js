@@ -7103,6 +7103,10 @@ window.__ModuleLoader__.load({
       const [canvasTheme, setCanvasTheme] = usePref('albumTheme')
       const canvasNight = canvasTheme !== 'light'
       const [canvasModels, setCanvasModels] = usePref('canvasModels')
+      // The zoom overlay publishes a snapshot of this component's callbacks; read
+      // the live models through a ref so a freshly edited model actually applies.
+      const canvasModelsRef = useRef(canvasModels)
+      canvasModelsRef.current = canvasModels
       const [modelPanel, setModelPanel] = useState(false)
       const [preview, setPreview] = useState(false)
       const [trackedJob, setTrackedJob] = useState(() => jobStore.get())
@@ -7596,7 +7600,7 @@ window.__ModuleLoader__.load({
           return
         }
         const layout = buildMossLayout(summary, size.width, size.height, boxes)
-        const stored = canvasModels || {}
+        const stored = canvasModelsRef.current || {}
         let sampling = stored.sampling || {}
         if (sampling.seedMode === 'random') {
           // Random mode: a fresh seed per submission, then shown in the field so
@@ -8348,6 +8352,8 @@ window.__ModuleLoader__.load({
       const [canvasTheme, setCanvasTheme] = usePref('workspaceTheme')
       const canvasNight = canvasTheme !== 'light'
       const [canvasModels, setCanvasModels] = usePref('workspaceCanvasModels')
+      const canvasModelsRef = useRef(canvasModels)
+      canvasModelsRef.current = canvasModels
       const [rulerOn, setRulerOn] = usePref('workspaceCanvasRuler')
       const [files, setFiles] = useState(null)
       const [file, setFile] = usePref('workspaceFile')
@@ -8901,7 +8907,7 @@ window.__ModuleLoader__.load({
           return
         }
         const layout = buildMossLayout(summary, size.width, size.height, boxes)
-        const stored = canvasModels || {}
+        const stored = canvasModelsRef.current || {}
         let sampling = stored.sampling || {}
         if (sampling.seedMode === 'random') {
           sampling = Object.assign({}, sampling, { seed: Math.floor(Math.random() * 1e15) })
