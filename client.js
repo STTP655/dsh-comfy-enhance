@@ -8314,9 +8314,34 @@ window.__ModuleLoader__.load({
       // The polish run lives at module scope: switching panels must not stop the
       // stream, and coming back should restore the live state.
       const [polish, setPolish] = useState(() => polishStore.get())
-      useEffect(() => polishStore.subscribe(() => setPolish(polishStore.get())), [])
+      const streamRef = useRef(null)
+      useEffect(() => {
+        let lastStatus = ''
+        let lastMessage = ''
+        let lastResult = undefined
+        let lastHistory = undefined
+        const apply = () => {
+          const next = polishStore.get()
+          // Streaming text is written straight to the DOM: re-rendering the whole
+          // board once per token froze the page.
+          if (streamRef.current) streamRef.current.textContent = next.stream || ''
+          if (
+            next.status !== lastStatus ||
+            next.message !== lastMessage ||
+            next.result !== lastResult ||
+            next.history !== lastHistory
+          ) {
+            lastStatus = next.status
+            lastMessage = next.message
+            lastResult = next.result
+            lastHistory = next.history
+            setPolish(next)
+          }
+        }
+        apply()
+        return polishStore.subscribe(apply)
+      }, [])
       const polishBusy = polish.status === 'running'
-      const polishStream = polish.stream
       const polishResult = polish.result
       const polishMsg = polish.message
       const polishHistory = polish.history
@@ -9599,10 +9624,11 @@ window.__ModuleLoader__.load({
                     polishChatOpen ? '收起对话' : '查看对话',
                   ),
                 ),
-                polishBusy && polishStream
+                polishBusy
                   ? h(
                       'div',
                       {
+                        ref: streamRef,
                         style: {
                           marginTop: 6,
                           maxHeight: 150,
@@ -9616,7 +9642,7 @@ window.__ModuleLoader__.load({
                           wordBreak: 'break-word',
                         },
                       },
-                      polishStream,
+                      polish.stream,
                     )
                   : null,
                 polishMsg
