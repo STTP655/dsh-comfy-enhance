@@ -8301,6 +8301,33 @@ window.__ModuleLoader__.load({
         }
       }
 
+      /** Copy the sidebar's canvas-tab board into this workspace (one shot). */
+      const importFromSidebar = () => {
+        if (!file) return
+        const source = readDraft(file)
+        if (!source) {
+          setStatus('侧边栏没有可导入的画板')
+          return
+        }
+        const useWidth = typeof source.width === 'number' ? source.width : size.width
+        const useHeight = typeof source.height === 'number' ? source.height : size.height
+        setSize({ width: useWidth, height: useHeight })
+        if (typeof source.ratio === 'string') setRatio(source.ratio)
+        if (typeof source.megapixels === 'number') setMegapixels(source.megapixels)
+        if (typeof source.multiple === 'number') setMultiple(source.multiple)
+        setSummary(typeof source.summary === 'string' ? source.summary : '')
+        setBoxes(sanitizeBoxes(source.boxes || [], useWidth, useHeight))
+        setGuides(Array.isArray(source.guides) ? source.guides.map(normalizeGuide).filter(Boolean) : [])
+        setReferenceUrl(typeof source.referenceUrl === 'string' ? source.referenceUrl : '')
+        setReferenceOpacity(
+          typeof source.referenceOpacity === 'number' ? clamp(source.referenceOpacity, 0, 100) : 55,
+        )
+        setNegative(typeof source.negative === 'string' ? source.negative : '')
+        setSelected(null)
+        setDirty(true)
+        setStatus('已从侧边栏导入画板')
+      }
+
       const sampling = canvasModels.sampling || {}
       // Sidebar can be dragged wider; the value persists as a preference.
       const sidePx = clamp(livePanelWidth === null ? panelWidth : livePanelWidth, 220, 560)
@@ -8420,6 +8447,16 @@ window.__ModuleLoader__.load({
               dark: canvasNight,
               menuMinWidth: 260,
             }),
+          ),
+          h(
+            'button',
+            {
+              className: 'dshCanvasBtn',
+              style: { flexShrink: 0 },
+              title: '把侧边栏画框标签页的当前画板复制到这个工作台',
+              onClick: importFromSidebar,
+            },
+            '导入侧边栏',
           ),
           h('span', { style: WORKSPACE_LABEL }, '参考'),
           h(
