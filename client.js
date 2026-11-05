@@ -1034,7 +1034,12 @@ window.__ModuleLoader__.load({
           { key: 'dsh-comfy-draft-anim' },
           // Ease-out-quint on the way in (a push-up that settles), a gentle sink out.
           '@keyframes dshDraftIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}' +
-            '@keyframes dshDraftOut{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(5px)}}',
+            '@keyframes dshDraftOut{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(5px)}}' +
+            '.dshDraftClose{transition:background .16s ease,box-shadow .16s ease,transform .16s ease}' +
+            '.dshDraftClose:hover{background:#dc2626;box-shadow:0 4px 14px rgba(239,68,68,.4);transform:scale(1.06)}' +
+            '.dshDraftBtn{transition:background .18s cubic-bezier(.22,1,.36,1),box-shadow .18s cubic-bezier(.22,1,.36,1),transform .18s cubic-bezier(.22,1,.36,1)}' +
+            '.dshDraftBtn:hover{box-shadow:0 6px 18px rgba(0,0,0,.12);transform:translateY(-1px)}' +
+            '.dshDraftBtnPrimary:hover{box-shadow:0 8px 22px rgba(59,130,246,.38);transform:translateY(-1px)}',
         ),
         h(
           'div',
@@ -1045,7 +1050,24 @@ window.__ModuleLoader__.load({
             'button',
             {
               type: 'button',
-              style: Object.assign({}, btn, { color: '#ef4444', fontWeight: 600 }),
+              className: 'dshDraftClose',
+              style: {
+                width: 24,
+                height: 24,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0,
+                borderRadius: '50%',
+                border: '1px solid #ef4444',
+                background: '#ef4444',
+                color: '#ffffff',
+                fontSize: 13,
+                fontWeight: 700,
+                lineHeight: 1,
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+              },
               onClick: close,
               title: '关闭草稿',
             },
@@ -1101,6 +1123,7 @@ window.__ModuleLoader__.load({
             'button',
             {
               type: 'button',
+              className: 'dshDraftBtn',
               style: Object.assign({}, btn, { padding: '7px 16px', fontSize: 12 }),
               onClick: close,
             },
@@ -1110,6 +1133,7 @@ window.__ModuleLoader__.load({
             'button',
             {
               type: 'button',
+              className: 'dshDraftBtn dshDraftBtnPrimary',
               style: Object.assign({}, btn, {
                 padding: '7px 18px',
                 fontSize: 12,
