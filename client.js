@@ -3780,6 +3780,11 @@ window.__ModuleLoader__.load({
       const [offset, setOffset] = useState({ x: 0, y: 0 })
       const [dragging, setDragging] = useState(false)
       const [showInfo, setShowInfo] = useState(true)
+      const [promptOpen, setPromptOpen] = useState(false)
+      // Parameters read from the file on demand, keyed by filename.
+      const [promptMetaCache, setPromptMetaCache] = useState({})
+      const [promptBusy, setPromptBusy] = useState(false)
+      const [promptError, setPromptError] = useState('')
       const [natural, setNatural] = useState(null)
       const [closing, setClosing] = useState(false)
       const [panelWidth, setPanelWidthPref] = usePref('viewerPanelWidth')
@@ -3890,6 +3895,31 @@ window.__ModuleLoader__.load({
       })()
 
       const meta = current.meta || {}
+      // The viewer is often handed bare {url, filename} (the text2img panel), so
+      // the prompt dialog reads the parameters embedded in the file when the
+      // caller did not already hand them over.
+      const currentPromptMeta = meta.positive || meta.negative
+        ? meta
+        : (current.filename && promptMetaCache[current.filename]) || {}
+      const openPrompts = () => {
+        setPromptOpen(true)
+        setPromptError('')
+        if (meta.positive || meta.negative) return
+        const filename = current.filename || ''
+        if (!filename || promptMetaCache[filename]) return
+        setPromptBusy(true)
+        const endpoint = current.path
+          ? '/plugin/comfy-status/output-meta?path=' + encodeURIComponent(current.path)
+          : '/plugin/comfy-status/output-meta?filename=' + encodeURIComponent(filename)
+        fetch(endpoint, { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (!data || !data.ok) throw new Error((data && data.error) || '读取失败')
+            setPromptMetaCache((prev) => Object.assign({}, prev, { [filename]: data.meta || {} }))
+          })
+          .catch((error) => setPromptError(String((error && error.message) || error)))
+          .finally(() => setPromptBusy(false))
+      }
       const hasPanel = Boolean(
         meta.positive || meta.negative || (meta.models && meta.models.length) || meta.sampler,
       )
@@ -4190,6 +4220,16 @@ window.__ModuleLoader__.load({
               { style: VIEWER_BAR_GROUP },
               h('button', { className: 'dshComfyAlbum-btn', 'data-dark': light ? undefined : 'true', onClick: resetView }, '还原'),
               h(
+                'button',
+                {
+                  className: 'dshComfyAlbum-btn',
+                  'data-dark': light ? undefined : 'true',
+                  title: '查看这张图的正向 / 负向提示词',
+                  onClick: openPrompts,
+                },
+                '提示词',
+              ),
+              h(
                 'a',
                 {
                   className: 'dshComfyAlbum-btn dshComfyViewer-icon',
@@ -4281,6 +4321,104 @@ window.__ModuleLoader__.load({
                     title: '拖动调整宽度',
                   })
                 : null,
+            )
+          : null,
+        promptOpen
+          ? h(
+              'div',
+              {
+                style: {
+                  position: 'fixed',
+                  inset: 0,
+                  zIndex: 1300,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'rgba(0, 0, 0, 0.55)',
+                  backdropFilter: 'blur(2px)',
+                },
+                onClick: (event) => {
+                  if (event.target === event.currentTarget) setPromptOpen(false)
+                },
+              },
+              h(
+                'div',
+                {
+                  style: {
+                    width: 620,
+                    maxWidth: 'calc(100vw - 40px)',
+                    maxHeight: '78vh',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    borderRadius: 14,
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                    background: 'var(--dsw-alias-bg-base)',
+                    color: 'var(--dsw-alias-label-primary)',
+                    boxShadow: '0 24px 70px rgba(0, 0, 0, 0.42)',
+                    overflow: 'hidden',
+                  },
+                },
+                h(
+                  'div',
+                  {
+                    style: {
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '10px 14px',
+                      borderBottom: '1px solid var(--dsw-alias-border-l2)',
+                    },
+                  },
+                  h('span', { style: { fontSize: 12.5, fontWeight: 600 } }, '提示词'),
+                  h(
+                    'span',
+                    {
+                      style: {
+                        minWidth: 0,
+                        fontSize: 10,
+                        color: 'var(--dsw-alias-label-secondary)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      },
+                    },
+                    current.filename || '',
+                  ),
+                  h('span', { style: { flex: 1 } }),
+                  h(
+                    'button',
+                    { className: 'dshComfyAlbum-btn', onClick: () => setPromptOpen(false) },
+                    '关闭',
+                  ),
+                ),
+                h(
+                  'div',
+                  { style: { padding: '2px 14px 16px', overflowY: 'auto', minHeight: 0 } },
+                  promptBusy
+                    ? h(
+                        'div',
+                        { style: { marginTop: 12, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } },
+                        '读取图片参数中…',
+                      )
+                    : null,
+                  promptError
+                    ? h(
+                        'div',
+                        { style: { marginTop: 12, fontSize: 11, color: 'var(--dsw-alias-state-error-primary)' } },
+                        promptError,
+                      )
+                    : null,
+                  !promptBusy && !promptError && !currentPromptMeta.positive && !currentPromptMeta.negative
+                    ? h(
+                        'div',
+                        { style: { marginTop: 12, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } },
+                        '这张图里没有记录提示词',
+                      )
+                    : null,
+                  h(PromptBlock, { title: '正向提示词', value: currentPromptMeta.positive }),
+                  h(PromptBlock, { title: '负向提示词', value: currentPromptMeta.negative }),
+                ),
+              ),
             )
           : null,
       )
