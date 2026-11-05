@@ -4,6 +4,14 @@ window.__ModuleLoader__.load({
     const React = require('react')
     const h = React.createElement
     const { useState, useEffect, useRef } = React
+    // Portals let the full-screen viewer escape the sidebar's zoom container.
+    let createPortal = null
+    try {
+      const ReactDOM = require('react-dom')
+      createPortal = ReactDOM && typeof ReactDOM.createPortal === 'function' ? ReactDOM.createPortal : null
+    } catch {
+      createPortal = null
+    }
 
     // ------------------------------------------------------------- module prefs
 
@@ -3380,7 +3388,7 @@ window.__ModuleLoader__.load({
         setDragging(false)
       }
 
-      return h(
+      const viewer = h(
         'div',
         {
           style: Object.assign({}, VIEWER_BACKDROP, { animation: fadeAnimation }),
@@ -3631,6 +3639,9 @@ window.__ModuleLoader__.load({
             )
           : null,
       )
+      return createPortal && typeof document !== 'undefined'
+        ? createPortal(viewer, document.body)
+        : viewer
     }
 
     /** Facts laid over the bottom of the preview, on a gradient that guarantees contrast on any image. */
