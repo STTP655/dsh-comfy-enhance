@@ -10029,7 +10029,13 @@ window.__ModuleLoader__.load({
       style.id = 'dsh-comfy-workbench-styles'
       style.textContent =
         '@keyframes dshPageIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}' +
-        '@keyframes dshBlink{0%,100%{opacity:1}50%{opacity:.3}}'
+        '@keyframes dshBlink{0%,100%{opacity:1}50%{opacity:.3}}' +
+        // These three live on the canvas sheet, which this panel never mounts, so
+        // their animations were pointing at names the document did not have: the
+        // progress ring stood still and dropdowns opened without the fade.
+        '@keyframes dshComfySpin{to{transform:rotate(360deg)}}' +
+        '@keyframes dshComfyDropIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}' +
+        '@keyframes dshComfyOverlayIn{from{opacity:0}to{opacity:1}}'
       document.head.appendChild(style)
     }
 
@@ -11933,6 +11939,9 @@ window.__ModuleLoader__.load({
                   },
                   h('span', {
                     style: {
+                      display: 'block',
+                      flex: 'none',
+                      boxSizing: 'border-box',
                       width: 22,
                       height: 22,
                       borderRadius: '50%',
