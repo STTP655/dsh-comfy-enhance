@@ -12629,6 +12629,7 @@ window.__ModuleLoader__.load({
           summary,
           history: polishHistory,
           effort: polishEffort,
+          promptModel: promptWriteModel,
           key: polishKey,
         })
       }
