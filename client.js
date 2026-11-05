@@ -95,6 +95,7 @@ window.__ModuleLoader__.load({
         remoteCount: 1,
         remoteAspect: '1:1',
         remoteOptimizer: false,
+        workspaceView: 'chooser',
         editorPositiveHeight: 96,
         editorNegativeHeight: 96,
         viewerPanelWidth: 360,
@@ -141,6 +142,9 @@ window.__ModuleLoader__.load({
               remoteCount: typeof parsed.remoteCount === 'number' ? parsed.remoteCount : 1,
               remoteAspect: typeof parsed.remoteAspect === 'string' ? parsed.remoteAspect : '1:1',
               remoteOptimizer: Boolean(parsed.remoteOptimizer),
+              workspaceView: ['chooser', 'local', 'online'].includes(parsed.workspaceView)
+                ? parsed.workspaceView
+                : 'chooser',
               editorPositiveHeight:
                 typeof parsed.editorPositiveHeight === 'number' ? parsed.editorPositiveHeight : 96,
               editorNegativeHeight:
@@ -10490,7 +10494,7 @@ window.__ModuleLoader__.load({
     }
 
     function CanvasWorkspace() {
-      const [view, setView] = useState('chooser')
+      const [view, setView] = usePref('workspaceView')
       const [viewFading, setViewFading] = useState(false)
       const changeView = (next) => {
         if (next === view) return
