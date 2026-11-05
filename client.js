@@ -12615,18 +12615,19 @@ window.__ModuleLoader__.load({
               style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.55 }),
               onChange: (event) => setPrompt(event.target.value),
             }),
-            // The AI trio acts on the prompt above it, so it sits under the box
-            // instead of crowding the label row. The style switch belongs with
-            // them: it decides how those tools write. The extra box is what the
-            // model is told on top of that prompt.
+            // The AI trio acts on the prompt above it, so it sits under the box.
+            // The row spans the full column width: the style switch keeps its
+            // natural size and the AI button absorbs the slack, so the row lines
+            // up with the text boxes above and below.
             h(
               'div',
-              { style: { display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' } },
+              { style: { display: 'flex', alignItems: 'stretch', gap: 4, width: '100%' } },
               h(
                 'div',
                 {
                   style: {
                     display: 'flex',
+                    alignItems: 'center',
                     gap: 4,
                     padding: 3,
                     borderRadius: 8,
@@ -12646,15 +12647,16 @@ window.__ModuleLoader__.load({
                       type: 'button',
                       onClick: () => setPromptStyle(value),
                       style: {
-                        padding: '3px 9px',
+                        padding: '4px 8px',
                         borderRadius: 6,
                         border: 0,
                         background: promptStyle === value ? '#3b82f6' : 'transparent',
                         color: promptStyle === value ? '#ffffff' : 'var(--dsw-alias-label-secondary)',
-                        fontSize: 10.5,
+                        fontSize: 11,
                         fontWeight: 600,
                         fontFamily: 'inherit',
                         cursor: 'pointer',
+                        whiteSpace: 'nowrap',
                       },
                     },
                     text,
@@ -12669,22 +12671,26 @@ window.__ModuleLoader__.load({
                   onClick: aiWrite,
                   title: 'AI 写 / 润色提示词',
                   style: {
+                    flex: '1 1 auto',
+                    minWidth: 0,
                     display: 'inline-flex',
                     alignItems: 'center',
+                    justifyContent: 'center',
                     gap: 5,
-                    padding: '5px 10px',
+                    padding: '7px 9px',
                     borderRadius: 8,
                     border: '1px solid var(--dsw-alias-border-l2)',
                     background: 'var(--dsw-alias-bg-layer-2)',
                     color: 'var(--dsw-alias-label-primary)',
-                    fontSize: 11,
+                    fontSize: 12,
                     fontWeight: 600,
                     fontFamily: 'inherit',
+                    whiteSpace: 'nowrap',
                     cursor: aiBusy ? 'default' : 'pointer',
                     opacity: aiBusy ? 0.6 : 1,
                   },
                 },
-                h(Icon, { name: 'sparkles', size: 12 }),
+                h(Icon, { name: 'sparkles', size: 13 }),
                 aiBusy ? '生成中…' : 'AI 写/润色',
               ),
               h(
@@ -12694,13 +12700,15 @@ window.__ModuleLoader__.load({
                   onClick: () => setRulesOpen(true),
                   title: '编辑提示词写作规则',
                   style: {
-                    padding: '5px 10px',
+                    flex: '0 0 auto',
+                    padding: '7px 9px',
                     borderRadius: 8,
                     border: '1px solid var(--dsw-alias-border-l2)',
                     background: 'transparent',
                     color: 'var(--dsw-alias-label-secondary)',
-                    fontSize: 11,
+                    fontSize: 12,
                     fontFamily: 'inherit',
+                    whiteSpace: 'nowrap',
                     cursor: 'pointer',
                   },
                 },
@@ -12713,13 +12721,15 @@ window.__ModuleLoader__.load({
                   onClick: () => setHistoryOpen(true),
                   title: '查看提示词对话记录',
                   style: {
-                    padding: '5px 10px',
+                    flex: '0 0 auto',
+                    padding: '7px 9px',
                     borderRadius: 8,
                     border: '1px solid var(--dsw-alias-border-l2)',
                     background: 'transparent',
                     color: 'var(--dsw-alias-label-secondary)',
-                    fontSize: 11,
+                    fontSize: 12,
                     fontFamily: 'inherit',
+                    whiteSpace: 'nowrap',
                     cursor: 'pointer',
                   },
                 },
