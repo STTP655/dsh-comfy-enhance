@@ -570,29 +570,158 @@ window.__ModuleLoader__.load({
     /** Big "start ComfyUI" control with a folder-picker gear beside it. */
     function LaunchComfyButton(props) {
       const compact = Boolean(props && props.compact)
+      // Settings page: one button that carries both states, driven by whether the
+      // engine actually answers rather than by the last click.
+      const toggle = Boolean(props && props.toggle)
+      const [online, setOnline] = useState(false)
       const [busy, setBusy] = useState(false)
       const [stopping, setStopping] = useState(false)
       const [picking, setPicking] = useState(false)
       const [pickerOpen, setPickerOpen] = useState(false)
       const [message, setMessage] = useState('')
+      const readOnline = () =>
+        fetch('/plugin/comfy-status/snapshot', { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            const up = Boolean(data && data.up)
+            setOnline(up)
+            return up
+          })
+          .catch(() => false)
+      useEffect(() => {
+        if (!toggle) return undefined
+        let alive = true
+        const tick = () => {
+          if (alive) readOnline()
+        }
+        tick()
+        const timer = setInterval(tick, 5000)
+        return () => {
+          alive = false
+          clearInterval(timer)
+        }
+      }, [toggle])
       const run = async () => {
         if (busy) return
         setBusy(true)
         setMessage('')
         const result = await launchLocalComfy()
+        if (result && result.ok) {
+          setMessage(result.message || '已请求启动')
+          // ComfyUI takes a few seconds to answer after the process starts: hold
+          // "正在启动…" until the snapshot says up, instead of flipping at once.
+          if (toggle) {
+            for (let attempt = 0; attempt < 25; attempt += 1) {
+              await new Promise((resolve) => setTimeout(resolve, 1000))
+              if (await readOnline()) break
+            }
+          }
+        } else {
+          setMessage((result && result.error) || '启动失败')
+        }
         setBusy(false)
-        setMessage(result && result.ok ? result.message || '已请求启动' : (result && result.error) || '启动失败')
       }
       const stop = async () => {
         if (stopping) return
         setStopping(true)
         setMessage('')
         const result = await stopLocalComfy()
+        if (result && result.ok) {
+          setMessage(result.message || '已停止')
+          if (toggle) setOnline(false)
+        } else {
+          setMessage((result && result.error) || '停止失败')
+        }
         setStopping(false)
-        setMessage(result && result.ok ? result.message || '已停止' : (result && result.error) || '停止失败')
       }
       const chooseDir = () => {
         setPickerOpen(true)
+      }
+      if (toggle) {
+        const working = busy || stopping
+        const label = busy ? '正在启动…' : stopping ? '正在停止…' : online ? '停止 ComfyUI' : '启动 ComfyUI'
+        return h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginTop: 16 } },
+          h(
+            'button',
+            {
+              type: 'button',
+              disabled: working,
+              onClick: online ? stop : run,
+              title: online ? '停止 ComfyUI' : '启动 ComfyUI',
+              style: {
+                minWidth: 190,
+                padding: '10px 30px',
+                borderRadius: 10,
+                border: '1px solid ' + (online ? '#dc2626' : '#3b82f6'),
+                background: online ? '#dc2626' : '#3b82f6',
+                color: '#ffffff',
+                fontSize: 14,
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                cursor: working ? 'default' : 'pointer',
+                opacity: working ? 0.75 : 1,
+                boxShadow: online ? '0 4px 14px rgba(220, 38, 38, 0.32)' : '0 4px 14px rgba(59, 130, 246, 0.35)',
+                transition: 'background 160ms ease, border-color 160ms ease, box-shadow 160ms ease',
+              },
+            },
+            label,
+          ),
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'center' } },
+            h(
+              'button',
+              {
+                type: 'button',
+                disabled: picking,
+                onClick: chooseDir,
+                title: '选择 ComfyUI 目录',
+                style: {
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '4px 9px',
+                  borderRadius: 7,
+                  border: '1px solid var(--dsw-alias-border-l2)',
+                  background: 'var(--dsw-alias-bg-layer-1)',
+                  color: 'var(--dsw-alias-label-secondary)',
+                  fontSize: 10.5,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                },
+              },
+              h(Icon, { name: 'settings', size: 13 }),
+              '选择目录',
+            ),
+            message
+              ? h(
+                  'span',
+                  {
+                    style: {
+                      fontSize: 10,
+                      color: 'var(--dsw-alias-label-secondary)',
+                      maxWidth: 280,
+                      wordBreak: 'break-all',
+                    },
+                  },
+                  message,
+                )
+              : null,
+          ),
+          h(DirectoryPicker, {
+            open: pickerOpen,
+            title: '选择 ComfyUI 安装目录',
+            startPath: pluginPrefs.get().comfyPath || '',
+            onPick: (path) => {
+              pluginPrefs.set('comfyPath', path)
+              setPickerOpen(false)
+              setMessage('已选择：' + path)
+            },
+            onClose: () => setPickerOpen(false),
+          }),
+        )
       }
       if (compact) {
         return h(
@@ -5416,7 +5545,9 @@ window.__ModuleLoader__.load({
             },
             onChange: (event) => setComfyPath(event.target.value),
           }),
-          h(LaunchComfyButton, { marginTop: 8 }),
+          // Settings page only: one button, two states (other call sites keep the
+          // old pair for now).
+          h(LaunchComfyButton, { marginTop: 8, toggle: true }),
           h(
             'div',
             { style: { marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--dsw-alias-border-l1)' } },
