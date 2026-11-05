@@ -1033,10 +1033,19 @@ window.__ModuleLoader__.load({
       // card keeps its own overflow/box-shadow instead of being clipped by an
       // outer hidden container.
       // The card floats above the composer on its own layer: the wrapper is zero
-      // height, so opening it never pushes the transcript around.
+      // height, so opening it never pushes the transcript around. The negative
+      // margin cancels the composer stack's flex gap, which otherwise counts a
+      // zero-height entry and lifts the transcript by that gap.
       return h(
         'div',
-        { style: { position: 'relative', height: 0, zIndex: 20 } },
+        {
+          style: {
+            position: 'relative',
+            height: 0,
+            marginBottom: 'calc(-1 * var(--dsh-composer-stack-gap, 6px))',
+            zIndex: 20,
+          },
+        },
         h(
           'div',
           {
