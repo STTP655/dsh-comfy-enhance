@@ -10209,6 +10209,11 @@ window.__ModuleLoader__.load({
         '@keyframes dshComfySpin{to{transform:rotate(360deg)}}' +
         '@keyframes dshComfyDropIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}' +
         '@keyframes dshComfyOverlayIn{from{opacity:0}to{opacity:1}}' +
+        // Ring rotation as a paint-only animation: stroke-dashoffset carries the
+        // arc around the circle without promoting a composited layer, which is
+        // what kept a stale copy of the ring visible behind the new one.
+        '@keyframes dshComfyRingSpin{from{stroke-dashoffset:0}to{stroke-dashoffset:-53.407}}' +
+        '@media (prefers-reduced-motion:reduce){.dshComfySpinnerArc{animation:none}}' +
         // The album-picker panel in this same workspace fades in with these.
         '@keyframes dshComfyPanelIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}' +
         '@keyframes dshComfyPanelOut{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.98)}}' +
@@ -12431,14 +12436,16 @@ window.__ModuleLoader__.load({
                       padding: '16px 20px',
                       borderRadius: 14,
                       border: '1px solid rgba(255, 255, 255, 0.16)',
-                      background: 'rgba(18, 20, 24, 0.92)',
+                      // Opaque: anything behind it (the picture, a blurred copy)
+                      // would otherwise read as a faint second ring.
+                      background: 'rgb(20, 22, 27)',
                       boxShadow: '0 12px 34px rgba(0, 0, 0, 0.45)',
                       color: '#ffffff',
                     },
                   },
-                  // Drawn, not bordered: a border-radius ring is at the mercy of
-                  // whatever global stylesheet the host injects, and a rotating
-                  // box inside a blurred backdrop is what left a smear behind.
+                  // Drawn, not bordered, and rotated by animating the dash offset
+                  // rather than with a transform: a composited spinning layer is
+                  // what left a second, larger ring smeared behind this one.
                   h(
                     'svg',
                     {
@@ -12446,7 +12453,8 @@ window.__ModuleLoader__.load({
                       height: 22,
                       viewBox: '0 0 22 22',
                       'aria-hidden': 'true',
-                      style: { display: 'block', flex: 'none', animation: 'dshComfySpin 0.9s linear infinite' },
+                      shapeRendering: 'geometricPrecision',
+                      style: { display: 'block', flex: 'none', width: 22, height: 22 },
                     },
                     h('circle', {
                       cx: 11,
@@ -12464,10 +12472,13 @@ window.__ModuleLoader__.load({
                       stroke: '#3b82f6',
                       strokeWidth: 2,
                       strokeLinecap: 'round',
-                      // Circumference at r=8.5 is 53.4: a quarter-arc plus a gap
-                      // long enough that the dash never wraps into a second turn.
-                      strokeDasharray: '13.4 53.4',
+                      // Circumference at r=8.5 is exactly 53.407, so the dash and
+                      // its gap add up to one full turn: the offset can loop from
+                      // 0 to -53.407 without a visible jump.
+                      strokeDasharray: '13.407 40',
                       transform: 'rotate(-90 11 11)',
+                      className: 'dshComfySpinnerArc',
+                      style: { animation: 'dshComfyRingSpin 0.9s linear infinite' },
                     }),
                   ),
                   h(
