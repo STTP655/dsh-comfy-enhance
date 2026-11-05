@@ -57,7 +57,9 @@ async function launchComfy(dir, baseUrl) {
   }
   const candidates = []
   if (typeof dir === 'string' && dir.trim()) candidates.push(dir.trim())
-  candidates.push('J:\\ComfyUI-aki-v3\\ComfyUI-aki-v3', 'J:\\ComfyUI-aki-v3', 'J:\\comfyui-aki')
+  if (candidates.length === 0) {
+    return { ok: false, error: '还没有设置 ComfyUI 安装目录：点「选择目录」或到插件设置里填写后再启动' }
+  }
   let found = null
   for (const candidate of candidates) {
     try {

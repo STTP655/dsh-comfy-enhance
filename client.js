@@ -4532,7 +4532,7 @@ window.__ModuleLoader__.load({
           ),
           h('input', {
             value: comfyPath,
-            placeholder: 'J:\\ComfyUI-aki-v3\\ComfyUI-aki-v3',
+            placeholder: '例：D:\\ComfyUI-aki\\ComfyUI',
             style: {
               width: '100%',
               boxSizing: 'border-box',
