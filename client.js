@@ -98,6 +98,12 @@ window.__ModuleLoader__.load({
         remoteAspect: '1:1',
         remoteOptimizer: false,
         workspaceView: 'chooser',
+        t2iPrompt: '',
+        t2iNegative: '',
+        t2iModels: {},
+        t2iClipType: 'flux',
+        t2iSize: { width: 1024, height: 1024 },
+        t2iSampling: { steps: 20, cfg: 1, sampler: 'euler', scheduler: 'simple', seed: 0 },
         editorPositiveHeight: 96,
         editorNegativeHeight: 96,
         viewerPanelWidth: 360,
@@ -151,9 +157,21 @@ window.__ModuleLoader__.load({
               remoteCount: typeof parsed.remoteCount === 'number' ? parsed.remoteCount : 1,
               remoteAspect: typeof parsed.remoteAspect === 'string' ? parsed.remoteAspect : '1:1',
               remoteOptimizer: Boolean(parsed.remoteOptimizer),
-              workspaceView: ['chooser', 'local', 'online'].includes(parsed.workspaceView)
+              workspaceView: ['chooser', 'local', 'online', 'text2img'].includes(parsed.workspaceView)
                 ? parsed.workspaceView
                 : 'chooser',
+              t2iPrompt: typeof parsed.t2iPrompt === 'string' ? parsed.t2iPrompt : '',
+              t2iNegative: typeof parsed.t2iNegative === 'string' ? parsed.t2iNegative : '',
+              t2iModels: parsed.t2iModels && typeof parsed.t2iModels === 'object' ? parsed.t2iModels : {},
+              t2iClipType: typeof parsed.t2iClipType === 'string' ? parsed.t2iClipType : 'flux',
+              t2iSize:
+                parsed.t2iSize && typeof parsed.t2iSize === 'object' && Number.isFinite(Number(parsed.t2iSize.width))
+                  ? { width: Number(parsed.t2iSize.width), height: Number(parsed.t2iSize.height) || 1024 }
+                  : { width: 1024, height: 1024 },
+              t2iSampling:
+                parsed.t2iSampling && typeof parsed.t2iSampling === 'object'
+                  ? parsed.t2iSampling
+                  : { steps: 20, cfg: 1, sampler: 'euler', scheduler: 'simple', seed: 0 },
               editorPositiveHeight:
                 typeof parsed.editorPositiveHeight === 'number' ? parsed.editorPositiveHeight : 96,
               editorNegativeHeight:
@@ -9693,9 +9711,10 @@ window.__ModuleLoader__.load({
         h('div', { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)' } }, '选择出图方式'),
         h(
           'div',
-          { style: { display: 'flex', gap: 12, width: '50%', margin: '0 auto' } },
+          { style: { display: 'flex', gap: 12, width: '78%', margin: '0 auto' } },
           card('local', '本地 ComfyUI', '工作流画板 / 画框 / 快速生成'),
-          card('online', '在线 API', '远程出图（gpt-image）'),
+          card('online', '在线 API', '远程出图（gpt-image / MiniMax）'),
+          card('text2img', '本地文生图', '非 MOSS 模型 / DiT 直出'),
         ),
       )
     }
@@ -10597,6 +10616,425 @@ window.__ModuleLoader__.load({
           ? h(ImageViewer, {
               images: images.map((b64, index) => ({ url: 'data:image/png;base64,' + b64, filename: 'remote-' + (index + 1) + '.png' })),
               startIndex: Math.max(0, Math.min(viewerIndex, images.length - 1)),
+              onClose: () => setViewerOpen(false),
+            })
+          : null,
+      )
+    }
+
+    /** Plain text-to-image for non-MOSS DiT models (UNETLoader + CLIPLoader + KSampler). */
+    function LocalText2ImgPanel(props) {
+      ensureWorkbenchStyle()
+      const [prompt, setPrompt] = usePref('t2iPrompt')
+      const [negative, setNegative] = usePref('t2iNegative')
+      const [models, setModels] = usePref('t2iModels')
+      const [clipType, setClipType] = usePref('t2iClipType')
+      const [size, setSize] = usePref('t2iSize')
+      const [sampling, setSampling] = usePref('t2iSampling')
+      const [options, setOptions] = useState(null)
+      const [busy, setBusy] = useState(false)
+      const [error, setError] = useState('')
+      const [status, setStatus] = useState('')
+      const [recent, setRecent] = useState([])
+      const [viewerOpen, setViewerOpen] = useState(false)
+      const [viewerIndex, setViewerIndex] = useState(0)
+      useEffect(() => {
+        let alive = true
+        fetch('/plugin/comfy-canvas/model-options', { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (alive && data && data.ok) setOptions(data)
+          })
+          .catch(() => {})
+        return () => {
+          alive = false
+        }
+      }, [])
+      const refreshRecent = () => {
+        fetch('/plugin/comfy-status/outputs', { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data && data.ok) setRecent(Array.isArray(data.files) ? data.files.slice(0, 6) : [])
+          })
+          .catch(() => {})
+      }
+      useEffect(() => {
+        refreshRecent()
+      }, [])
+      const generate = async () => {
+        if (!String(prompt).trim()) {
+          setError('先写 prompt')
+          return
+        }
+        setBusy(true)
+        setError('')
+        setStatus('')
+        try {
+          const res = await fetch('/plugin/comfy-canvas/text2img', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              prompt,
+              negative,
+              models,
+              clipType,
+              width: size && size.width ? size.width : 1024,
+              height: size && size.height ? size.height : 1024,
+              sampling,
+            }),
+          })
+          const data = await res.json().catch(() => null)
+          if (!data || !data.ok) throw new Error((data && data.error) || '提交失败')
+          setStatus('已提交：' + (data.promptId || ''))
+          setTimeout(refreshRecent, 2500)
+        } catch (err) {
+          setError(String((err && err.message) || err))
+        } finally {
+          setBusy(false)
+        }
+      }
+      const field = {
+        width: '100%',
+        boxSizing: 'border-box',
+        padding: '7px 10px',
+        borderRadius: 9,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 11.5,
+        fontFamily: 'inherit',
+        outline: 'none',
+      }
+      const label = {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 5,
+        fontSize: 10.5,
+        color: 'var(--dsw-alias-label-secondary)',
+      }
+      const btn = {
+        padding: '5px 10px',
+        borderRadius: 8,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-layer-2)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 11,
+        fontWeight: 600,
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+      }
+      const pickModel = (key, value) => setModels(Object.assign({}, models || {}, { [key]: value }))
+      const updateSampling = (patch) => setSampling(Object.assign({}, sampling || {}, patch))
+      const list = (key) => {
+        const source = options && Array.isArray(options[key]) ? options[key] : []
+        return source.map((item) => h('option', { key: item, value: item }, item))
+      }
+      const preset = (w, h) => setSize({ width: w, height: h })
+      const clampSize = (value) => {
+        const next = Math.max(64, Math.min(4096, Math.round(Number(value) || 1024)))
+        return next
+      }
+      return h(
+        'div',
+        {
+          style: {
+            display: 'flex',
+            gap: 16,
+            height: '100%',
+            boxSizing: 'border-box',
+            padding: 16,
+            background: 'var(--dsw-alias-bg-base)',
+            color: 'var(--dsw-alias-label-primary)',
+            overflow: 'hidden',
+          },
+        },
+        h(
+          'div',
+          {
+            style: {
+              flex: 1,
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 10,
+              padding: 16,
+              borderRadius: 14,
+              border: '1px solid var(--dsw-alias-border-l2)',
+              background: 'var(--dsw-alias-bg-layer-1)',
+              overflow: 'auto',
+            },
+          },
+          recent.length > 0
+            ? h(
+                'div',
+                { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, width: '100%' } },
+                recent.map((file, index) =>
+                  h(
+                    'button',
+                    {
+                      key: file.name,
+                      type: 'button',
+                      onClick: () => {
+                        setViewerIndex(index)
+                        setViewerOpen(true)
+                      },
+                      title: file.name,
+                      style: {
+                        padding: 0,
+                        border: '1px solid var(--dsw-alias-border-l2)',
+                        borderRadius: 10,
+                        overflow: 'hidden',
+                        background: 'transparent',
+                        cursor: 'pointer',
+                      },
+                    },
+                    h('img', {
+                      src: file.thumb || file.url,
+                      alt: '',
+                      loading: 'lazy',
+                      style: { width: '100%', display: 'block' },
+                    }),
+                  ),
+                ),
+              )
+            : h(
+                'div',
+                {
+                  style: {
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 8,
+                    color: 'var(--dsw-alias-label-secondary)',
+                  },
+                },
+                h(Icon, { name: 'images', size: 34 }),
+                h('div', { style: { fontSize: 11.5 } }, '生成的图会出现在这里（ComfyUI 输出目录）'),
+              ),
+        ),
+        h(
+          'div',
+          {
+            style: {
+              width: 380,
+              flex: 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              overflowY: 'auto',
+              paddingRight: 2,
+            },
+          },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+            h('button', { type: 'button', style: btn, onClick: props.onBack }, '返回'),
+            h('div', { style: { fontSize: 14, fontWeight: 600 } }, '本地文生图'),
+          ),
+          h(
+            'label',
+            { style: label },
+            'Prompt',
+            h('textarea', {
+              value: prompt,
+              rows: 5,
+              placeholder: '描述要画的图…',
+              style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.55 }),
+              onChange: (event) => setPrompt(event.target.value),
+            }),
+          ),
+          h(
+            'label',
+            { style: label },
+            'Negative',
+            h('textarea', {
+              value: negative,
+              rows: 2,
+              placeholder: '负面提示词（可选）',
+              style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.5 }),
+              onChange: (event) => setNegative(event.target.value),
+            }),
+          ),
+          h(
+            'div',
+            { style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 } },
+            h(
+              'label',
+              { style: label },
+              'UNET',
+              h(
+                'select',
+                { value: (models && models.unet) || '', style: field, onChange: (event) => pickModel('unet', event.target.value) },
+                h('option', { value: '' }, '选择 UNET'),
+                ...list('unet'),
+              ),
+            ),
+            h(
+              'label',
+              { style: label },
+              'CLIP',
+              h(
+                'select',
+                { value: (models && models.clip) || '', style: field, onChange: (event) => pickModel('clip', event.target.value) },
+                h('option', { value: '' }, '选择 CLIP'),
+                ...list('clip'),
+              ),
+            ),
+            h(
+              'label',
+              { style: label },
+              'VAE',
+              h(
+                'select',
+                { value: (models && models.vae) || '', style: field, onChange: (event) => pickModel('vae', event.target.value) },
+                h('option', { value: '' }, '选择 VAE'),
+                ...list('vae'),
+              ),
+            ),
+            h(
+              'label',
+              { style: label },
+              'CLIP 类型',
+              h(
+                'select',
+                {
+                  value: clipType,
+                  style: field,
+                  onChange: (event) => setClipType(event.target.value),
+                },
+                ['flux', 'stable_diffusion', 'sd3', 'stable_cascade'].map((option) =>
+                  h('option', { key: option, value: option }, option),
+                ),
+              ),
+            ),
+          ),
+          h(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
+            h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '分辨率'),
+            h(
+              'div',
+              { style: { display: 'flex', gap: 6 } },
+              h('input', {
+                type: 'number',
+                value: size && size.width ? size.width : 1024,
+                style: Object.assign({}, field, { width: 90 }),
+                onChange: (event) => setSize(Object.assign({}, size, { width: clampSize(event.target.value) })),
+              }),
+              h('span', { style: { fontSize: 11, alignSelf: 'center', color: 'var(--dsw-alias-label-secondary)' } }, '×'),
+              h('input', {
+                type: 'number',
+                value: size && size.height ? size.height : 1024,
+                style: Object.assign({}, field, { width: 90 }),
+                onChange: (event) => setSize(Object.assign({}, size, { height: clampSize(event.target.value) })),
+              }),
+              h(
+                'div',
+                { style: { display: 'flex', gap: 4, flexWrap: 'wrap' } },
+                [
+                  ['1:1', 1024, 1024],
+                  ['16:9', 1344, 768],
+                  ['9:16', 768, 1344],
+                  ['4:3', 1152, 864],
+                ].map(([name, w, h]) =>
+                  h(
+                    'button',
+                    { key: name, type: 'button', style: { padding: '3px 7px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-secondary)', fontSize: 9.5, fontFamily: 'inherit', cursor: 'pointer' }, onClick: () => preset(w, h) },
+                    name,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          h(
+            'div',
+            { style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 } },
+            h(
+              'label',
+              { style: label },
+              '步数',
+              h('input', {
+                type: 'number',
+                value: sampling && sampling.steps ? sampling.steps : 20,
+                style: field,
+                onChange: (event) => updateSampling({ steps: Math.max(1, Math.round(Number(event.target.value) || 20)) }),
+              }),
+            ),
+            h(
+              'label',
+              { style: label },
+              'CFG',
+              h('input', {
+                type: 'number',
+                step: 0.1,
+                value: sampling && sampling.cfg !== undefined ? sampling.cfg : 1,
+                style: field,
+                onChange: (event) => updateSampling({ cfg: Number(event.target.value) || 1 }),
+              }),
+            ),
+            h(
+              'label',
+              { style: label },
+              '采样器',
+              h('input', {
+                value: (sampling && sampling.sampler) || 'euler',
+                style: field,
+                onChange: (event) => updateSampling({ sampler: event.target.value }),
+              }),
+            ),
+            h(
+              'label',
+              { style: label },
+              '调度器',
+              h('input', {
+                value: (sampling && sampling.scheduler) || 'simple',
+                style: field,
+                onChange: (event) => updateSampling({ scheduler: event.target.value }),
+              }),
+            ),
+            h(
+              'label',
+              { style: label },
+              '种子',
+              h('input', {
+                type: 'number',
+                value: sampling && sampling.seed !== undefined ? sampling.seed : 0,
+                style: field,
+                onChange: (event) => updateSampling({ seed: Math.max(0, Math.floor(Number(event.target.value) || 0)) }),
+              }),
+            ),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              disabled: busy,
+              onClick: generate,
+              style: {
+                padding: '10px 14px',
+                borderRadius: 10,
+                border: '1px solid #3b82f6',
+                background: '#3b82f6',
+                color: '#ffffff',
+                fontSize: 12,
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                cursor: busy ? 'default' : 'pointer',
+                opacity: busy ? 0.7 : 1,
+              },
+            },
+            busy ? '提交中…' : '生成',
+          ),
+          status ? h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, status) : null,
+          error ? h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
+        ),
+        viewerOpen && recent.length > 0
+          ? h(ImageViewer, {
+              images: recent.map((file) => ({ url: file.url, filename: file.name })),
+              startIndex: Math.max(0, Math.min(viewerIndex, recent.length - 1)),
+              filename: recent[viewerIndex] ? recent[viewerIndex].name : '',
               onClose: () => setViewerOpen(false),
             })
           : null,
@@ -11636,7 +12074,7 @@ window.__ModuleLoader__.load({
               }),
             )
 
-      if (view === 'chooser' || view === 'online') {
+      if (view === 'chooser' || view === 'online' || view === 'text2img') {
         return h(
           'div',
           {
@@ -11650,7 +12088,9 @@ window.__ModuleLoader__.load({
           },
           view === 'chooser'
             ? h(WorkbenchChooser, { onPick: changeView })
-            : h(OnlineImagePanel, { onBack: () => changeView('chooser') }),
+            : view === 'online'
+              ? h(OnlineImagePanel, { onBack: () => changeView('chooser') })
+              : h(LocalText2ImgPanel, { onBack: () => changeView('chooser') }),
         )
       }
 

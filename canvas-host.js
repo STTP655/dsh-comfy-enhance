@@ -440,6 +440,68 @@ async function submitLayout(baseUrl, layout, models, width, height, negative, pl
   return { ok: true, promptId: (payload && payload.prompt_id) || '' }
 }
 
+// ------------------------------------------------------------ plain text2img
+
+const TEXT2IMG_TEMPLATE_URL = new URL('./templates/moss-text2img-api.json', import.meta.url)
+
+/** One plain text-to-image generation for non-MOSS DiT models. */
+async function submitText2Img(baseUrl, body) {
+  const template = JSON.parse(await readFile(fileURLToPath(TEXT2IMG_TEMPLATE_URL), 'utf8'))
+  const graph = JSON.parse(JSON.stringify(template))
+  const models = body && body.models && typeof body.models === 'object' ? body.models : {}
+  const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
+  if (!prompt) throw new Error('缺少 prompt')
+  for (const [type, field, key] of [
+    ['UNETLoader', 'unet_name', 'unet'],
+    ['CLIPLoader', 'clip_name', 'clip'],
+    ['VAELoader', 'vae_name', 'vae'],
+  ]) {
+    const node = findNodeByType(graph, type)
+    if (!node || !node.inputs) continue
+    if (typeof models[key] === 'string' && models[key].trim()) node.inputs[field] = models[key].trim()
+  }
+  const clipNode = findNodeByType(graph, 'CLIPLoader')
+  if (clipNode && clipNode.inputs && typeof body.clipType === 'string' && body.clipType.trim()) {
+    clipNode.inputs.type = body.clipType.trim()
+  }
+  const positiveId = findPositiveTextNode(graph)
+  const negativeId = findNegativeTextNode(graph)
+  if (positiveId) graph[positiveId].inputs.text = prompt
+  if (negativeId && typeof body.negative === 'string' && body.negative.trim()) {
+    graph[negativeId].inputs.text = body.negative.trim()
+  }
+  const width = Math.max(64, Math.round(Number(body.width) || 1024))
+  const height = Math.max(64, Math.round(Number(body.height) || 1024))
+  const latentNode = findLatentNode(graph)
+  if (latentNode && latentNode.inputs) {
+    latentNode.inputs.width = width
+    latentNode.inputs.height = height
+  }
+  const samplerNode = findNodeByType(graph, 'KSampler')
+  if (samplerNode && samplerNode.inputs && body.sampling && typeof body.sampling === 'object') {
+    const sampling = body.sampling
+    if (Number.isFinite(Number(sampling.steps))) samplerNode.inputs.steps = Math.max(1, Math.round(Number(sampling.steps)))
+    if (Number.isFinite(Number(sampling.cfg))) samplerNode.inputs.cfg = Number(sampling.cfg)
+    if (typeof sampling.sampler === 'string' && sampling.sampler) samplerNode.inputs.sampler_name = sampling.sampler
+    if (typeof sampling.scheduler === 'string' && sampling.scheduler) samplerNode.inputs.scheduler = sampling.scheduler
+    if (Number.isFinite(Number(sampling.seed))) samplerNode.inputs.seed = Math.max(0, Math.floor(Number(sampling.seed)))
+  }
+  rewriteLoraChain(graph, normalizeLoras(models))
+  const clientId = 'dsh-comfy-canvas'
+  const res = await fetch(`${baseUrl}/prompt`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ prompt: graph, client_id: clientId }),
+    signal: AbortSignal.timeout(15000),
+  })
+  const payload = await res.json().catch(() => null)
+  if (!res.ok) {
+    const detail = payload && payload.error ? JSON.stringify(payload.error) : `HTTP ${res.status}`
+    throw new Error('ComfyUI 拒绝了这个任务：' + detail)
+  }
+  return { ok: true, promptId: (payload && payload.prompt_id) || '' }
+}
+
 // ------------------------------------------------------------ prompt polish
 
 const POLISH_SKILL_PATH = join(homedir(), '.dsh', 'skills', 'moss-image-prompt-enhancer', 'SKILL.md')
@@ -720,6 +782,16 @@ export function apply(ctx, config = {}) {
           200,
           await submitLayout(baseUrl, null, body.models, body.width, body.height, body.negative, plainPrompt),
         )
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
+    }
+
+    if (pathname === `${PREFIX}/text2img`) {
+      if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const body = JSON.parse((await readBody(req)) || '{}')
+        return send(200, await submitText2Img(baseUrl, body))
       } catch (error) {
         return send(502, { ok: false, error: String((error && error.message) || error) })
       }
