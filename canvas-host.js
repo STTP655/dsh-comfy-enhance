@@ -717,6 +717,48 @@ export function apply(ctx, config = {}) {
       return send(405, { ok: false, error: 'method not allowed' })
     }
 
+    // Remote image generation (OpenAI-compatible /images/generations), proxied by
+    // the host so the browser never talks to the vendor directly (no CORS, the key
+    // never appears in the page's own requests).
+    if (pathname === `${PREFIX}/remote-image`) {
+      if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const body = JSON.parse((await readBody(req)) || '{}')
+        const endpoint = typeof body.endpoint === 'string' ? body.endpoint.trim() : ''
+        const key = typeof body.key === 'string' ? body.key.trim() : ''
+        const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : 'gpt-image-1'
+        const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
+        const size = typeof body.size === 'string' && body.size.trim() ? body.size.trim() : '1024x1024'
+        if (!endpoint || !key || !prompt) {
+          return send(400, { ok: false, error: '需要端点、API Key 和 prompt' })
+        }
+        const url = /\/images\//.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/images/generations'
+        const upstream = await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
+          body: JSON.stringify({ model, prompt, n: 1, size, response_format: 'b64_json' }),
+          signal: AbortSignal.timeout(300000),
+        })
+        const text = await upstream.text()
+        if (!upstream.ok) {
+          return send(502, { ok: false, error: 'HTTP ' + upstream.status + ' ' + text.slice(0, 300) })
+        }
+        let json = null
+        try {
+          json = JSON.parse(text)
+        } catch {
+          return send(502, { ok: false, error: '响应不是 JSON：' + text.slice(0, 200) })
+        }
+        const item = (json && json.data && json.data[0]) || json
+        const b64 = item && typeof item.b64_json === 'string' ? item.b64_json : null
+        const imageUrl = item && typeof item.url === 'string' ? item.url : null
+        if (!b64 && !imageUrl) return send(502, { ok: false, error: '响应里没有图片数据' })
+        return send(200, { ok: true, model, b64, url: imageUrl })
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
+    }
+
     if (pathname === `${PREFIX}/polish`) {
       if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
       let body = null
