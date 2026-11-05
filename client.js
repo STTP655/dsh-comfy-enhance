@@ -11578,7 +11578,6 @@ window.__ModuleLoader__.load({
       const [promptWriteEffort] = usePref('promptWriteEffort')
       const [historyOpen, setHistoryOpen] = useState(false)
       const [fileMeta, setFileMeta] = useState({})
-      const beforeRef = useRef(new Set())
       const startedRef = useRef(0)
       const [options, setOptions] = useState(null)
       const [busy, setBusy] = useState(false)
@@ -11587,6 +11586,10 @@ window.__ModuleLoader__.load({
       const [gallery, setGallery] = useState([])
       const [selected, setSelected] = useState('')
       const [jobId, setJobId] = useState('')
+      // The same SSE tracker the album and the canvas use: ComfyUI's progress and
+      // executed frames are what turn "已提交" into real numbers and a filename.
+      const [job, setJob] = useState(() => jobStore.get())
+      const [jobClock, setJobClock] = useState(() => Date.now())
       const [viewerOpen, setViewerOpen] = useState(false)
       const [viewerIndex, setViewerIndex] = useState(0)
       useEffect(() => {
@@ -11635,59 +11638,68 @@ window.__ModuleLoader__.load({
           alive = false
         }
       }, [selected, fileMeta])
-      // While a job runs, poll the output folder until a new file shows up, then
-      // select it so the big preview switches automatically.
+      // One subscription drives the status strip: queued/running show the spinner
+      // and progress, done refreshes the gallery and selects the finished file,
+      // error says what happened. This is the same tracker the album viewer and
+      // the canvas use, fed by ComfyUI's own events over SSE.
+      useEffect(() => jobStore.subscribe(() => setJob(jobStore.get())), [])
+      const jobActive =
+        job !== null && jobId !== '' && job.id === jobId && (job.status === 'queued' || job.status === 'running')
       useEffect(() => {
-        if (!busy || !jobId) return undefined
-        const before = beforeRef.current
-        let stopped = false
-        const timer = setInterval(() => {
-          fetch('/plugin/comfy-status/outputs', { cache: 'no-store' })
-            .then((res) => res.json())
-            .then((data) => {
-              if (stopped || !data || !data.ok) return
-              const files = Array.isArray(data.files) ? data.files : []
-              const fresh = files.find((file) => !before.has(file.name))
-              if (!fresh) return
-              stopped = true
-              clearInterval(timer)
-              const elapsed =
-                startedRef.current > 0 ? Math.max(1, Math.round((Date.now() - startedRef.current) / 1000)) : 0
-              setGallery(files.slice(0, 24))
-              setSelected(fresh.name)
-              setMeta(
-                Object.assign({}, meta || {}, {
-                  [fresh.name]: {
-                    model: (models && models.unet) || '',
-                    width: size && size.width ? size.width : 1024,
-                    height: size && size.height ? size.height : 1024,
-                    steps: (sampling && sampling.steps) || 20,
-                    cfg: sampling && sampling.cfg !== undefined ? sampling.cfg : 1,
-                    sampler: (sampling && sampling.sampler) || 'euler',
-                    scheduler: (sampling && sampling.scheduler) || 'simple',
-                    seed: sampling && sampling.seed !== undefined ? sampling.seed : 0,
-                    seconds: elapsed,
-                  },
-                }),
-              )
-              setBusy(false)
-              setStatus('已生成：' + fresh.name)
-            })
-            .catch(() => {})
-        }, 2000)
-        const timeout = setTimeout(() => {
-          if (stopped) return
-          stopped = true
-          clearInterval(timer)
-          setBusy(false)
-          setStatus('等待超时，请到相册查看')
-        }, 300000)
-        return () => {
-          stopped = true
-          clearInterval(timer)
-          clearTimeout(timeout)
+        if (!jobActive) return undefined
+        setJobClock(Date.now())
+        const timer = setInterval(() => setJobClock(Date.now()), 1000)
+        return () => clearInterval(timer)
+      }, [jobActive])
+      const jobElapsed = jobActive && job ? Math.max(0, Math.round((jobClock - (job.at || jobClock)) / 1000)) : 0
+      // Settle once per job status change. The folder is re-read here instead of
+      // being polled while it runs: the tracker already knows when it ended.
+      const settledRef = useRef('')
+      useEffect(() => {
+        if (!job || jobId === '' || job.id !== jobId) return
+        if (job.status !== 'done' && job.status !== 'error') return
+        const stamp = job.id + ':' + job.status
+        if (settledRef.current === stamp) return
+        settledRef.current = stamp
+        setBusy(false)
+        if (job.status === 'error') {
+          setStatus(job.message || '生成失败')
+          return
         }
-      }, [busy, jobId])
+        const elapsed = startedRef.current > 0 ? Math.max(1, Math.round((Date.now() - startedRef.current) / 1000)) : 0
+        setStatus('已生成：' + (job.filename || '完成'))
+        fetch('/plugin/comfy-status/outputs', { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (!data || !data.ok) return
+            const files = Array.isArray(data.files) ? data.files : []
+            setGallery(files.slice(0, 24))
+            // Prefer the file the tracker named; fall back to the newest listing
+            // entry when the save landed in a subfolder the flat listing misses.
+            const target = (job.filename && files.find((file) => file.name === job.filename)) || files[0]
+            if (!target) return
+            setSelected(target.name)
+            // Name the file the listing actually resolved, so the line still reads
+            // right when the tracker could not name it (subfolder output).
+            setStatus('已生成：' + target.name)
+            setMeta(
+              Object.assign({}, meta || {}, {
+                [target.name]: {
+                  model: (models && models.unet) || '',
+                  width: outputSize.width,
+                  height: outputSize.height,
+                  steps: (sampling && sampling.steps) || 20,
+                  cfg: sampling && sampling.cfg !== undefined ? sampling.cfg : 1,
+                  sampler: (sampling && sampling.sampler) || 'euler',
+                  scheduler: (sampling && sampling.scheduler) || 'simple',
+                  seed: sampling && sampling.seed !== undefined ? sampling.seed : 0,
+                  seconds: elapsed,
+                },
+              }),
+            )
+          })
+          .catch(() => {})
+      }, [job, jobId])
       const step = (delta) => {
         if (gallery.length === 0) return
         const index = gallery.findIndex((file) => file.name === selected)
@@ -11760,7 +11772,6 @@ window.__ModuleLoader__.load({
         setError('')
         setStatus('')
         setJobId('')
-        beforeRef.current = new Set(gallery.map((file) => file.name))
         startedRef.current = Date.now()
         try {
           const res = await fetch('/plugin/comfy-canvas/text2img', {
@@ -11779,7 +11790,18 @@ window.__ModuleLoader__.load({
           const data = await res.json().catch(() => null)
           if (!data || !data.ok) throw new Error((data && data.error) || '提交失败')
           setJobId(data.promptId || 'ok')
-          setStatus('已提交，等待生成…')
+          // Register the job with the shared tracker so this panel gets the same
+          // queued/progress/executed events every other surface already shows.
+          if (data.promptId) {
+            jobStore.start(data.promptId, 't2i')
+            setStatus('已提交，等待生成…')
+          } else {
+            // No id means nothing to track: release the button instead of leaving
+            // it spinning until the watchdog gives up.
+            setBusy(false)
+            refreshGallery()
+            setStatus('已提交（没拿到任务号，稍后手动刷新）')
+          }
         } catch (err) {
           setError(String((err && err.message) || err))
           setBusy(false)
@@ -12372,7 +12394,67 @@ window.__ModuleLoader__.load({
             },
             busy ? '生成中…' : '生成',
           ),
-          status ? h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, status) : null,
+          jobActive
+            ? h(
+                'div',
+                { style: { display: 'flex', flexDirection: 'column', gap: 4 } },
+                h(
+                  'div',
+                  { style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5 } },
+                  h('span', {
+                    style: {
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      flex: 'none',
+                      background: '#3b82f6',
+                      animation: 'dshComfyJobPulse 1.1s ease-in-out infinite',
+                    },
+                  }),
+                  h(
+                    'span',
+                    { style: { fontWeight: 600, color: 'var(--dsw-alias-label-secondary)' } },
+                    job.status === 'running' ? '正在生成' : '排队中',
+                  ),
+                  job.progress
+                    ? h(
+                        'span',
+                        { style: { color: 'var(--dsw-alias-label-secondary)', fontVariantNumeric: 'tabular-nums' } },
+                        job.progress.value + '/' + job.progress.max,
+                      )
+                    : null,
+                  h(
+                    'span',
+                    { style: { color: 'var(--dsw-alias-label-secondary)', fontVariantNumeric: 'tabular-nums' } },
+                    jobElapsed + 's',
+                  ),
+                ),
+                h(
+                  'div',
+                  {
+                    style: {
+                      height: 3,
+                      borderRadius: 2,
+                      overflow: 'hidden',
+                      background: 'var(--dsw-alias-bg-layer-2)',
+                    },
+                  },
+                  h('div', {
+                    style: {
+                      height: '100%',
+                      background: '#3b82f6',
+                      transition: 'width 200ms linear',
+                      width:
+                        (job.progress
+                          ? Math.max(3, Math.min(100, (job.progress.value / job.progress.max) * 100))
+                          : 12) + '%',
+                    },
+                  }),
+                ),
+              )
+            : status
+              ? h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, status)
+              : null,
           error ? h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
         ),
         h(PromptRulesDialog, { open: rulesOpen, onClose: () => setRulesOpen(false) }),
