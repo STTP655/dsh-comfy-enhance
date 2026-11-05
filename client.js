@@ -3618,6 +3618,34 @@ window.__ModuleLoader__.load({
 
     /** Full-viewport image viewer; Escape or a backdrop click closes it. */
     function ImageViewer(props) {
+      const embedded = Boolean(props.embedded)
+      const light = props.theme === 'light'
+      const skin = light
+        ? {
+            root: {
+              background: '#f6f7f9',
+              color: '#1f2937',
+              borderRadius: 12,
+            },
+            bar: {
+              background: '#ffffff',
+              border: '1px solid #e5e7eb',
+              color: '#1f2937',
+              backdropFilter: 'none',
+              WebkitBackdropFilter: 'none',
+              boxShadow: '0 6px 20px rgba(15, 23, 42, 0.12)',
+            },
+            factLabel: { color: '#6b7280' },
+            factValue: { color: '#111827' },
+            nav: {
+              background: '#ffffff',
+              color: '#1f2937',
+              border: '1px solid #e5e7eb',
+              boxShadow: '0 4px 14px rgba(15, 23, 42, 0.12)',
+            },
+            thumb: { border: '1px solid #e5e7eb' },
+          }
+        : null
       const images = props.images && props.images.length ? props.images : [{ url: props.src, filename: props.filename }]
       const [index, setIndex] = useState(props.startIndex || 0)
       const [scale, setScale] = useState(1)
@@ -3857,8 +3885,22 @@ window.__ModuleLoader__.load({
       const viewer = h(
         'div',
         {
-          style: Object.assign({}, VIEWER_BACKDROP, { animation: fadeAnimation }),
-          onClick: requestClose,
+          style: embedded
+            ? Object.assign(
+                {
+                  position: 'relative',
+                  flex: 1,
+                  minWidth: 0,
+                  minHeight: 0,
+                  display: 'flex',
+                  alignItems: 'stretch',
+                  justifyContent: 'center',
+                  overflow: 'hidden',
+                },
+                skin && skin.root,
+              )
+            : Object.assign({}, VIEWER_BACKDROP, { animation: fadeAnimation }),
+          onClick: embedded ? undefined : requestClose,
           role: 'presentation',
         },
         // The viewer is portaled to <body> and can be opened from surfaces that do
@@ -3873,7 +3915,7 @@ window.__ModuleLoader__.load({
                 'button',
                 {
                   type: 'button',
-                  style: Object.assign({}, VIEWER_NAV, { left: 16 }),
+                  style: Object.assign({}, VIEWER_NAV, skin && skin.nav, { left: 16 }),
                   'aria-label': '上一张',
                   onClick: (event) => {
                     event.stopPropagation()
@@ -3888,7 +3930,7 @@ window.__ModuleLoader__.load({
                 'button',
                 {
                   type: 'button',
-                  style: Object.assign({}, VIEWER_NAV, { right: 16 }),
+                  style: Object.assign({}, VIEWER_NAV, skin && skin.nav, { right: 16 }),
                   'aria-label': '下一张',
                   onClick: (event) => {
                     event.stopPropagation()
@@ -3939,7 +3981,7 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
-            { style: VIEWER_BAR, onClick: (event) => event.stopPropagation() },
+            { style: Object.assign({}, VIEWER_BAR, skin && skin.bar), onClick: (event) => event.stopPropagation() },
             h(
               'div',
               { style: VIEWER_BAR_GROUP },
@@ -3947,31 +3989,31 @@ window.__ModuleLoader__.load({
                 ? h(
                     'span',
                     { style: VIEWER_FACT },
-                    h('span', { style: VIEWER_FACT_LABEL }, '分辨率'),
-                    h('span', { style: VIEWER_FACT_VALUE }, resolution),
+                    h('span', { style: Object.assign({}, VIEWER_FACT_LABEL, skin && skin.factLabel) }, '分辨率'),
+                    h('span', { style: Object.assign({}, VIEWER_FACT_VALUE, skin && skin.factValue) }, resolution),
                   )
                 : null,
               timeText
                 ? h(
                     'span',
                     { style: VIEWER_FACT },
-                    h('span', { style: VIEWER_FACT_LABEL }, '生成'),
-                    h('span', { style: VIEWER_FACT_VALUE }, timeText),
+                    h('span', { style: Object.assign({}, VIEWER_FACT_LABEL, skin && skin.factLabel) }, '生成'),
+                    h('span', { style: Object.assign({}, VIEWER_FACT_VALUE, skin && skin.factValue) }, timeText),
                   )
                 : null,
               durationText !== '—'
                 ? h(
                     'span',
                     { style: VIEWER_FACT },
-                    h('span', { style: VIEWER_FACT_LABEL }, '耗时'),
-                    h('span', { style: VIEWER_FACT_VALUE }, durationText),
+                    h('span', { style: Object.assign({}, VIEWER_FACT_LABEL, skin && skin.factLabel) }, '耗时'),
+                    h('span', { style: Object.assign({}, VIEWER_FACT_VALUE, skin && skin.factValue) }, durationText),
                   )
                 : null,
               h(
                 'span',
                 { style: VIEWER_FACT },
-                h('span', { style: VIEWER_FACT_LABEL }, '缩放'),
-                h('span', { style: VIEWER_FACT_VALUE }, scale.toFixed(1) + '×'),
+                h('span', { style: Object.assign({}, VIEWER_FACT_LABEL, skin && skin.factLabel) }, '缩放'),
+                h('span', { style: Object.assign({}, VIEWER_FACT_VALUE, skin && skin.factValue) }, scale.toFixed(1) + '×'),
               ),
               images.length > 1
                 ? h(
@@ -3979,7 +4021,7 @@ window.__ModuleLoader__.load({
                     {
                       style: {
                         fontSize: 10,
-                        color: 'rgba(255, 255, 255, 0.5)',
+                        color: light ? '#6b7280' : 'rgba(255, 255, 255, 0.5)',
                         fontVariantNumeric: 'tabular-nums',
                         whiteSpace: 'nowrap',
                       },
@@ -4006,7 +4048,10 @@ window.__ModuleLoader__.load({
                       style: Object.assign(
                         {},
                         VIEWER_THUMB,
-                        entry.at === index ? { opacity: 1, borderColor: 'rgba(255, 255, 255, 0.9)' } : null,
+                        skin && skin.thumb,
+                        entry.at === index
+                          ? { opacity: 1, borderColor: light ? '#3b82f6' : 'rgba(255, 255, 255, 0.9)' }
+                          : null,
                       ),
                     }),
                   ),
@@ -4015,12 +4060,12 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { style: VIEWER_BAR_GROUP },
-              h('button', { className: 'dshComfyAlbum-btn', 'data-dark': 'true', onClick: resetView }, '还原'),
+              h('button', { className: 'dshComfyAlbum-btn', 'data-dark': light ? undefined : 'true', onClick: resetView }, '还原'),
               h(
                 'a',
                 {
                   className: 'dshComfyAlbum-btn dshComfyViewer-icon',
-                  'data-dark': 'true',
+                  'data-dark': light ? undefined : 'true',
                   href: current.url,
                   target: '_blank',
                   rel: 'noreferrer',
@@ -4034,7 +4079,7 @@ window.__ModuleLoader__.load({
                     'button',
                     {
                       className: 'dshComfyAlbum-btn dshComfyViewer-icon',
-                      'data-dark': 'true',
+                      'data-dark': light ? undefined : 'true',
                       onClick: () => setShowInfo(!showInfo),
                       title: showInfo ? '收起信息栏（i）' : '展开信息栏（i）',
                       'aria-label': showInfo ? '收起信息栏' : '展开信息栏',
@@ -4042,17 +4087,19 @@ window.__ModuleLoader__.load({
                     h(ViewerGlyph, { kind: 'info' }),
                   )
                 : null,
-              h(
-                'button',
-                {
-                  className: 'dshComfyAlbum-btn dshComfyViewer-icon',
-                  'data-dark': 'true',
-                  onClick: requestClose,
-                  title: '关闭（Esc）',
-                  'aria-label': '关闭',
-                },
-                h(ViewerGlyph, { kind: 'close' }),
-              ),
+              embedded
+                ? null
+                : h(
+                    'button',
+                    {
+                      className: 'dshComfyAlbum-btn dshComfyViewer-icon',
+                      'data-dark': light ? undefined : 'true',
+                      onClick: requestClose,
+                      title: '关闭（Esc）',
+                      'aria-label': '关闭',
+                    },
+                    h(ViewerGlyph, { kind: 'close' }),
+                  ),
             ),
           ),
         ),
@@ -4109,6 +4156,7 @@ window.__ModuleLoader__.load({
             )
           : null,
       )
+      if (embedded) return viewer
       return createPortal && typeof document !== 'undefined'
         ? createPortal(viewer, document.body)
         : viewer
@@ -10896,201 +10944,55 @@ window.__ModuleLoader__.load({
             style: {
               flex: 1,
               minWidth: 0,
+              minHeight: 0,
               display: 'flex',
               flexDirection: 'column',
+              position: 'relative',
               borderRadius: 14,
               border: '1px solid var(--dsw-alias-border-l2)',
-              background: 'var(--dsw-alias-bg-layer-1)',
               overflow: 'hidden',
             },
           },
-          h(
-            'div',
-            {
-              style: {
-                position: 'relative',
-                flex: 1,
-                minHeight: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                overflow: 'hidden',
-              },
-            },
-            current
-              ? h(
-                  'button',
-                  {
-                    type: 'button',
-                    onClick: () => {
-                      setViewerIndex(currentIndex)
-                      setViewerOpen(true)
-                    },
-                    title: current.name,
-                    style: {
-                      width: '100%',
-                      height: '100%',
-                      padding: 0,
-                      border: 0,
-                      background: 'transparent',
-                      cursor: 'zoom-in',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    },
-                  },
-                  h('img', {
-                    src: current.url,
-                    alt: current.name,
-                    style: { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' },
-                  }),
-                )
-              : h(
-                  'div',
-                  {
-                    style: {
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: 8,
-                      color: 'var(--dsw-alias-label-secondary)',
-                    },
-                  },
-                  h(Icon, { name: 'images', size: 34 }),
-                  h('div', { style: { fontSize: 11.5 } }, '生成的图会显示在这里'),
-                ),
-            busy
-              ? h(
-                  'div',
-                  {
-                    style: {
-                      position: 'absolute',
-                      inset: 0,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 10,
-                      background: 'rgba(0, 0, 0, 0.55)',
-                      backdropFilter: 'blur(2px)',
-                      color: '#ffffff',
-                    },
-                  },
-                  h('div', {
-                    style: {
-                      width: 30,
-                      height: 30,
-                      borderRadius: '50%',
-                      border: '3px solid rgba(255, 255, 255, 0.25)',
-                      borderTopColor: '#ffffff',
-                      animation: 'dshComfySpin 0.8s linear infinite',
-                    },
-                  }),
-                  h('div', { style: { fontSize: 11.5 } }, '生成中…'),
-                )
-              : null,
-          ),
-          current
+          h(ImageViewer, {
+            key: selected,
+            embedded: true,
+            theme: 'light',
+            images: gallery.map((file) => ({ url: file.url, filename: file.name })),
+            startIndex: Math.max(0, gallery.findIndex((file) => file.name === selected)),
+            filename: selected,
+            recent: gallery.map((file, index) => ({ at: index, image: { url: file.url, filename: file.name } })),
+            onClose: () => {},
+          }),
+          busy
             ? h(
                 'div',
                 {
                   style: {
-                    flex: 'none',
+                    position: 'absolute',
+                    inset: 0,
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    flexWrap: 'wrap',
-                    gap: '4px 14px',
-                    padding: '6px 12px',
-                    borderTop: '1px solid var(--dsw-alias-border-l1)',
-                    background: 'var(--dsw-alias-bg-layer-1)',
-                    fontSize: 10.5,
-                    color: 'var(--dsw-alias-label-secondary)',
+                    justifyContent: 'center',
+                    gap: 10,
+                    background: 'rgba(0, 0, 0, 0.45)',
+                    backdropFilter: 'blur(2px)',
+                    color: '#ffffff',
                   },
                 },
-                h(
-                  'span',
-                  {
-                    title: current.name,
-                    style: {
-                      fontWeight: 600,
-                      color: 'var(--dsw-alias-label-primary)',
-                      maxWidth: '45%',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    },
+                h('div', {
+                  style: {
+                    width: 30,
+                    height: 30,
+                    borderRadius: '50%',
+                    border: '3px solid rgba(255, 255, 255, 0.25)',
+                    borderTopColor: '#ffffff',
+                    animation: 'dshComfySpin 0.8s linear infinite',
                   },
-                  current.name,
-                ),
-                meta && meta[current.name]
-                  ? h('span', null, '模型 ' + (meta[current.name].model || '—'))
-                  : null,
-                meta && meta[current.name]
-                  ? h('span', null, (meta[current.name].width || '?') + '×' + (meta[current.name].height || '?'))
-                  : null,
-                meta && meta[current.name] ? h('span', null, '步数 ' + meta[current.name].steps) : null,
-                meta && meta[current.name] ? h('span', null, 'CFG ' + meta[current.name].cfg) : null,
-                meta && meta[current.name] && meta[current.name].seconds
-                  ? h('span', null, '用时 ' + meta[current.name].seconds + 's')
-                  : null,
+                }),
+                h('div', { style: { fontSize: 11.5 } }, '生成中…'),
               )
             : null,
-          h(
-            'div',
-            {
-              style: {
-                flex: 'none',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '8px 10px',
-                borderTop: '1px solid var(--dsw-alias-border-l2)',
-                background: 'var(--dsw-alias-bg-layer-2)',
-              },
-            },
-            h(
-              'button',
-              { type: 'button', style: Object.assign({}, btn, { padding: '4px 9px' }), onClick: () => step(-1), title: '上一张（←）' },
-              '◀',
-            ),
-            h(
-              'div',
-              { style: { flex: 1, minWidth: 0, display: 'flex', gap: 6, overflowX: 'auto' } },
-              gallery.slice(0, 6).map((file) =>
-                h(
-                  'button',
-                  {
-                    key: file.name,
-                    type: 'button',
-                    onClick: () => setSelected(file.name),
-                    title: file.name,
-                    style: {
-                      flex: 'none',
-                      width: 56,
-                      height: 56,
-                      padding: 0,
-                      borderRadius: 8,
-                      overflow: 'hidden',
-                      border: '2px solid ' + (file.name === selected ? '#3b82f6' : 'transparent'),
-                      background: 'transparent',
-                      cursor: 'pointer',
-                    },
-                  },
-                  h('img', {
-                    src: file.thumb || file.url,
-                    alt: '',
-                    loading: 'lazy',
-                    style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
-                  }),
-                ),
-              ),
-            ),
-            h(
-              'button',
-              { type: 'button', style: Object.assign({}, btn, { padding: '4px 9px' }), onClick: () => step(1), title: '下一张（→）' },
-              '▶',
-            ),
-          ),
         ),
         h(
           'div',
