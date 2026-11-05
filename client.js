@@ -961,7 +961,9 @@ window.__ModuleLoader__.load({
       }, [draft.open])
       // Web Animations instead of CSS keyframes: the card mounts and animates in
       // the same commit (the entrance can never be missed), and the exit runs to
-      // completion before the unmount timer fires.
+      // completion before the unmount timer fires. Height is animated too — a
+      // transform-only exit leaves the layout behind, so the transcript above
+      // would only jump once the card is removed.
       useEffect(() => {
         const node = cardRef.current
         if (!node || typeof node.animate !== 'function') return undefined
@@ -974,18 +976,20 @@ window.__ModuleLoader__.load({
           animRef.current = null
         }
         if (draft.open) {
+          const height = node.offsetHeight
           animRef.current = node.animate(
             [
-              { opacity: 0, transform: 'translateY(12px)' },
-              { opacity: 1, transform: 'translateY(0)' },
+              { height: '0px', opacity: 0, transform: 'translateY(12px)', overflow: 'hidden' },
+              { height: height + 'px', opacity: 1, transform: 'translateY(0)', overflow: 'hidden' },
             ],
-            { duration: 320, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'both' },
+            { duration: 320, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'backwards' },
           )
         } else if (closing) {
+          const height = node.offsetHeight
           animRef.current = node.animate(
             [
-              { opacity: 1, transform: 'translateY(0)' },
-              { opacity: 0, transform: 'translateY(6px)' },
+              { height: height + 'px', opacity: 1, transform: 'translateY(0)', overflow: 'hidden' },
+              { height: '0px', opacity: 0, transform: 'translateY(6px)', overflow: 'hidden' },
             ],
             { duration: 260, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'both' },
           )
