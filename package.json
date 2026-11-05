@@ -1,6 +1,6 @@
 {
   "name": "dsh-comfy-enhance",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
   "description": "ComfyUI enhance: sidebar status card, output album and bounding-box canvas in one bundle.",
