@@ -103,6 +103,9 @@ window.__ModuleLoader__.load({
         t2iModels: {},
         t2iClipType: 'flux',
         t2iSize: { width: 1024, height: 1024 },
+        // Submitted size = t2iSize × this factor; the inputs below keep the base
+        // box so the same framing can be re-run at another resolution.
+        t2iScale: 1,
         t2iSampling: { steps: 20, cfg: 1, sampler: 'euler', scheduler: 'simple', seed: 0 },
         t2iMeta: {},
         t2iPromptStyle: 'tags',
@@ -178,6 +181,10 @@ window.__ModuleLoader__.load({
                 parsed.t2iSize && typeof parsed.t2iSize === 'object' && Number.isFinite(Number(parsed.t2iSize.width))
                   ? { width: Number(parsed.t2iSize.width), height: Number(parsed.t2iSize.height) || 1024 }
                   : { width: 1024, height: 1024 },
+              t2iScale:
+                Number.isFinite(Number(parsed.t2iScale)) && Number(parsed.t2iScale) > 0
+                  ? Math.min(4, Math.max(0.25, Number(parsed.t2iScale)))
+                  : 1,
               t2iSampling:
                 parsed.t2iSampling && typeof parsed.t2iSampling === 'object'
                   ? parsed.t2iSampling
@@ -10592,6 +10599,8 @@ window.__ModuleLoader__.load({
       const [aiBusy, setAiBusy] = useState(false)
       const [aiError, setAiError] = useState('')
       const [rulesOpen, setRulesOpen] = useState(false)
+      // Extra requirements handed to the model on top of the prompt box.
+      const [aiExtra, setAiExtra] = useState('')
       const [promptWriteSystemNatural] = usePref('promptWriteSystemNatural')
       const [promptHistory, setPromptHistory] = usePref('promptWriteHistory')
       const [promptWriteProvider] = usePref('promptWriteProvider')
@@ -10666,8 +10675,9 @@ window.__ModuleLoader__.load({
       }
       const aiWrite = async () => {
         if (aiBusy) return
-        if (!String(prompt).trim()) {
-          setAiError('先在输入框写下你的要求，再点 AI 写/润色')
+        const instruction = aiExtra.trim()
+        if (!String(prompt).trim() && !instruction) {
+          setAiError('先写下提示词，或填一句额外要求')
           return
         }
         setAiBusy(true)
@@ -10678,7 +10688,8 @@ window.__ModuleLoader__.load({
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
               current: prompt,
-              instruction: prompt,
+              // The extra box is the instruction; empty keeps the old behaviour.
+              instruction: instruction || prompt,
               targetModel: model,
               system: promptWriteSystemNatural,
               provider: promptWriteProvider || undefined,
@@ -10983,6 +10994,23 @@ window.__ModuleLoader__.load({
                 mode === 'edit' ? '修改要求' : 'Prompt',
               ),
               h('span', { style: { flex: 1 } }),
+            ),
+            h('textarea', {
+              value: prompt,
+              rows: 6,
+              placeholder:
+                mode === 'edit'
+                  ? '描述怎么改这张参考图…'
+                  : '描述要画的图…（也可以先写需求，点「AI 写/润色」）',
+              style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.55 }),
+              onChange: (event) => setPrompt(event.target.value),
+            }),
+            // The AI trio acts on the prompt above it, so it sits under the box
+            // instead of crowding the label row. The extra box is what the model
+            // is told on top of that prompt.
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
               h(
                 'button',
                 {
@@ -11049,14 +11077,11 @@ window.__ModuleLoader__.load({
               ),
             ),
             h('textarea', {
-              value: prompt,
-              rows: 6,
-              placeholder:
-                mode === 'edit'
-                  ? '描述怎么改这张参考图…'
-                  : '描述要画的图…（也可以先写需求，点「AI 写/润色」）',
-              style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.55 }),
-              onChange: (event) => setPrompt(event.target.value),
+              value: aiExtra,
+              rows: 2,
+              placeholder: '额外要求（可留空）：想让 AI 怎么改，例如更有电影感、补充材质细节',
+              style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.5 }),
+              onChange: (event) => setAiExtra(event.target.value),
             }),
             aiError
               ? h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-state-error-primary)' } }, aiError)
@@ -11535,6 +11560,10 @@ window.__ModuleLoader__.load({
       const [models, setModels] = usePref('t2iModels')
       const [clipType, setClipType] = usePref('t2iClipType')
       const [size, setSize] = usePref('t2iSize')
+      const [scale, setScale] = usePref('t2iScale')
+      // What the AI is told on top of the prompt next to it; empty means "only
+      // rewrite what is written there", the behaviour before this box existed.
+      const [aiExtra, setAiExtra] = useState('')
       const [sampling, setSampling] = usePref('t2iSampling')
       const [meta, setMeta] = usePref('t2iMeta')
       const [promptStyle, setPromptStyle] = usePref('t2iPromptStyle')
@@ -11683,8 +11712,9 @@ window.__ModuleLoader__.load({
       }, [gallery, selected])
       const aiWrite = async () => {
         if (aiBusy) return
-        if (!String(prompt).trim()) {
-          setAiError('先写下你的要求或提示词')
+        const instruction = aiExtra.trim()
+        if (!String(prompt).trim() && !instruction) {
+          setAiError('先写下提示词，或填一句额外要求')
           return
         }
         setAiBusy(true)
@@ -11695,7 +11725,9 @@ window.__ModuleLoader__.load({
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
               current: prompt,
-              instruction: prompt,
+              // The extra box is the instruction; empty keeps the old behaviour,
+              // where the prompt is both what is rewritten and what is asked for.
+              instruction: instruction || prompt,
               targetModel: (models && models.unet) || '',
               style: promptStyle,
               system: promptStyle === 'tags' ? promptWriteSystemTags : promptWriteSystemNatural,
@@ -11739,8 +11771,8 @@ window.__ModuleLoader__.load({
               negative,
               models,
               clipType,
-              width: size && size.width ? size.width : 1024,
-              height: size && size.height ? size.height : 1024,
+              width: outputSize.width,
+              height: outputSize.height,
               sampling,
             }),
           })
@@ -11787,6 +11819,33 @@ window.__ModuleLoader__.load({
       const updateSampling = (patch) => setSampling(Object.assign({}, sampling || {}, patch))
       const preset = (w, h) => setSize({ width: w, height: h })
       const clampSize = (value) => Math.max(64, Math.min(4096, Math.round(Number(value) || 1024)))
+      // The scale multiplies the base box at submit time. Latents need multiples
+      // of 8, so the product is aligned and capped instead of sent raw.
+      const scaleFactor = (() => {
+        const next = Number(scale)
+        if (!Number.isFinite(next) || next <= 0) return 1
+        return Math.min(4, Math.max(0.25, next))
+      })()
+      const alignSize = (value) => Math.max(64, Math.min(4096, Math.round(value / 8) * 8))
+      const outputSize = {
+        width: alignSize((size && size.width ? size.width : 1024) * scaleFactor),
+        height: alignSize((size && size.height ? size.height : 1024) * scaleFactor),
+      }
+      const stepScale = (delta) => {
+        const next = Math.round((scaleFactor + delta) * 10) / 10
+        setScale(Math.min(4, Math.max(0.25, next)))
+      }
+      const stepBtn = {
+        padding: '2px 7px',
+        borderRadius: 6,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-layer-2)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 11,
+        lineHeight: 1.2,
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+      }
       const current = gallery.find((file) => file.name === selected) || null
       const currentIndex = Math.max(0, gallery.findIndex((file) => file.name === selected))
       return h(
@@ -11973,6 +12032,20 @@ window.__ModuleLoader__.load({
                   ),
                 ),
               ),
+            ),
+            h('textarea', {
+              value: prompt,
+              rows: 5,
+              placeholder: '描述要画的图…（也可只写需求，用 AI 写/润色）',
+              style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.55 }),
+              onChange: (event) => setPrompt(event.target.value),
+            }),
+            // The AI trio acts on the prompt above it, so it sits under the box
+            // instead of crowding the label row. The extra box is what the model
+            // is told on top of that prompt.
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
               h(
                 'button',
                 {
@@ -12039,11 +12112,11 @@ window.__ModuleLoader__.load({
               ),
             ),
             h('textarea', {
-              value: prompt,
-              rows: 5,
-              placeholder: '描述要画的图…（也可只写需求，用 AI 写/润色）',
-              style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.55 }),
-              onChange: (event) => setPrompt(event.target.value),
+              value: aiExtra,
+              rows: 2,
+              placeholder: '额外要求（可留空）：想让 AI 怎么改，例如更有电影感、补充材质细节',
+              style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.5 }),
+              onChange: (event) => setAiExtra(event.target.value),
             }),
             aiError
               ? h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-state-error-primary)' } }, aiError)
@@ -12186,6 +12259,37 @@ window.__ModuleLoader__.load({
                   },
                   name,
                 ),
+              ),
+            ),
+            // Scale applies at submit time only: the box above stays the framing
+            // the user chose, and this row shows what will actually be rendered.
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
+              h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '倍率'),
+              h('button', { type: 'button', title: '减 0.1', style: stepBtn, onClick: () => stepScale(-0.1) }, '−'),
+              h('input', {
+                type: 'number',
+                step: 0.1,
+                min: 0.25,
+                max: 4,
+                value: scaleFactor,
+                title: '出图尺寸 = 上面的基准尺寸 × 倍率',
+                style: Object.assign({}, field, { width: 72, textAlign: 'center' }),
+                onChange: (event) => {
+                  const next = Number(event.target.value)
+                  setScale(
+                    Number.isFinite(next) && next > 0
+                      ? Math.min(4, Math.max(0.25, Math.round(next * 100) / 100))
+                      : 1,
+                  )
+                },
+              }),
+              h('button', { type: 'button', title: '加 0.1', style: stepBtn, onClick: () => stepScale(0.1) }, '+'),
+              h(
+                'span',
+                { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
+                '→ ' + outputSize.width + ' × ' + outputSize.height,
               ),
             ),
           ),
