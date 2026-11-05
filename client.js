@@ -8621,18 +8621,6 @@ window.__ModuleLoader__.load({
                 }),
                 '本地',
               ),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'dshCanvasBtn',
-                  style: { padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 },
-                  title: '读取参考图的画板参数（画框、描述、比例、MP、种子）覆盖当前画板',
-                  onClick: () => setImportOpen(true),
-                },
-                h(Icon, { name: 'scan', size: 12 }),
-                h('span', null, '取画板'),
-              ),
               h('input', {
                 type: 'number',
                 min: 0,
@@ -10259,6 +10247,18 @@ window.__ModuleLoader__.load({
               },
               dark: canvasNight,
             }),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dshCanvasBtn',
+              style: { flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4 },
+              title: '读取参考图的画板参数（画框、描述、比例、MP、种子）覆盖当前画板',
+              onClick: () => setImportOpen(true),
+            },
+            h(Icon, { name: 'scan', size: 12 }),
+            h('span', null, '取画板'),
           ),
           referenceUrl
             ? h(
