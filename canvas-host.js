@@ -732,13 +732,35 @@ export function apply(ctx, config = {}) {
         if (!endpoint || !key || !prompt) {
           return send(400, { ok: false, error: '需要端点、API Key 和 prompt' })
         }
-        const url = /\/images\//.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/images/generations'
-        const upstream = await fetch(url, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
-          body: JSON.stringify({ model, prompt, n: 1, size, response_format: 'b64_json' }),
-          signal: AbortSignal.timeout(300000),
-        })
+        const mode = body.mode === 'edits' ? 'edits' : 'generations'
+        const imageData = typeof body.image === 'string' ? body.image : ''
+        let upstream
+        if (mode === 'edits') {
+          if (!imageData) return send(400, { ok: false, error: '编辑模式需要参考图' })
+          const match = /^data:([^;]+);base64,(.+)$/.exec(imageData)
+          if (!match) return send(400, { ok: false, error: '参考图格式不对（需要 data URL）' })
+          const form = new FormData()
+          form.append('model', model)
+          form.append('n', '1')
+          form.append('response_format', 'b64_json')
+          form.append('prompt', prompt)
+          form.append('image', new Blob([Buffer.from(match[2], 'base64')], { type: match[1] }), 'reference.png')
+          const url = /\/images\/edits?$/.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/images/edits'
+          upstream = await fetch(url, {
+            method: 'POST',
+            headers: { authorization: 'Bearer ' + key },
+            body: form,
+            signal: AbortSignal.timeout(300000),
+          })
+        } else {
+          const url = /\/images\//.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/images/generations'
+          upstream = await fetch(url, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
+            body: JSON.stringify({ model, prompt, n: 1, size, response_format: 'b64_json' }),
+            signal: AbortSignal.timeout(300000),
+          })
+        }
         const text = await upstream.text()
         if (!upstream.ok) {
           return send(502, { ok: false, error: 'HTTP ' + upstream.status + ' ' + text.slice(0, 300) })

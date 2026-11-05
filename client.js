@@ -9529,17 +9529,32 @@ window.__ModuleLoader__.load({
     /** Remotely generated images through an OpenAI-compatible endpoint. */
     function OnlineImagePanel(props) {
       ensureWorkbenchStyle()
+      const [mode, setMode] = useState('t2i')
       const [endpoint, setEndpoint] = usePref('remoteEndpoint')
       const [apiKey, setApiKey] = usePref('remoteApiKey')
       const [model, setModel] = usePref('remoteModel')
       const [prompt, setPrompt] = useState('')
       const [size, setSize] = useState('1024x1024')
+      const [imageData, setImageData] = useState('')
       const [busy, setBusy] = useState(false)
       const [error, setError] = useState('')
       const [result, setResult] = useState(null)
+      const pickImage = (event) => {
+        const file = event.target.files && event.target.files[0]
+        event.target.value = ''
+        if (!file) return
+        const reader = new FileReader()
+        reader.onload = () => setImageData(typeof reader.result === 'string' ? reader.result : '')
+        reader.onerror = () => setError('读取参考图失败')
+        reader.readAsDataURL(file)
+      }
       const generate = async () => {
         if (!String(endpoint).trim() || !String(apiKey).trim() || !prompt.trim()) {
           setError('需要端点、API Key 和 prompt')
+          return
+        }
+        if (mode === 'edit' && !imageData) {
+          setError('编辑模式需要先选参考图')
           return
         }
         setBusy(true)
@@ -9549,7 +9564,15 @@ window.__ModuleLoader__.load({
           const res = await fetch('/plugin/comfy-canvas/remote-image', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ endpoint, key: apiKey, model, prompt, size }),
+            body: JSON.stringify({
+              endpoint,
+              key: apiKey,
+              model,
+              prompt,
+              size,
+              mode: mode === 'edit' ? 'edits' : 'generations',
+              image: mode === 'edit' ? imageData : '',
+            }),
           })
           const data = await res.json().catch(() => null)
           if (!data || !data.ok) throw new Error((data && data.error) || '请求失败')
@@ -9563,8 +9586,8 @@ window.__ModuleLoader__.load({
       const field = {
         width: '100%',
         boxSizing: 'border-box',
-        padding: '6px 9px',
-        borderRadius: 8,
+        padding: '7px 10px',
+        borderRadius: 9,
         border: '1px solid var(--dsw-alias-border-l2)',
         background: 'var(--dsw-alias-bg-layer-1)',
         color: 'var(--dsw-alias-label-primary)',
@@ -9572,97 +9595,336 @@ window.__ModuleLoader__.load({
         fontFamily: 'inherit',
         outline: 'none',
       }
-      const btn = {
-        padding: '6px 14px',
-        borderRadius: 8,
-        border: '1px solid var(--dsw-alias-border-l2)',
-        background: 'var(--dsw-alias-bg-layer-1)',
-        color: 'var(--dsw-alias-label-primary)',
-        fontSize: 11,
-        fontFamily: 'inherit',
-        cursor: 'pointer',
+      const label = {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 5,
+        fontSize: 10.5,
+        color: 'var(--dsw-alias-label-secondary)',
       }
       const imgSrc = result && result.b64 ? 'data:image/png;base64,' + result.b64 : result && result.url ? result.url : ''
+      const modeTab = (key, text) =>
+        h(
+          'button',
+          {
+            key,
+            type: 'button',
+            onClick: () => setMode(key),
+            style: {
+              flex: 1,
+              padding: '7px 10px',
+              borderRadius: 8,
+              border: '1px solid ' + (mode === key ? '#3b82f6' : 'transparent'),
+              background: mode === key ? '#3b82f6' : 'transparent',
+              color: mode === key ? '#ffffff' : 'var(--dsw-alias-label-secondary)',
+              fontSize: 11,
+              fontWeight: 600,
+              fontFamily: 'inherit',
+              cursor: 'pointer',
+              transition: 'background .16s ease, color .16s ease, border-color .16s ease',
+            },
+          },
+          text,
+        )
       return h(
         'div',
         {
           style: {
             display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
+            gap: 16,
             height: '100%',
             boxSizing: 'border-box',
-            overflowY: 'auto',
             padding: 16,
             background: 'var(--dsw-alias-bg-base)',
             color: 'var(--dsw-alias-label-primary)',
+            overflow: 'hidden',
           },
         },
         h(
           'div',
-          { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+          {
+            style: {
+              width: 360,
+              flex: 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              overflowY: 'auto',
+              paddingRight: 2,
+            },
+          },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+            h(
+              'button',
+              {
+                type: 'button',
+                onClick: props.onBack,
+                style: {
+                  padding: '5px 10px',
+                  borderRadius: 8,
+                  border: '1px solid var(--dsw-alias-border-l2)',
+                  background: 'var(--dsw-alias-bg-layer-2)',
+                  color: 'var(--dsw-alias-label-primary)',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                },
+              },
+              '返回',
+            ),
+            h('div', { style: { fontSize: 14, fontWeight: 600 } }, '在线 API 出图'),
+          ),
+          h(
+            'div',
+            {
+              style: {
+                display: 'flex',
+                gap: 4,
+                padding: 3,
+                borderRadius: 10,
+                background: 'var(--dsw-alias-bg-layer-1)',
+                border: '1px solid var(--dsw-alias-border-l2)',
+              },
+            },
+            modeTab('t2i', '文生图'),
+            modeTab('edit', '参考图编辑'),
+          ),
+          mode === 'edit'
+            ? h(
+                'div',
+                { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+                h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '参考图'),
+                imageData
+                  ? h(
+                      'div',
+                      { style: { display: 'flex', gap: 10, alignItems: 'center' } },
+                      h('img', {
+                        src: imageData,
+                        alt: '',
+                        style: {
+                          width: 64,
+                          height: 64,
+                          objectFit: 'cover',
+                          borderRadius: 8,
+                          border: '1px solid var(--dsw-alias-border-l2)',
+                        },
+                      }),
+                      h(
+                        'div',
+                        { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
+                        h(
+                          'label',
+                          { style: { display: 'inline-flex', cursor: 'pointer' } },
+                          h('input', { type: 'file', accept: 'image/*', style: { display: 'none' }, onChange: pickImage }),
+                          h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-brand-primary)' } }, '更换'),
+                        ),
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            onClick: () => setImageData(''),
+                            style: {
+                              border: 0,
+                              background: 'transparent',
+                              padding: 0,
+                              textAlign: 'left',
+                              fontSize: 10.5,
+                              color: 'var(--dsw-alias-label-secondary)',
+                              cursor: 'pointer',
+                            },
+                          },
+                          '清除',
+                        ),
+                      ),
+                    )
+                  : h(
+                      'label',
+                      {
+                        style: {
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                          height: 96,
+                          borderRadius: 10,
+                          border: '1px dashed var(--dsw-alias-border-l2)',
+                          background: 'var(--dsw-alias-bg-layer-1)',
+                          cursor: 'pointer',
+                          color: 'var(--dsw-alias-label-secondary)',
+                          fontSize: 10.5,
+                        },
+                      },
+                      h('input', { type: 'file', accept: 'image/*', style: { display: 'none' }, onChange: pickImage }),
+                      h(Icon, { name: 'images', size: 18 }),
+                      '选择参考图（随请求上传）',
+                    ),
+              )
+            : null,
+          h(
+            'label',
+            { style: label },
+            mode === 'edit' ? '修改要求' : 'Prompt',
+            h('textarea', {
+              value: prompt,
+              rows: 6,
+              placeholder: mode === 'edit' ? '描述怎么改这张参考图…' : '描述要画的图…',
+              style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.55 }),
+              onChange: (event) => setPrompt(event.target.value),
+            }),
+          ),
+          h(
+            'label',
+            { style: label },
+            '尺寸',
+            h(
+              'select',
+              { value: size, style: field, onChange: (event) => setSize(event.target.value) },
+              ['1024x1024', '1536x1024', '1024x1536'].map((option) => h('option', { key: option, value: option }, option)),
+            ),
+          ),
+          h(
+            'div',
+            {
+              style: {
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                paddingTop: 8,
+                borderTop: '1px solid var(--dsw-alias-border-l1)',
+              },
+            },
+            h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, '接口设置'),
+            h(
+              'label',
+              { style: label },
+              '端点（OpenAI 兼容）',
+              h('input', {
+                value: endpoint,
+                placeholder: 'https://api.quickrouter.ai/v1',
+                style: field,
+                onChange: (event) => setEndpoint(event.target.value),
+              }),
+            ),
+            h(
+              'label',
+              { style: label },
+              'API Key（只存本机）',
+              h('input', {
+                type: 'password',
+                value: apiKey,
+                placeholder: '填写你的 key',
+                style: field,
+                onChange: (event) => setApiKey(event.target.value),
+              }),
+            ),
+            h(
+              'label',
+              { style: label },
+              '模型',
+              h('input', {
+                value: model,
+                placeholder: 'gpt-image-2.5-flare-c',
+                style: field,
+                onChange: (event) => setModel(event.target.value),
+              }),
+            ),
+          ),
           h(
             'button',
             {
               type: 'button',
-              onClick: props.onBack,
+              disabled: busy,
+              onClick: generate,
               style: {
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '5px 10px',
-                borderRadius: 8,
-                border: '1px solid var(--dsw-alias-border-l2)',
-                background: 'var(--dsw-alias-bg-layer-2)',
-                color: 'var(--dsw-alias-label-primary)',
-                fontSize: 11,
+                padding: '10px 14px',
+                borderRadius: 10,
+                border: '1px solid #3b82f6',
+                background: '#3b82f6',
+                color: '#ffffff',
+                fontSize: 12,
                 fontWeight: 600,
                 fontFamily: 'inherit',
-                cursor: 'pointer',
+                cursor: busy ? 'default' : 'pointer',
+                opacity: busy ? 0.7 : 1,
                 transition: 'transform .16s ease, box-shadow .16s ease',
               },
               onMouseEnter: (event) => {
+                if (busy) return
                 event.currentTarget.style.transform = 'translateY(-1px)'
-                event.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)'
+                event.currentTarget.style.boxShadow = '0 8px 22px rgba(59, 130, 246, 0.35)'
               },
               onMouseLeave: (event) => {
                 event.currentTarget.style.transform = 'none'
                 event.currentTarget.style.boxShadow = 'none'
               },
             },
-            h(
-              'svg',
-              { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.6, strokeLinecap: 'round', strokeLinejoin: 'round' },
-              h('path', { d: 'M19 12H5' }),
-              h('path', { d: 'm12 19-7-7 7-7' }),
-            ),
-            '返回',
+            busy ? '生成中…' : '生成',
           ),
-          h('div', { style: { fontSize: 14, fontWeight: 600 } }, '在线 API 出图'),
+          error
+            ? h(
+                'div',
+                { style: { fontSize: 10.5, color: 'var(--dsw-alias-state-error-primary)', lineHeight: 1.5 } },
+                error,
+              )
+            : null,
         ),
         h(
           'div',
-          { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 } },
-          h('label', { style: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '端点（OpenAI 兼容）', h('input', { value: endpoint, placeholder: 'https://api.quickrouter.ai/v1', style: field, onChange: (event) => setEndpoint(event.target.value) })),
-          h('label', { style: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, 'API Key（只存本机）', h('input', { type: 'password', value: apiKey, placeholder: '填写你的 key', style: field, onChange: (event) => setApiKey(event.target.value) })),
-          h('label', { style: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '模型', h('input', { value: model, placeholder: 'gpt-image-2.5-flare-c', style: field, onChange: (event) => setModel(event.target.value) })),
-          h('label', { style: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '尺寸', h('select', { value: size, style: field, onChange: (event) => setSize(event.target.value) }, ['1024x1024', '1536x1024', '1024x1536'].map((option) => h('option', { key: option, value: option }, option)))),
+          {
+            style: {
+              flex: 1,
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 10,
+              padding: 16,
+              borderRadius: 14,
+              border: '1px solid var(--dsw-alias-border-l2)',
+              background: 'var(--dsw-alias-bg-layer-1)',
+              overflow: 'auto',
+            },
+          },
+          imgSrc
+            ? h(
+                React.Fragment,
+                null,
+                h('img', {
+                  src: imgSrc,
+                  alt: '',
+                  style: {
+                    maxWidth: '100%',
+                    maxHeight: '70vh',
+                    borderRadius: 12,
+                    boxShadow: '0 12px 40px rgba(0, 0, 0, 0.18)',
+                  },
+                }),
+                h(
+                  'a',
+                  { href: imgSrc, download: 'remote-image.png', style: { fontSize: 11, color: 'var(--dsw-alias-brand-primary)' } },
+                  '下载图片',
+                ),
+              )
+            : h(
+                'div',
+                {
+                  style: {
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 8,
+                    color: 'var(--dsw-alias-label-secondary)',
+                  },
+                },
+                h(Icon, { name: 'images', size: 34 }),
+                h('div', { style: { fontSize: 11.5 } }, busy ? '正在生成…' : '结果会显示在这里'),
+              ),
         ),
-        h('label', { style: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, 'Prompt', h('textarea', { value: prompt, rows: 5, placeholder: '描述要画的图…', style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.5 }), onChange: (event) => setPrompt(event.target.value) })),
-        h(
-          'div',
-          { style: { display: 'flex', alignItems: 'center', gap: 10 } },
-          h('button', { type: 'button', style: Object.assign({}, btn, { background: '#3b82f6', borderColor: '#3b82f6', color: '#fff', fontWeight: 600 }), disabled: busy, onClick: generate }, busy ? '生成中…' : '生成'),
-          error ? h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
-        ),
-        imgSrc
-          ? h(
-              'div',
-              { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
-              h('img', { src: imgSrc, alt: '', style: { maxWidth: '100%', maxHeight: '60vh', borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', alignSelf: 'flex-start' } }),
-              h('a', { href: imgSrc, download: 'remote-image.png', style: { fontSize: 11, color: 'var(--dsw-alias-brand-primary)' } }, '下载图片'),
-            )
-          : null,
       )
     }
 
