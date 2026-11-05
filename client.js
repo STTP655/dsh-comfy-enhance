@@ -10883,6 +10883,34 @@ window.__ModuleLoader__.load({
         window.addEventListener('keydown', onKey)
         return () => window.removeEventListener('keydown', onKey)
       }, [gallery, selected])
+      const aiWrite = async () => {
+        if (aiBusy) return
+        if (!String(prompt).trim()) {
+          setAiError('先写下你的要求或提示词')
+          return
+        }
+        setAiBusy(true)
+        setAiError('')
+        try {
+          const res = await fetch('/plugin/comfy-canvas/prompt-write', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              current: prompt,
+              instruction: prompt,
+              targetModel: (models && models.unet) || '',
+              style: promptStyle,
+            }),
+          })
+          const data = await res.json().catch(() => null)
+          if (!data || !data.ok) throw new Error((data && data.error) || '请求失败')
+          setPrompt(data.text || '')
+        } catch (err) {
+          setAiError(String((err && err.message) || err))
+        } finally {
+          setAiBusy(false)
+        }
+      }
       const generate = async () => {
         if (!String(prompt).trim()) {
           setError('先写 prompt')
