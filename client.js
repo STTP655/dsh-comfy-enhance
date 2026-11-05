@@ -909,6 +909,167 @@ window.__ModuleLoader__.load({
       animation: 'dsh-comfy-status-job 1.15s ease-in-out infinite',
     }
 
+    /** One editable draft handed from a canvas to the conversation composer. */
+    const draftStore = (() => {
+      let state = { open: false, sessionId: '', title: '', text: '', mode: 'final', note: '' }
+      const listeners = new Set()
+      return {
+        get: () => state,
+        set(next) {
+          state = Object.assign({}, state, next)
+          for (const listener of listeners) listener()
+        },
+        subscribe(listener) {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
+      }
+    })()
+
+    /**
+     * Canvas draft over the composer: the layout lands here as editable text with
+     * a note box and a final/submit mode, and only the confirmed payload reaches
+     * the agent (via the composer's own submit).
+     */
+    function DraftCard(props) {
+      const [draft, setDraft] = useState(draftStore.get())
+      useEffect(() => draftStore.subscribe(() => setDraft(draftStore.get())), [])
+      if (!draft.open) return null
+      if (draft.sessionId && props && props.sessionId && draft.sessionId !== props.sessionId) return null
+      const actions = props && props.inputActions ? props.inputActions : null
+      const close = () => draftStore.set({ open: false })
+      const submit = () => {
+        if (!actions) {
+          draftStore.set({ note: '当前面板没有可用的会话输入通道' })
+          return
+        }
+        const text = String(draft.text || '').trim()
+        if (!text) return
+        const note = String(draft.note || '').trim()
+        const payload =
+          draft.mode === 'final'
+            ? text + (note ? '\n\n备注：' + note : '')
+            : '这是一份待修改的草稿（不是终稿）：\n\n' + text + (note ? '\n\n修改要求：' + note : '')
+        try {
+          actions.setDraft(payload)
+          actions.persistDraft()
+          actions.submit()
+          draftStore.set({ open: false })
+        } catch (error) {
+          draftStore.set({ note: String((error && error.message) || error) })
+        }
+      }
+      const btn = {
+        padding: '4px 10px',
+        borderRadius: 6,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 10.5,
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+      }
+      const field = {
+        width: '100%',
+        boxSizing: 'border-box',
+        padding: '6px 8px',
+        borderRadius: 8,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 11.5,
+        fontFamily: 'inherit',
+        lineHeight: 1.5,
+        outline: 'none',
+        resize: 'vertical',
+      }
+      return h(
+        'div',
+        {
+          style: {
+            position: 'absolute',
+            left: 10,
+            right: 10,
+            bottom: 'calc(100% + 8px)',
+            zIndex: 40,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            padding: 12,
+            borderRadius: 12,
+            border: '1px solid var(--dsw-alias-border-l2)',
+            background: 'var(--dsw-alias-bg-base)',
+            boxShadow: '0 12px 40px rgba(0, 0, 0, 0.28)',
+            maxHeight: '60vh',
+            overflowY: 'auto',
+          },
+        },
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+          h('span', { style: { fontSize: 12, fontWeight: 600 } }, (draft.title || '草稿') + ' · 可编辑'),
+          h('span', { style: { flex: 1 } }),
+          h('button', { type: 'button', style: btn, onClick: close, title: '关闭草稿' }, '×'),
+        ),
+        h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '正文（可直接改）'),
+        h('textarea', {
+          value: draft.text,
+          rows: 7,
+          style: field,
+          onChange: (event) => draftStore.set({ text: event.target.value }),
+        }),
+        h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '这份是？'),
+        h(
+          'div',
+          { style: { display: 'flex', gap: 14 } },
+          [
+            ['final', '提交终稿（已改好）'],
+            ['advice', '只提修改意见'],
+          ].map(([value, label]) =>
+            h(
+              'label',
+              {
+                key: value,
+                style: { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, cursor: 'pointer' },
+              },
+              h('input', {
+                type: 'radio',
+                name: 'dsh-comfy-draft-mode',
+                checked: draft.mode === value,
+                onChange: () => draftStore.set({ mode: value }),
+              }),
+              label,
+            ),
+          ),
+        ),
+        h(
+          'div',
+          { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } },
+          '备注（可选）：改了哪里 / 想调整的方向',
+        ),
+        h('input', {
+          value: draft.note,
+          placeholder: '例如：把第 2 个框的 caption 改成室内夜景',
+          style: Object.assign({}, field, { resize: 'none' }),
+          onChange: (event) => draftStore.set({ note: event.target.value }),
+        }),
+        h(
+          'div',
+          { style: { display: 'flex', justifyContent: 'flex-end', gap: 8 } },
+          h('button', { type: 'button', style: btn, onClick: close }, '取消'),
+          h(
+            'button',
+            {
+              type: 'button',
+              style: Object.assign({}, btn, { background: '#3b82f6', borderColor: '#3b82f6', color: '#ffffff' }),
+              onClick: submit,
+            },
+            '提交',
+          ),
+        ),
+      )
+    }
+
     function ComfyStatus(props) {
       const wide = !(props && props.wide === false)
       const [snap, error] = useSnapshot()
@@ -8343,26 +8504,14 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * Hand the canvas to the agent instead of writing anything back to ComfyUI.
-       * The slot exposes the session input actions, so the payload lands in the
-       * composer and is submitted in one step.
+       * Hand the canvas to the agent as an editable draft card over the composer.
+       * Nothing is sent until the user confirms the card's submit.
        */
       const sendToAgent = () => {
-        const actions = props.inputActions
-        if (!actions) {
-          setStatus('当前面板没有可用的会话输入通道')
-          return
-        }
         if (boxes.length === 0) {
           setStatus('画布上还没有框')
           return
         }
-        // Sending replaces the composer draft, so the button asks once first.
-        if (!confirmSend) {
-          setConfirmSend(true)
-          return
-        }
-        setConfirmSend(false)
         const layout = buildMossLayout(summary, size.width, size.height, boxes)
         const emptyCaptions = boxes.filter((box) => !String((box.metadata || {}).desc || '').trim()).length
         const text = [
@@ -8382,16 +8531,15 @@ window.__ModuleLoader__.load({
           '```',
           'caption 就是每个框的 desc，空的请补；bbox 已按 abs_centralized / yxyx 算好，不要改动。',
         ].join('\n')
-        try {
-          actions.setDraft(text)
-          actions.persistDraft()
-          actions.submit()
-          setDirty(false)
-          setStatus('已发给 agent')
-        } catch (err) {
-          setStatus('')
-          setError(String((err && err.message) || err))
-        }
+        draftStore.set({
+          open: true,
+          sessionId: (props && props.sessionId) || '',
+          title: 'MOSS 画板 · ' + file,
+          text,
+          mode: 'final',
+          note: '',
+        })
+        setStatus('草稿已打开：可在输入框上方编辑后提交')
       }
 
       /** Direct preview: hand the current layout to ComfyUI without the agent. */
@@ -11639,6 +11787,20 @@ window.__ModuleLoader__.load({
         })
 
         canvasHalf.apply(ctx)
+
+        // The canvas draft card rides inside the conversation composer: editing and
+        // confirming happen there, and only the composer's submit reaches the agent.
+        ctx.slots.inject('conversation.input.overlay', () =>
+          ctx.slots.register(
+            {
+              name: 'conversation.input.overlay',
+              id: 'dsh-comfy-draft',
+              order: 40,
+              label: () => 'ComfyUI 草稿',
+            },
+            DraftCard,
+          ),
+        )
       },
     }
   },
