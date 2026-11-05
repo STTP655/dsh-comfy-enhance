@@ -11853,21 +11853,6 @@ window.__ModuleLoader__.load({
         width: alignSize((size && size.width ? size.width : 1024) * scaleFactor),
         height: alignSize((size && size.height ? size.height : 1024) * scaleFactor),
       }
-      const stepScale = (delta) => {
-        const next = Math.round((scaleFactor + delta) * 10) / 10
-        setScale(Math.min(4, Math.max(0.25, next)))
-      }
-      const stepBtn = {
-        padding: '2px 7px',
-        borderRadius: 6,
-        border: '1px solid var(--dsw-alias-border-l2)',
-        background: 'var(--dsw-alias-bg-layer-2)',
-        color: 'var(--dsw-alias-label-primary)',
-        fontSize: 11,
-        lineHeight: 1.2,
-        fontFamily: 'inherit',
-        cursor: 'pointer',
-      }
       const current = gallery.find((file) => file.name === selected) || null
       const currentIndex = Math.max(0, gallery.findIndex((file) => file.name === selected))
       return h(
@@ -12344,10 +12329,37 @@ window.__ModuleLoader__.load({
                 style: Object.assign({}, field, { width: 84 }),
                 onChange: (event) => setSize(Object.assign({}, size, { height: clampSize(event.target.value) })),
               }),
+              // The multiplier rides in the resolution row: the box on the left is
+              // the framing, this number is how much of it to render.
+              h('span', { style: { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5 } },
+                h('span', { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } }, '倍率'),
+                h('input', {
+                  type: 'number',
+                  step: 0.1,
+                  min: 0.25,
+                  max: 4,
+                  value: scaleFactor,
+                  title:
+                    '出图 ' +
+                    outputSize.width +
+                    ' × ' +
+                    outputSize.height +
+                    '（基准尺寸 × 倍率，按 8 对齐）',
+                  style: Object.assign({}, field, { width: 72, padding: '7px 8px', flex: 'none' }),
+                  onChange: (event) => {
+                    const next = Number(event.target.value)
+                    setScale(
+                      Number.isFinite(next) && next > 0
+                        ? Math.min(4, Math.max(0.25, Math.round(next * 100) / 100))
+                        : 1,
+                    )
+                  },
+                }),
+              ),
             ),
             h(
               'div',
-              { style: { display: 'flex', gap: 4, flexWrap: 'wrap' } },
+              { style: { display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' } },
               [
                 ['1:1', 1024, 1024],
                 ['16:9', 1344, 768],
@@ -12374,37 +12386,22 @@ window.__ModuleLoader__.load({
                   name,
                 ),
               ),
-            ),
-            // Scale applies at submit time only: the box above stays the framing
-            // the user chose, and this row shows what will actually be rendered.
-            h(
-              'div',
-              { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
-              h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '倍率'),
-              h('button', { type: 'button', title: '减 0.1', style: stepBtn, onClick: () => stepScale(-0.1) }, '−'),
-              h('input', {
-                type: 'number',
-                step: 0.1,
-                min: 0.25,
-                max: 4,
-                value: scaleFactor,
-                title: '出图尺寸 = 上面的基准尺寸 × 倍率',
-                style: Object.assign({}, field, { width: 72, textAlign: 'center' }),
-                onChange: (event) => {
-                  const next = Number(event.target.value)
-                  setScale(
-                    Number.isFinite(next) && next > 0
-                      ? Math.min(4, Math.max(0.25, Math.round(next * 100) / 100))
-                      : 1,
+              // Only shown once the factor actually changes the size: the plain
+              // case keeps the row quiet.
+              scaleFactor !== 1
+                ? h(
+                    'span',
+                    {
+                      style: {
+                        marginLeft: 'auto',
+                        fontSize: 9.5,
+                        color: 'var(--dsw-alias-label-secondary)',
+                        fontVariantNumeric: 'tabular-nums',
+                      },
+                    },
+                    '→ ' + outputSize.width + ' × ' + outputSize.height,
                   )
-                },
-              }),
-              h('button', { type: 'button', title: '加 0.1', style: stepBtn, onClick: () => stepScale(0.1) }, '+'),
-              h(
-                'span',
-                { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
-                '→ ' + outputSize.width + ' × ' + outputSize.height,
-              ),
+                : null,
             ),
           ),
           h(
@@ -12463,6 +12460,28 @@ window.__ModuleLoader__.load({
                 style: field,
                 onChange: (event) => updateSampling({ seed: Math.max(0, Math.floor(Number(event.target.value) || 0)) }),
               }),
+            ),
+            // Fills the empty cell beside the seed: one click, a fresh seed.
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'flex-end' } },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  title: '换一个随机种子',
+                  onClick: () => updateSampling({ seed: Math.floor(Math.random() * 1e15) }),
+                  style: Object.assign({}, btn, {
+                    width: '100%',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 5,
+                  }),
+                },
+                h(Icon, { name: 'shuffle', size: 12 }),
+                '随机',
+              ),
             ),
           ),
           h(
