@@ -7404,7 +7404,7 @@ window.__ModuleLoader__.load({
             title: props.title,
             // A flex row with an empty label collapses to its padding; keep the
             // trigger at a usable height even before a value is picked.
-            style: { minHeight: 22 },
+            style: Object.assign({ minHeight: 22 }, props.triggerStyle || null),
             onClick: () => {
               if (!open) {
                 setQuery('')
@@ -7415,9 +7415,18 @@ window.__ModuleLoader__.load({
           },
           h(
             'span',
-            { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+            { style: { flex: '1 1 auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
             current ? current.label : props.placeholder || '',
           ),
+          // A bare text button reads as a label, not a chooser; the mark is what
+          // says "this opens a list" when a neighbouring field has an arrow.
+          props.chevron
+            ? h(
+                'span',
+                { style: { flex: 'none', marginLeft: 6, fontSize: 9, lineHeight: 1, opacity: 0.55 } },
+                '▾',
+              )
+            : null,
         ),
         menu && createPortal ? createPortal(menu, document.body) : menu,
       )
@@ -7465,6 +7474,8 @@ window.__ModuleLoader__.load({
           groups,
           menuMinWidth: props.menuMinWidth || 260,
           dark: Boolean(props.dark),
+          chevron: Boolean(props.chevron),
+          triggerStyle: props.triggerStyle,
           onOpen: () => llmCatalogStore.load(true),
           onPick: props.onPick,
         }),
@@ -10240,6 +10251,21 @@ window.__ModuleLoader__.load({
                   model: draftModel,
                   title: '润色模型（跟随默认时用 DSH 当前选中的模型）',
                   menuMinWidth: 300,
+                  chevron: true,
+                  // The same box as the select beside it: this dialog is a form, so
+                  // the picker has to read as one of its fields, not a toolbar chip.
+                  triggerStyle: {
+                    height: 36,
+                    boxSizing: 'border-box',
+                    padding: '0 10px',
+                    borderRadius: 9,
+                    fontSize: 11.5,
+                    lineHeight: 1.55,
+                    fontFamily: 'inherit',
+                    background: 'var(--dsw-alias-bg-layer-1)',
+                    color: 'var(--dsw-alias-label-primary)',
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                  },
                   onPick: (next) => {
                     const parsed = parseRouteKey(next)
                     setDraftProvider(parsed.provider)
@@ -10261,7 +10287,10 @@ window.__ModuleLoader__.load({
                 '思考强度',
                 h(
                   'select',
-                  { value: draftEffort, style: field, onChange: (event) => setDraftEffort(event.target.value) },
+                  // Same explicit box as the model picker: a native select is a hair
+                  // taller than a padded input, which is what looked off. Zero vertical
+                  // padding + a fixed height centers the text the way the picker does.
+                  { value: draftEffort, style: Object.assign({}, field, { height: 36, padding: '0 10px' }), onChange: (event) => setDraftEffort(event.target.value) },
                   effortPairs.map(([value, text]) => h('option', { key: value, value }, text)),
                 ),
               ),
