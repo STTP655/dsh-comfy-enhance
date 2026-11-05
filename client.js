@@ -1048,15 +1048,13 @@ window.__ModuleLoader__.load({
             background: 'var(--dsw-alias-bg-layer-2)',
             boxShadow: '0 4px 18px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.06)',
             maxHeight: '50vh',
-            height: entered && !closing ? 'auto' : 0,
-            padding: entered && !closing ? 12 : 0,
-            overflowY: entered && !closing ? 'auto' : 'hidden',
+            padding: 12,
+            overflowY: 'auto',
             overflowX: 'hidden',
-            interpolateSize: 'allow-keywords',
             opacity: closing ? 0 : entered ? 1 : 0,
             transform: entered && !closing ? 'translateY(0)' : 'translateY(8px)',
             transition:
-              'height 240ms cubic-bezier(0.2, 0, 0, 1), padding 240ms cubic-bezier(0.2, 0, 0, 1), opacity 240ms cubic-bezier(0.2, 0, 0, 1), transform 240ms cubic-bezier(0.2, 0, 0, 1)',
+              'opacity 200ms cubic-bezier(0.2, 0, 0, 1), transform 240ms cubic-bezier(0.16, 1, 0.3, 1)',
           },
         },
         h(
