@@ -1020,8 +1020,8 @@ window.__ModuleLoader__.load({
             padding: 12,
             borderRadius: 12,
             border: '1px solid var(--dsw-alias-border-l2)',
-            background: 'var(--dsw-alias-bg-layer-1)',
-            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.06)',
+            background: 'var(--dsw-alias-bg-layer-2)',
+            boxShadow: '0 4px 18px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.06)',
             maxHeight: '50vh',
             overflowY: 'auto',
             animation: closing
@@ -1041,7 +1041,16 @@ window.__ModuleLoader__.load({
           { style: { display: 'flex', alignItems: 'center', gap: 6 } },
           h('span', { style: { fontSize: 12, fontWeight: 600 } }, (draft.title || '草稿') + ' · 可编辑'),
           h('span', { style: { flex: 1 } }),
-          h('button', { type: 'button', style: btn, onClick: close, title: '关闭草稿' }, '×'),
+          h(
+            'button',
+            {
+              type: 'button',
+              style: Object.assign({}, btn, { color: '#ef4444', fontWeight: 600 }),
+              onClick: close,
+              title: '关闭草稿',
+            },
+            '×',
+          ),
         ),
         h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '正文（可直接改）'),
         h('textarea', {
@@ -1087,13 +1096,28 @@ window.__ModuleLoader__.load({
         }),
         h(
           'div',
-          { style: { display: 'flex', justifyContent: 'flex-end', gap: 8 } },
-          h('button', { type: 'button', style: btn, onClick: close }, '取消'),
+          { style: { display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 2 } },
           h(
             'button',
             {
               type: 'button',
-              style: Object.assign({}, btn, { background: '#3b82f6', borderColor: '#3b82f6', color: '#ffffff' }),
+              style: Object.assign({}, btn, { padding: '7px 16px', fontSize: 12 }),
+              onClick: close,
+            },
+            '取消',
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              style: Object.assign({}, btn, {
+                padding: '7px 18px',
+                fontSize: 12,
+                background: '#3b82f6',
+                borderColor: '#3b82f6',
+                color: '#ffffff',
+                fontWeight: 600,
+              }),
               onClick: submit,
             },
             '提交',
