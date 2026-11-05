@@ -1229,6 +1229,14 @@ window.__ModuleLoader__.load({
       gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))',
       gap: 8,
     }
+    /** Flat layout: every image in one dense grid (no day groups). */
+    const FLAT_GRID = {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+      gap: 8,
+      padding: 10,
+      alignContent: 'start',
+    }
     const DAY_RAIL_GRID = {
       display: 'grid',
       gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))',
@@ -1524,6 +1532,8 @@ window.__ModuleLoader__.load({
           '.dshComfyAlbum-compare[data-on="true"]{opacity:1;background:var(--dsw-alias-brand-primary);color:var(--dshcomfy-on-brand)}',
           '.dshComfyAlbum-compare:focus-visible{opacity:1;outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}',
           '.dshComfyAlbum-gallery{background:var(--dsw-specific-sidebar-fill);background:light-dark(var(--dsw-alias-bg-overlay),var(--dsw-alias-bg-layer-2))}',
+          '@keyframes dshAlbumSwapIn{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:none}}',
+          '.dshComfyAlbum-swap{animation:dshAlbumSwapIn .18s ease-out both}',
           '.dshComfyAlbum-zoom{position:absolute;right:8px;bottom:8px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:8px;cursor:pointer;background:rgba(0,0,0,.55);color:#fff;backdrop-filter:blur(4px)}',
           '.dshComfyAlbum-zoom:hover{background:rgba(0,0,0,.78)}',
           '.dshComfyAlbum-zoom:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}',
@@ -3889,7 +3899,8 @@ window.__ModuleLoader__.load({
       const [albumTheme, setAlbumTheme] = usePref('albumTheme')
       const nightTheme = albumTheme !== 'light'
       const [albumDir, setAlbumDir] = usePref('albumDir')
-      const [dirOpen, setDirOpen] = useState(false)
+      const [source, setSource] = useState('album')
+      const [layout, setLayout] = useState('default')
       const [dirFiles, setDirFiles] = useState(null)
       const [dirPath, setDirPath] = useState('')
       const [dirBusy, setDirBusy] = useState(false)
@@ -3911,12 +3922,31 @@ window.__ModuleLoader__.load({
       const visible = items.filter((item) => (item.startedAt || 0) > clearedBefore)
       const running = (album && album.running) || []
       const groups = groupByDay(visible)
-      const selected = visible.find((item) => item.id === picked) || visible[0] || null
+      // Directory source items, shaped like album items so the same UI renders them.
+      const dirItems = (dirFiles || []).map((file) => ({
+        id: 'dir:' + file.name,
+        images: [{ url: file.url, filename: file.name, thumb: file.thumb || file.url }],
+        startedAt: file.mtime,
+        completed: true,
+        meta: {},
+      }))
+      const shownItems = source === 'dir' ? dirItems : visible
+      const shownGroups = source === 'dir' ? groupByDay(dirItems) : groups
+      /** List rows use the preview; only the viewer loads the original file. */
+      const thumbOfUrl = (image) =>
+        image && image.thumb
+          ? image.thumb
+          : image && typeof image.url === 'string' && image.url.indexOf('/view?') >= 0
+            ? image.url + '&preview=webp'
+            : image
+              ? image.url
+              : ''
+      const selected = shownItems.find((item) => item.id === picked) || shownItems[0] || null
       // One flat strip of every image, newest first: feeds viewer paging and the
       // recent thumbnails at its bottom. Each entry carries its owning job so the
       // viewer can show the prompt without a second lookup.
       const galleryImages = []
-      for (const item of visible) {
+      for (const item of shownItems) {
         for (const image of item.images || []) {
           galleryImages.push({
             ...image,
@@ -3935,10 +3965,10 @@ window.__ModuleLoader__.load({
         return () => clearTimeout(timer)
       }, [confirming])
 
-      // Directory browser: lists ComfyUI's output folder (or a custom gallery)
+      // Directory source: lists ComfyUI's output folder (or a custom gallery)
       // with ComfyUI's webp thumbnails so the list stays cheap.
       useEffect(() => {
-        if (!dirOpen) return undefined
+        if (source !== 'dir') return undefined
         let alive = true
         setDirBusy(true)
         setDirError('')
@@ -3961,13 +3991,7 @@ window.__ModuleLoader__.load({
         return () => {
           alive = false
         }
-      }, [dirOpen, albumDir, dirNonce])
-
-      const openDirectoryView = () => {
-        setDirOpen(true)
-        setDirViewer(false)
-        setDirNonce((value) => value + 1)
-      }
+      }, [source, albumDir, dirNonce])
 
       const pickAlbumDir = () => {
         setDirPickerOpen(true)
@@ -4019,7 +4043,7 @@ window.__ModuleLoader__.load({
                   ? { outline: '2px solid var(--dsw-alias-brand-primary)', outlineOffset: 1 }
                   : null,
             },
-            h('img', { src: image.url, loading: 'lazy', alt: image.filename, style: ALBUM_IMG }),
+            h('img', { src: thumbOfUrl(image), loading: 'lazy', decoding: 'async', alt: image.filename, style: ALBUM_IMG }),
           ),
           h(
             'button',
@@ -4040,7 +4064,7 @@ window.__ModuleLoader__.load({
       const gallery = h(
         'div',
         { className: 'dshComfyAlbum-gallery', style: wide ? GRID_RAIL : ALBUM_GRID },
-        ...groups.map((group, index) =>
+        ...shownGroups.map((group, index) =>
           h(
             'div',
             { key: group.key, style: index === 0 ? null : DAY_GROUP },
@@ -4055,8 +4079,88 @@ window.__ModuleLoader__.load({
         ),
       )
 
+      // Flat layout: one dense grid of every image, thumbnails only until opened.
+      const flatGrid = h(
+        'div',
+        {
+          key: 'flat-' + source,
+          className: 'dshComfyAlbum-swap',
+          style: Object.assign({}, FLAT_GRID, { flex: 1, minHeight: 0, overflowY: 'auto' }),
+        },
+        ...shownItems.map((item, index) =>
+          h(
+            'button',
+            {
+              key: item.id,
+              className: 'dshComfyAlbum-thumb',
+              title: item.images[0].filename,
+              style: {
+                width: '100%',
+                height: 120,
+                padding: 0,
+                border: 0,
+                borderRadius: 8,
+                overflow: 'hidden',
+                cursor: 'pointer',
+                background: 'var(--dsw-alias-bg-layer-1)',
+              },
+              onClick: () => {
+                setDirPick(index)
+                setDirViewer(true)
+              },
+            },
+            h('img', {
+              src: thumbOfUrl(item.images[0]),
+              loading: 'lazy',
+              decoding: 'async',
+              alt: item.images[0].filename,
+              style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
+            }),
+          ),
+        ),
+      )
+
+      const detailPane = h(
+        'div',
+        {
+          style: Object.assign({}, wide ? DETAIL_PANE : ALBUM_DETAIL, { position: 'relative' }),
+        },
+        source === 'album' && running.length > 0
+          ? h('div', { style: RUNNING_FLOAT }, h(RunningBlock, { job: running[0] }))
+          : null,
+        selected
+          ? h(
+              'div',
+              { style: wide ? { maxWidth: DETAIL_MAX_WIDTH } : null },
+              h(AlbumDetail, {
+                item: selected,
+                wide,
+                gallery: galleryImages,
+                compare: comparing ? [compareA, compareB] : null,
+              }),
+            )
+          : null,
+      )
+
+      const defaultView = h(
+        'div',
+        { key: 'default-' + source, className: 'dshComfyAlbum-swap', style: wide ? CONTENT_ROW : CONTENT_COLUMN },
+        gallery,
+        detailPane,
+      )
+
       let content
-      if (error) content = h('div', { style: ALBUM_EMPTY }, '无法连接插件后端：' + error)
+      if (source === 'dir') {
+        content = dirBusy
+          ? h('div', { style: ALBUM_EMPTY }, '加载中…')
+          : dirError
+            ? h('div', { style: ALBUM_EMPTY }, dirError)
+            : dirItems.length === 0
+              ? h('div', { style: ALBUM_EMPTY }, '这个目录里没有图片')
+              : layout === 'flat'
+                ? flatGrid
+                : defaultView
+      } else if (error) content = h('div', { style: ALBUM_EMPTY }, '无法连接插件后端：' + error)
       else if (!album) content = h('div', { style: ALBUM_EMPTY }, '正在加载…')
       else if (album.up === false)
         content = h(
@@ -4081,33 +4185,7 @@ window.__ModuleLoader__.load({
             ),
           ),
         )
-      else
-        content = h(
-          'div',
-          { style: wide ? CONTENT_ROW : CONTENT_COLUMN },
-          gallery,
-          h(
-            'div',
-            {
-              style: Object.assign({}, wide ? DETAIL_PANE : ALBUM_DETAIL, { position: 'relative' }),
-            },
-            running.length > 0
-              ? h('div', { style: RUNNING_FLOAT }, h(RunningBlock, { job: running[0] }))
-              : null,
-            selected
-              ? h(
-                  'div',
-                  { style: wide ? { maxWidth: DETAIL_MAX_WIDTH } : null },
-                  h(AlbumDetail, {
-                    item: selected,
-                    wide,
-                    gallery: galleryImages,
-                    compare: comparing ? [compareA, compareB] : null,
-                  }),
-                )
-              : null,
-          ),
-        )
+      else content = layout === 'flat' ? flatGrid : defaultView
 
       return h(
         'div',
@@ -4166,9 +4244,67 @@ window.__ModuleLoader__.load({
             },
             h(ThemeIcon, { night: nightTheme }),
           ),
-          h('button', { className: 'dshComfyAlbum-btn', onClick: openDirectoryView }, '目录'),
-          h('button', { className: 'dshComfyAlbum-btn', onClick: reload }, '刷新'),
+          h(
+            'button',
+            {
+              className: 'dshComfyAlbum-btn',
+              style:
+                source === 'album'
+                  ? { background: 'var(--dsw-alias-brand-primary)', color: '#ffffff', borderColor: 'var(--dsw-alias-brand-primary)' }
+                  : null,
+              onClick: () => setSource('album'),
+            },
+            '相册',
+          ),
+          h(
+            'button',
+            {
+              className: 'dshComfyAlbum-btn',
+              style:
+                source === 'dir'
+                  ? { background: 'var(--dsw-alias-brand-primary)', color: '#ffffff', borderColor: 'var(--dsw-alias-brand-primary)' }
+                  : null,
+              onClick: () => setSource('dir'),
+            },
+            '目录',
+          ),
+          h(
+            'button',
+            {
+              className: 'dshComfyAlbum-btn',
+              title: layout === 'flat' ? '切换为默认分组视图' : '切换为平铺视图',
+              onClick: () => setLayout(layout === 'flat' ? 'default' : 'flat'),
+            },
+            layout === 'flat' ? '分组' : '平铺',
+          ),
+          source === 'dir' ? h('button', { className: 'dshComfyAlbum-btn', onClick: pickAlbumDir }, '选择目录') : null,
+          h(
+            'button',
+            {
+              className: 'dshComfyAlbum-btn',
+              onClick: source === 'dir' ? () => setDirNonce((value) => value + 1) : reload,
+            },
+            '刷新',
+          ),
         ),
+        source === 'dir' && dirPath
+          ? h(
+              'div',
+              {
+                title: dirPath,
+                style: {
+                  flex: 'none',
+                  padding: '0 10px 6px',
+                  fontSize: 9.5,
+                  color: 'var(--dsw-alias-label-secondary)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                },
+              },
+              dirPath,
+            )
+          : null,
         content,
         h(DirectoryPicker, {
           open: dirPickerOpen,
@@ -4180,127 +4316,11 @@ window.__ModuleLoader__.load({
           },
           onClose: () => setDirPickerOpen(false),
         }),
-        dirOpen
-          ? h(
-              'div',
-              {
-                style: {
-                  position: 'absolute',
-                  inset: 0,
-                  zIndex: 30,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  background: 'var(--dsw-alias-bg-base)',
-                },
-              },
-              h(
-                'div',
-                {
-                  style: {
-                    flex: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '8px 10px',
-                    borderBottom: '1px solid var(--dsw-alias-border-l2)',
-                  },
-                },
-                h(
-                  'span',
-                  {
-                    title: dirPath || albumDir,
-                    style: {
-                      fontSize: 10,
-                      color: 'var(--dsw-alias-label-secondary)',
-                      flex: 1,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    },
-                  },
-                  dirPath || albumDir || '（默认 output）',
-                ),
-                h('button', { className: 'dshComfyAlbum-btn', onClick: pickAlbumDir }, '选择目录'),
-                h('button', { className: 'dshComfyAlbum-btn', onClick: () => setDirNonce((value) => value + 1) }, '刷新'),
-                h('button', { className: 'dshComfyAlbum-btn', onClick: () => setDirOpen(false) }, '关闭'),
-              ),
-              h(
-                'div',
-                {
-                  style: {
-                    flex: 1,
-                    minHeight: 0,
-                    overflowY: 'auto',
-                    padding: 10,
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-                    gap: 8,
-                    alignContent: 'start',
-                  },
-                },
-                dirBusy
-                  ? h(
-                      'div',
-                      { style: { gridColumn: '1 / -1', fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } },
-                      '加载中…',
-                    )
-                  : dirError
-                    ? h(
-                        'div',
-                        {
-                          style: {
-                            gridColumn: '1 / -1',
-                            fontSize: 10.5,
-                            color: 'var(--dsw-alias-state-error-primary)',
-                          },
-                        },
-                        dirError,
-                      )
-                    : dirFiles && dirFiles.length === 0
-                      ? h(
-                          'div',
-                          { style: { gridColumn: '1 / -1', fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } },
-                          '这个目录里没有图片',
-                        )
-                      : (dirFiles || []).map((file, index) =>
-                          h(
-                            'button',
-                            {
-                              key: file.name,
-                              type: 'button',
-                              className: 'dshComfyAlbum-btn',
-                              style: {
-                                padding: 0,
-                                border: 0,
-                                overflow: 'hidden',
-                                borderRadius: 8,
-                                height: 120,
-                                background: 'var(--dsw-alias-bg-layer-1)',
-                                cursor: 'pointer',
-                              },
-                              title: file.name,
-                              onClick: () => {
-                                setDirPick(index)
-                                setDirViewer(true)
-                              },
-                            },
-                            h('img', {
-                              src: file.thumb || file.url,
-                              alt: '',
-                              loading: 'lazy',
-                              decoding: 'async',
-                              style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
-                            }),
-                          ),
-                        ),
-              ),
-            )
-          : null,
-        dirViewer && dirFiles && dirFiles.length > 0
+        dirViewer && shownItems.length > 0
           ? h(ImageViewer, {
-              images: dirFiles.map((file) => ({ url: file.url, filename: file.name })),
-              startIndex: Math.max(0, Math.min(dirPick, dirFiles.length - 1)),
-              filename: dirFiles[dirPick] ? dirFiles[dirPick].name : '',
+              images: shownItems.map((item) => ({ url: item.images[0].url, filename: item.images[0].filename })),
+              startIndex: Math.max(0, Math.min(dirPick, shownItems.length - 1)),
+              filename: shownItems[dirPick] ? shownItems[dirPick].images[0].filename : '',
               onClose: () => setDirViewer(false),
             })
           : null,
