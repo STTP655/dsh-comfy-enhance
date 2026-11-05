@@ -185,12 +185,202 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** In-page directory browser: drives → folders → pick, no native dialog. */
+    function DirectoryPicker(props) {
+      const open = Boolean(props && props.open)
+      const [cwd, setCwd] = useState('')
+      const [data, setData] = useState(null)
+      const [busy, setBusy] = useState(false)
+      const [error, setError] = useState('')
+      useEffect(() => {
+        if (!open) return undefined
+        setCwd((props && props.startPath) || '')
+        setData(null)
+        setError('')
+        return undefined
+      }, [open])
+      useEffect(() => {
+        if (!open) return undefined
+        let alive = true
+        setBusy(true)
+        setError('')
+        fetch('/plugin/comfy-status/browse?path=' + encodeURIComponent(cwd), { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((payload) => {
+            if (!alive) return
+            if (!payload || !payload.ok) throw new Error((payload && payload.error) || '读取失败')
+            setData(payload)
+          })
+          .catch((err) => {
+            if (!alive) return
+            setData(null)
+            setError(String((err && err.message) || err))
+          })
+          .finally(() => {
+            if (alive) setBusy(false)
+          })
+        return () => {
+          alive = false
+        }
+      }, [open, cwd])
+      if (!open) return null
+      const picks = data && Array.isArray(data.drives) ? data.drives : data && Array.isArray(data.dirs) ? data.dirs : []
+      const btn = {
+        padding: '3px 9px',
+        borderRadius: 6,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 10.5,
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+      }
+      return h(
+        'div',
+        {
+          style: {
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1300,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(0, 0, 0, 0.45)',
+          },
+          onClick: (event) => {
+            if (event.target === event.currentTarget) props.onClose()
+          },
+        },
+        h(
+          'div',
+          {
+            style: {
+              width: 560,
+              maxWidth: 'calc(100vw - 40px)',
+              maxHeight: '70vh',
+              display: 'flex',
+              flexDirection: 'column',
+              borderRadius: 12,
+              border: '1px solid var(--dsw-alias-border-l2)',
+              background: 'var(--dsw-alias-bg-base)',
+              boxShadow: '0 24px 64px rgba(0, 0, 0, 0.35)',
+              overflow: 'hidden',
+            },
+          },
+          h(
+            'div',
+            {
+              style: {
+                flex: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 14px',
+                borderBottom: '1px solid var(--dsw-alias-border-l2)',
+              },
+            },
+            h('span', { style: { fontSize: 12.5, fontWeight: 600 } }, (props && props.title) || '选择目录'),
+            h('span', { style: { flex: 1 } }),
+            h('button', { type: 'button', style: btn, onClick: () => props.onClose() }, '取消'),
+          ),
+          h(
+            'div',
+            {
+              style: {
+                flex: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 14px',
+                borderBottom: '1px solid var(--dsw-alias-border-l1)',
+              },
+            },
+            h(
+              'span',
+              {
+                title: cwd || '此电脑',
+                style: {
+                  flex: 1,
+                  fontSize: 10.5,
+                  color: 'var(--dsw-alias-label-secondary)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                },
+              },
+              cwd || '此电脑',
+            ),
+            data && data.parent ? h('button', { type: 'button', style: btn, onClick: () => setCwd(data.parent) }, '上级') : null,
+            h(
+              'button',
+              {
+                type: 'button',
+                style: Object.assign({}, btn, { background: '#3b82f6', borderColor: '#3b82f6', color: '#ffffff' }),
+                onClick: () => props.onPick(cwd || (picks[0] && picks[0].path) || ''),
+              },
+              '使用此目录',
+            ),
+          ),
+          h(
+            'div',
+            { style: { flex: 1, minHeight: 0, overflowY: 'auto', padding: 8 } },
+            busy
+              ? h('div', { style: { padding: 10, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '加载中…')
+              : error
+                ? h(
+                    'div',
+                    { style: { padding: 10, fontSize: 10.5, color: 'var(--dsw-alias-state-error-primary)' } },
+                    error,
+                  )
+                : picks.length === 0
+                  ? h(
+                      'div',
+                      { style: { padding: 10, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } },
+                      '没有子目录',
+                    )
+                  : picks.map((entry) =>
+                      h(
+                        'button',
+                        {
+                          key: entry.path,
+                          type: 'button',
+                          style: Object.assign({}, btn, {
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            width: '100%',
+                            textAlign: 'left',
+                            marginBottom: 2,
+                          }),
+                          onClick: () => setCwd(entry.path),
+                        },
+                        h(Icon, { name: 'folder', size: 12 }),
+                        h(
+                          'span',
+                          {
+                            style: {
+                              fontSize: 11,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            },
+                          },
+                          entry.name,
+                        ),
+                      ),
+                    ),
+          ),
+        ),
+      )
+    }
+
     /** Big "start ComfyUI" control with a folder-picker gear beside it. */
     function LaunchComfyButton(props) {
       const compact = Boolean(props && props.compact)
       const [busy, setBusy] = useState(false)
       const [stopping, setStopping] = useState(false)
       const [picking, setPicking] = useState(false)
+      const [pickerOpen, setPickerOpen] = useState(false)
       const [message, setMessage] = useState('')
       const run = async () => {
         if (busy) return
@@ -208,24 +398,8 @@ window.__ModuleLoader__.load({
         setStopping(false)
         setMessage(result && result.ok ? result.message || '已停止' : (result && result.error) || '停止失败')
       }
-      const chooseDir = async () => {
-        if (picking) return
-        setPicking(true)
-        setMessage('')
-        try {
-          const res = await fetch('/plugin/comfy-status/pick-dir', { method: 'POST' })
-          const data = await res.json().catch(() => null)
-          if (data && data.ok && data.dir) {
-            pluginPrefs.set('comfyPath', data.dir)
-            setMessage('已选择：' + data.dir)
-          } else {
-            setMessage((data && data.error) || '没有选择目录')
-          }
-        } catch (error) {
-          setMessage(String((error && error.message) || error))
-        } finally {
-          setPicking(false)
-        }
+      const chooseDir = () => {
+        setPickerOpen(true)
       }
       if (compact) {
         return h(
@@ -291,6 +465,17 @@ window.__ModuleLoader__.load({
             stopping ? '停止中…' : '停止',
           ),
           message ? h('span', { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } }, message) : null,
+          h(DirectoryPicker, {
+            open: pickerOpen,
+            title: '选择 ComfyUI 安装目录',
+            startPath: pluginPrefs.get().comfyPath || '',
+            onPick: (path) => {
+              pluginPrefs.set('comfyPath', path)
+              setPickerOpen(false)
+              setMessage('已选择：' + path)
+            },
+            onClose: () => setPickerOpen(false),
+          }),
         )
       }
       return h(
@@ -378,6 +563,17 @@ window.__ModuleLoader__.load({
               )
             : null,
         ),
+        h(DirectoryPicker, {
+          open: pickerOpen,
+          title: '选择 ComfyUI 安装目录',
+          startPath: pluginPrefs.get().comfyPath || '',
+          onPick: (path) => {
+            pluginPrefs.set('comfyPath', path)
+            setPickerOpen(false)
+            setMessage('已选择：' + path)
+          },
+          onClose: () => setPickerOpen(false),
+        }),
       )
     }
 
@@ -484,6 +680,14 @@ window.__ModuleLoader__.load({
           },
         ],
         ['circle', { cx: 12, cy: 12, r: 3 }],
+      ],
+      folder: [
+        [
+          'path',
+          {
+            d: 'M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z',
+          },
+        ],
       ],
       moon: [['path', { d: 'M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z' }]],
       eye: [
@@ -3693,6 +3897,7 @@ window.__ModuleLoader__.load({
       const [dirNonce, setDirNonce] = useState(0)
       const [dirPick, setDirPick] = useState(0)
       const [dirViewer, setDirViewer] = useState(false)
+      const [dirPickerOpen, setDirPickerOpen] = useState(false)
       // Compare mode: pick one picture, then another, and the viewer pages only
       // between those two.
       const [compareA, setCompareA] = useState(null)
@@ -3764,18 +3969,8 @@ window.__ModuleLoader__.load({
         setDirNonce((value) => value + 1)
       }
 
-      const pickAlbumDir = async () => {
-        try {
-          const res = await fetch('/plugin/comfy-status/pick-dir', { method: 'POST' })
-          const data = await res.json().catch(() => null)
-          if (data && data.ok && data.dir) {
-            setAlbumDir(data.dir)
-          } else {
-            setDirError((data && data.error) || '没有选择目录')
-          }
-        } catch (error) {
-          setDirError(String((error && error.message) || error))
-        }
+      const pickAlbumDir = () => {
+        setDirPickerOpen(true)
       }
 
       const requestClear = () => {
@@ -3975,6 +4170,16 @@ window.__ModuleLoader__.load({
           h('button', { className: 'dshComfyAlbum-btn', onClick: reload }, '刷新'),
         ),
         content,
+        h(DirectoryPicker, {
+          open: dirPickerOpen,
+          title: '选择相册目录',
+          startPath: albumDir || '',
+          onPick: (path) => {
+            setAlbumDir(path)
+            setDirPickerOpen(false)
+          },
+          onClose: () => setDirPickerOpen(false),
+        }),
         dirOpen
           ? h(
               'div',

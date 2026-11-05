@@ -1106,6 +1106,39 @@ function createHandler(baseUrl) {
       })
     }
 
+    // In-page directory browser: list drives (no path) or subfolders of a path.
+    if (pathname === `${PREFIX}/browse`) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const query = new URL(req.url || '/', 'http://localhost').searchParams
+        const requested = (query.get('path') || '').trim()
+        if (!requested) {
+          const drives = []
+          for (const letter of 'CDEFGHIJKLMNOPQRSTUVWXYZ') {
+            try {
+              const info = await stat(`${letter}:\\`)
+              if (info.isDirectory()) drives.push({ name: letter + ':', path: `${letter}:\\` })
+            } catch {
+              // Missing drive letter.
+            }
+          }
+          return send(200, { ok: true, path: '', drives })
+        }
+        const resolved = resolve(requested)
+        const entries = await readdir(resolved, { withFileTypes: true })
+        const dirs = []
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue
+          if (entry.name.startsWith('.') || entry.name.startsWith('$')) continue
+          dirs.push({ name: entry.name, path: join(resolved, entry.name) })
+        }
+        dirs.sort((left, right) => left.name.localeCompare(right.name, 'zh'))
+        return send(200, { ok: true, path: resolved, parent: dirname(resolved), dirs })
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
+    }
+
     // Open the native folder picker so the install dir can be set without typing.
     if (pathname === `${PREFIX}/pick-dir`) {
       if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
