@@ -990,7 +990,9 @@ window.__ModuleLoader__.load({
             display: 'flex',
             flexDirection: 'column',
             gap: 8,
-            margin: '6px 0',
+            width: '100%',
+            boxSizing: 'border-box',
+            marginBottom: 8,
             padding: 12,
             borderRadius: 12,
             border: '1px solid var(--dsw-alias-border-l2)',
@@ -11784,12 +11786,13 @@ window.__ModuleLoader__.load({
 
         canvasHalf.apply(ctx)
 
-        // The canvas draft card docks under the composer instead of floating over
-        // it, so it reads as part of the conversation input rather than an overlay.
-        ctx.slots.inject('conversation.composer.dock', () =>
+        // The canvas draft card docks above the composer as a full-width entry —
+        // the same place the queue/todo docks live — so it reads as part of the
+        // conversation input instead of a floating overlay.
+        ctx.slots.inject('conversation.input.dock', () =>
           ctx.slots.register(
             {
-              name: 'conversation.composer.dock',
+              name: 'conversation.input.dock',
               id: 'dsh-comfy-draft',
               order: 40,
               label: () => 'ComfyUI 草稿',
