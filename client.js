@@ -968,8 +968,16 @@ window.__ModuleLoader__.load({
           setEntered(false)
           return undefined
         }
-        const frame = requestAnimationFrame(() => setEntered(true))
-        return () => cancelAnimationFrame(frame)
+        // Two frames: the first paints the collapsed state, the second starts the
+        // transition, so the browser actually animates the entrance.
+        let second = 0
+        const first = requestAnimationFrame(() => {
+          second = requestAnimationFrame(() => setEntered(true))
+        })
+        return () => {
+          cancelAnimationFrame(first)
+          cancelAnimationFrame(second)
+        }
       }, [draft.open])
       if (!visible) return null
       if (draft.sessionId && props && props.sessionId && draft.sessionId !== props.sessionId) return null
@@ -1028,12 +1036,11 @@ window.__ModuleLoader__.load({
             gridTemplateRows: entered && !closing ? '1fr' : '0fr',
             width: '100%',
             maxWidth: 'var(--dsh-composer-card-max-width)',
-            margin: '0 auto',
-            marginBottom: entered && !closing ? 8 : 0,
-            opacity: entered ? 1 : 0,
-            transform: entered ? 'translateY(0)' : 'translateY(10px)',
+            margin: '0 auto 8px',
+            opacity: closing ? 0 : entered ? 1 : 0,
+            transform: entered && !closing ? 'translateY(0)' : 'translateY(8px)',
             transition:
-              'grid-template-rows 240ms cubic-bezier(0.2, 0, 0, 1), margin-bottom 240ms cubic-bezier(0.2, 0, 0, 1), opacity 200ms ease-out, transform 240ms cubic-bezier(0.2, 0, 0, 1)',
+              'grid-template-rows 240ms cubic-bezier(0.2, 0, 0, 1), opacity 240ms cubic-bezier(0.2, 0, 0, 1), transform 240ms cubic-bezier(0.2, 0, 0, 1)',
           },
         },
         h(
