@@ -104,6 +104,7 @@ window.__ModuleLoader__.load({
         t2iClipType: 'flux',
         t2iSize: { width: 1024, height: 1024 },
         t2iSampling: { steps: 20, cfg: 1, sampler: 'euler', scheduler: 'simple', seed: 0 },
+        t2iMeta: {},
         editorPositiveHeight: 96,
         editorNegativeHeight: 96,
         viewerPanelWidth: 360,
@@ -172,6 +173,7 @@ window.__ModuleLoader__.load({
                 parsed.t2iSampling && typeof parsed.t2iSampling === 'object'
                   ? parsed.t2iSampling
                   : { steps: 20, cfg: 1, sampler: 'euler', scheduler: 'simple', seed: 0 },
+              t2iMeta: parsed.t2iMeta && typeof parsed.t2iMeta === 'object' ? parsed.t2iMeta : {},
               editorPositiveHeight:
                 typeof parsed.editorPositiveHeight === 'number' ? parsed.editorPositiveHeight : 96,
               editorNegativeHeight:
@@ -10692,6 +10694,8 @@ window.__ModuleLoader__.load({
       const [clipType, setClipType] = usePref('t2iClipType')
       const [size, setSize] = usePref('t2iSize')
       const [sampling, setSampling] = usePref('t2iSampling')
+      const [meta, setMeta] = usePref('t2iMeta')
+      const startedRef = useRef(0)
       const [options, setOptions] = useState(null)
       const [busy, setBusy] = useState(false)
       const [error, setError] = useState('')
@@ -10747,8 +10751,22 @@ window.__ModuleLoader__.load({
               if (!fresh) return
               stopped = true
               clearInterval(timer)
+              const elapsed =
+                startedRef.current > 0 ? Math.max(1, Math.round((Date.now() - startedRef.current) / 1000)) : 0
               setGallery(files.slice(0, 24))
               setSelected(fresh.name)
+              setMeta(
+                Object.assign({}, meta || {}, {
+                  [fresh.name]: {
+                    model: (models && models.unet) || '',
+                    width: size && size.width ? size.width : 1024,
+                    height: size && size.height ? size.height : 1024,
+                    steps: (sampling && sampling.steps) || 20,
+                    cfg: sampling && sampling.cfg !== undefined ? sampling.cfg : 1,
+                    seconds: elapsed,
+                  },
+                }),
+              )
               setBusy(false)
               setStatus('已生成：' + fresh.name)
             })
@@ -10798,6 +10816,7 @@ window.__ModuleLoader__.load({
         setError('')
         setStatus('')
         setJobId('')
+        startedRef.current = Date.now()
         try {
           const res = await fetch('/plugin/comfy-canvas/text2img', {
             method: 'POST',
@@ -10971,6 +10990,51 @@ window.__ModuleLoader__.load({
                 )
               : null,
           ),
+          current
+            ? h(
+                'div',
+                {
+                  style: {
+                    flex: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '4px 14px',
+                    padding: '6px 12px',
+                    borderTop: '1px solid var(--dsw-alias-border-l1)',
+                    background: 'var(--dsw-alias-bg-layer-1)',
+                    fontSize: 10.5,
+                    color: 'var(--dsw-alias-label-secondary)',
+                  },
+                },
+                h(
+                  'span',
+                  {
+                    title: current.name,
+                    style: {
+                      fontWeight: 600,
+                      color: 'var(--dsw-alias-label-primary)',
+                      maxWidth: '45%',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    },
+                  },
+                  current.name,
+                ),
+                meta && meta[current.name]
+                  ? h('span', null, '模型 ' + (meta[current.name].model || '—'))
+                  : null,
+                meta && meta[current.name]
+                  ? h('span', null, (meta[current.name].width || '?') + '×' + (meta[current.name].height || '?'))
+                  : null,
+                meta && meta[current.name] ? h('span', null, '步数 ' + meta[current.name].steps) : null,
+                meta && meta[current.name] ? h('span', null, 'CFG ' + meta[current.name].cfg) : null,
+                meta && meta[current.name] && meta[current.name].seconds
+                  ? h('span', null, '用时 ' + meta[current.name].seconds + 's')
+                  : null,
+              )
+            : null,
           h(
             'div',
             {
