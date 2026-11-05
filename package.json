@@ -3,7 +3,7 @@
   "version": "0.15.0",
   "private": true,
   "type": "module",
-  "description": "ComfyUI enhance: sidebar status card, output album and bounding-box canvas in one bundle.",
+  "description": "ComfyUI enhance: sidebar status card, output album, MOSS bounding-box canvas and a standalone board workspace in one bundle.",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

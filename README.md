@@ -1,6 +1,6 @@
 # dsh-comfy-enhance
 
-给 [DeepSeek Harness](https://github.com/deepseek-ai) 用的 ComfyUI 面板套件。一个 bundle 里包含三个模块，在插件页里可以分别开关。
+给 [DeepSeek Harness](https://github.com/deepseek-ai) 用的 ComfyUI 面板套件。一个 bundle 里包含四个模块，在插件页里可以分别开关。
 
 > 它不依赖 ComfyUI 的浏览器界面——Host 端直接调用 ComfyUI 的 HTTP 接口（`/system_stats`、`/history`、`/view`），所以只要 ComfyUI 进程开着就能用。
 
