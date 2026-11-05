@@ -10235,16 +10235,6 @@ window.__ModuleLoader__.load({
           h('span', { style: { flex: 1 } }),
           h(
             'span',
-            {
-              style: Object.assign({}, WORKSPACE_LABEL, {
-                fontSize: 10.5,
-                fontVariantNumeric: 'tabular-nums',
-              }),
-            },
-            size.width + ' × ' + size.height,
-          ),
-          h(
-            'span',
             { style: Object.assign({}, WORKSPACE_LABEL, { fontSize: 10.5 }) },
             boxes.length + ' 个框',
           ),
@@ -10430,6 +10420,23 @@ window.__ModuleLoader__.load({
                 style: {
                   position: 'absolute',
                   right: 12,
+                  bottom: 8,
+                  fontSize: 10,
+                  fontVariantNumeric: 'tabular-nums',
+                  color: 'var(--dsw-alias-label-secondary)',
+                  opacity: 0.75,
+                  pointerEvents: 'none',
+                  userSelect: 'none',
+                },
+              },
+              size.width + ' × ' + size.height,
+            ),
+            h(
+              'div',
+              {
+                style: {
+                  position: 'absolute',
+                  left: 12,
                   bottom: 8,
                   fontSize: 10,
                   color: 'var(--dsw-alias-label-secondary)',
