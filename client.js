@@ -10210,7 +10210,17 @@ window.__ModuleLoader__.load({
         '@keyframes dshComfyOverlayIn{from{opacity:0}to{opacity:1}}' +
         // The album-picker panel in this same workspace fades in with these.
         '@keyframes dshComfyPanelIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}' +
-        '@keyframes dshComfyPanelOut{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.98)}}'
+        '@keyframes dshComfyPanelOut{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.98)}}' +
+        // Warm call-to-action button (the AI write/rewrite action). The hover
+        // lift and press sink live in CSS so the states cannot desync from a
+        // rerender; the glow is a shadow, so nothing is laid out twice. Hover
+        // motion is gated to real pointers, and reduced motion keeps the colours
+        // while dropping the movement.
+        '.dshComfyAiBtn{background:linear-gradient(135deg,#ff5c7a,#ff8a3d);border-color:transparent;color:#fff;box-shadow:0 0 14px rgba(255,92,122,.28);transition:transform 160ms cubic-bezier(.23,1,.32,1),box-shadow 160ms ease,filter 160ms ease}' +
+        '@media (hover:hover) and (pointer:fine){.dshComfyAiBtn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 0 22px rgba(255,92,122,.45),0 8px 22px rgba(255,92,122,.4)}}' +
+        '.dshComfyAiBtn:active:not(:disabled){transform:translateY(1px) scale(.985);box-shadow:0 0 10px rgba(255,92,122,.3)}' +
+        '.dshComfyAiBtn:disabled{opacity:.55;box-shadow:none;transform:none;cursor:default}' +
+        '@media (prefers-reduced-motion:reduce){.dshComfyAiBtn{transition:none}.dshComfyAiBtn:hover:not(:disabled),.dshComfyAiBtn:active:not(:disabled){transform:none}}'
       document.head.appendChild(style)
     }
 
@@ -12670,6 +12680,10 @@ window.__ModuleLoader__.load({
                   disabled: aiBusy,
                   onClick: aiWrite,
                   title: 'AI 写 / 润色提示词',
+                  className: 'dshComfyAiBtn',
+                  // Colour, glow and motion come from .dshComfyAiBtn; only the
+                  // box model stays inline. An inline background or shadow would
+                  // outrank the hover rule and kill the effect.
                   style: {
                     flex: '1 1 auto',
                     minWidth: 0,
@@ -12679,15 +12693,12 @@ window.__ModuleLoader__.load({
                     gap: 5,
                     padding: '7px 9px',
                     borderRadius: 8,
-                    border: '1px solid var(--dsw-alias-border-l2)',
-                    background: 'var(--dsw-alias-bg-layer-2)',
-                    color: 'var(--dsw-alias-label-primary)',
+                    border: '1px solid transparent',
                     fontSize: 12,
                     fontWeight: 600,
                     fontFamily: 'inherit',
                     whiteSpace: 'nowrap',
                     cursor: aiBusy ? 'default' : 'pointer',
-                    opacity: aiBusy ? 0.6 : 1,
                   },
                 },
                 h(Icon, { name: 'sparkles', size: 13 }),
