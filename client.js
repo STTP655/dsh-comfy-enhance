@@ -105,6 +105,7 @@ window.__ModuleLoader__.load({
         t2iSize: { width: 1024, height: 1024 },
         t2iSampling: { steps: 20, cfg: 1, sampler: 'euler', scheduler: 'simple', seed: 0 },
         t2iMeta: {},
+        t2iPromptStyle: 'tags',
         editorPositiveHeight: 96,
         editorNegativeHeight: 96,
         viewerPanelWidth: 360,
@@ -174,6 +175,7 @@ window.__ModuleLoader__.load({
                   ? parsed.t2iSampling
                   : { steps: 20, cfg: 1, sampler: 'euler', scheduler: 'simple', seed: 0 },
               t2iMeta: parsed.t2iMeta && typeof parsed.t2iMeta === 'object' ? parsed.t2iMeta : {},
+              t2iPromptStyle: parsed.t2iPromptStyle === 'natural' ? 'natural' : 'tags',
               editorPositiveHeight:
                 typeof parsed.editorPositiveHeight === 'number' ? parsed.editorPositiveHeight : 96,
               editorNegativeHeight:
@@ -10745,6 +10747,9 @@ window.__ModuleLoader__.load({
       const [size, setSize] = usePref('t2iSize')
       const [sampling, setSampling] = usePref('t2iSampling')
       const [meta, setMeta] = usePref('t2iMeta')
+      const [promptStyle, setPromptStyle] = usePref('t2iPromptStyle')
+      const [aiBusy, setAiBusy] = useState(false)
+      const [aiError, setAiError] = useState('')
       const [fileMeta, setFileMeta] = useState({})
       const beforeRef = useRef(new Set())
       const startedRef = useRef(0)
@@ -11087,16 +11092,88 @@ window.__ModuleLoader__.load({
             h('div', { style: { fontSize: 14, fontWeight: 600 } }, '本地文生图'),
           ),
           h(
-            'label',
-            { style: label },
-            'Prompt',
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
+              h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, 'Prompt'),
+              h('span', { style: { flex: 1 } }),
+              h(
+                'div',
+                {
+                  style: {
+                    display: 'flex',
+                    gap: 3,
+                    padding: 2,
+                    borderRadius: 7,
+                    background: 'var(--dsw-alias-bg-layer-1)',
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                  },
+                },
+                [
+                  ['tags', 'SD 标签'],
+                  ['natural', '自然语言'],
+                ].map(([value, text]) =>
+                  h(
+                    'button',
+                    {
+                      key: value,
+                      type: 'button',
+                      onClick: () => setPromptStyle(value),
+                      style: {
+                        padding: '2px 7px',
+                        borderRadius: 5,
+                        border: 0,
+                        background: promptStyle === value ? '#3b82f6' : 'transparent',
+                        color: promptStyle === value ? '#ffffff' : 'var(--dsw-alias-label-secondary)',
+                        fontSize: 9.5,
+                        fontWeight: 600,
+                        fontFamily: 'inherit',
+                        cursor: 'pointer',
+                      },
+                    },
+                    text,
+                  ),
+                ),
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  disabled: aiBusy,
+                  onClick: aiWrite,
+                  title: 'AI 写 / 润色提示词',
+                  style: {
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                    background: 'var(--dsw-alias-bg-layer-2)',
+                    color: 'var(--dsw-alias-label-primary)',
+                    fontSize: 10,
+                    fontWeight: 600,
+                    fontFamily: 'inherit',
+                    cursor: aiBusy ? 'default' : 'pointer',
+                    opacity: aiBusy ? 0.6 : 1,
+                  },
+                },
+                h(Icon, { name: 'sparkles', size: 11 }),
+                aiBusy ? '生成中…' : 'AI 写/润色',
+              ),
+            ),
             h('textarea', {
               value: prompt,
               rows: 5,
-              placeholder: '描述要画的图…',
+              placeholder: '描述要画的图…（也可只写需求，用 AI 写/润色）',
               style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.55 }),
               onChange: (event) => setPrompt(event.target.value),
             }),
+            aiError
+              ? h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-state-error-primary)' } }, aiError)
+              : null,
           ),
           h(
             'label',
