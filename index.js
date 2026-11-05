@@ -393,6 +393,48 @@ function nodeRef(input) {
 }
 
 /**
+ * Input names that hold prompt text on the nodes that carry it.
+ *
+ * Concatenate/text nodes name their sides `string_a` / `string_b` (or
+ * `text_g` / `text_l` on SDXL encoders), which is why a fixed `inputs.text`
+ * lookup missed every wired prompt.
+ */
+const TEXT_INPUT_PATTERN = /^(text|string|prompt|value|wildcard_text|populated_text|text_[a-z]|string_[a-z])$/
+
+/**
+ * Read the text behind one encoder's inputs.
+ *
+ * A prompt is often wired instead of typed: `CLIPTextEncode.text` then holds a
+ * reference like `["22", 0]` pointing at a `StringConcatenate`, whose own sides
+ * may be references again. Following them is what turns the raw reference into
+ * the sentence the user actually wrote.
+ * @param nodes - the API prompt graph.
+ * @param inputs - the encoder's inputs (or any node's).
+ * @param depth - recursion guard for reference cycles.
+ * @returns the joined text, or an empty string when nothing readable is wired.
+ */
+function textOfNodeInputs(nodes, inputs, depth = 0) {
+  if (!inputs || typeof inputs !== 'object' || depth > 8) return ''
+  // Concatenate nodes join their sides with their own `delimiter` widget; using
+  // a space there would print the seam differently from what the encoder saw.
+  const joiner = typeof inputs.delimiter === 'string' ? inputs.delimiter : ' '
+  const parts = []
+  for (const [key, value] of Object.entries(inputs)) {
+    if (!TEXT_INPUT_PATTERN.test(key)) continue
+    if (typeof value === 'string') {
+      if (value.trim()) parts.push(value)
+      continue
+    }
+    const id = nodeRef(value)
+    const node = id !== null ? nodes[id] : undefined
+    if (!node || !node.inputs) continue
+    const text = textOfNodeInputs(nodes, node.inputs, depth + 1)
+    if (text.trim()) parts.push(text)
+  }
+  return parts.join(joiner)
+}
+
+/**
  * Make one CLIPTextEncode `text` readable.
  *
  * Structured prompts (MOSS-Image writes JSON: `summary.caption` plus per-object
@@ -402,6 +444,9 @@ function nodeRef(input) {
 function readPromptText(raw) {
   if (typeof raw !== 'string') {
     if (raw == null) return null
+    // An array here is a wiring reference that could not be followed; printing
+    // it would show `["22",0]` where the prompt belongs.
+    if (Array.isArray(raw)) return null
     const json = JSON.stringify(raw)
     return { text: json, structured: true, raw: json }
   }
@@ -422,7 +467,7 @@ function readPromptText(raw) {
 }
 
 /** Pull models, sampler settings, both prompts and the sampling size out of one API prompt. */
-function summarizeWorkflow(nodes) {
+export function summarizeWorkflow(nodes) {
   const models = []
   const seen = new Set()
   let samplerNode = null
@@ -496,7 +541,9 @@ function summarizeWorkflow(nodes) {
   const readSide = (ref) => {
     const target = nodeRef(ref)
     const node = target !== null ? nodes[target] : undefined
-    return readPromptText(node && node.inputs ? node.inputs.text : undefined)
+    if (!node || !node.inputs) return null
+    const text = textOfNodeInputs(nodes, node.inputs)
+    return text ? readPromptText(text) : null
   }
   result.positive = readSide(inputs.positive)
   result.negative = readSide(inputs.negative)
@@ -506,8 +553,10 @@ function summarizeWorkflow(nodes) {
   if (result.positive === null || result.negative === null) {
     const texts = []
     for (const node of Object.values(nodes || {})) {
-      const text = node && node.inputs ? node.inputs.text : undefined
-      if (typeof text === 'string' && text.trim().length > 0) texts.push(readPromptText(text))
+      const nodeInputs = node && node.inputs
+      if (!nodeInputs || !('text' in nodeInputs)) continue
+      const text = textOfNodeInputs(nodes, { text: nodeInputs.text })
+      if (text.trim()) texts.push(readPromptText(text))
     }
     if (result.positive === null && texts.length > 0) result.positive = texts[0]
     if (result.negative === null && texts.length > 1) result.negative = texts[1]
