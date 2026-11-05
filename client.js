@@ -81,6 +81,9 @@ window.__ModuleLoader__.load({
         clearedBefore: 0,
         sound: true,
         comfyPath: '',
+        remoteEndpoint: 'https://api.quickrouter.ai/v1',
+        remoteApiKey: '',
+        remoteModel: 'gpt-image-2.5-flare-c',
         editorPositiveHeight: 96,
         editorNegativeHeight: 96,
         viewerPanelWidth: 360,
@@ -112,6 +115,10 @@ window.__ModuleLoader__.load({
               clearedBefore: typeof parsed.clearedBefore === 'number' ? parsed.clearedBefore : 0,
               sound: parsed.sound !== false,
               comfyPath: typeof parsed.comfyPath === 'string' ? parsed.comfyPath : '',
+              remoteEndpoint:
+                typeof parsed.remoteEndpoint === 'string' ? parsed.remoteEndpoint : 'https://api.quickrouter.ai/v1',
+              remoteApiKey: typeof parsed.remoteApiKey === 'string' ? parsed.remoteApiKey : '',
+              remoteModel: typeof parsed.remoteModel === 'string' ? parsed.remoteModel : 'gpt-image-2.5-flare-c',
               editorPositiveHeight:
                 typeof parsed.editorPositiveHeight === 'number' ? parsed.editorPositiveHeight : 96,
               editorNegativeHeight:
@@ -4818,8 +4825,8 @@ window.__ModuleLoader__.load({
           onChange: setCanvasOn,
         }),
         h(ModuleRow, {
-          title: '独立画板工作台',
-          description: '在左侧边栏「自动化任务」下加入口，点开是全屏画板工作台，不依赖右侧标签页。',
+          title: 'Image 工作台',
+          description: '在左侧边栏「自动化任务」下的入口：进入后可选「本地 ComfyUI 工作流」或「在线 API 出图」。',
           checked: workspaceOn,
           onChange: setWorkspaceOn,
         }),
@@ -9443,7 +9450,176 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** Entry screen: pick the local ComfyUI board or the online API workstation. */
+    function WorkbenchChooser(props) {
+      const card = (key, title, desc) =>
+        h(
+          'button',
+          {
+            key,
+            type: 'button',
+            onClick: () => props.onPick(key),
+            style: {
+              flex: 1,
+              minHeight: 240,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 12,
+              padding: 24,
+              borderRadius: 16,
+              border: '1px solid var(--dsw-alias-border-l2)',
+              background: 'var(--dsw-alias-bg-layer-1)',
+              boxShadow: '0 4px 18px rgba(0, 0, 0, 0.08)',
+              color: 'var(--dsw-alias-label-primary)',
+              fontFamily: 'inherit',
+              cursor: 'pointer',
+              transition: 'transform .18s cubic-bezier(.22,1,.36,1), box-shadow .18s cubic-bezier(.22,1,.36,1)',
+            },
+            onMouseEnter: (event) => {
+              event.currentTarget.style.transform = 'translateY(-2px)'
+              event.currentTarget.style.boxShadow = '0 12px 34px rgba(0, 0, 0, 0.16)'
+            },
+            onMouseLeave: (event) => {
+              event.currentTarget.style.transform = 'none'
+              event.currentTarget.style.boxShadow = '0 4px 18px rgba(0, 0, 0, 0.08)'
+            },
+          },
+          h(Icon, { name: key === 'local' ? 'scan' : 'images', size: 34 }),
+          h('div', { style: { fontSize: 16, fontWeight: 600 } }, title),
+          h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', textAlign: 'center', lineHeight: 1.6 } }, desc),
+        )
+      return h(
+        'div',
+        {
+          style: {
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+            height: '100%',
+            boxSizing: 'border-box',
+            padding: 24,
+            background: 'var(--dsw-alias-bg-base)',
+            color: 'var(--dsw-alias-label-primary)',
+          },
+        },
+        h('div', { style: { fontSize: 18, fontWeight: 600 } }, 'Image 工作台'),
+        h('div', { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)' } }, '选择出图方式'),
+        h(
+          'div',
+          { style: { display: 'flex', gap: 16, flex: 1, minHeight: 0 } },
+          card('local', '本地 ComfyUI', '工作流画板 / 画框 / 快速生成'),
+          card('online', '在线 API', '远程出图（gpt-image）'),
+        ),
+      )
+    }
+
+    /** Remotely generated images through an OpenAI-compatible endpoint. */
+    function OnlineImagePanel(props) {
+      const [endpoint, setEndpoint] = usePref('remoteEndpoint')
+      const [apiKey, setApiKey] = usePref('remoteApiKey')
+      const [model, setModel] = usePref('remoteModel')
+      const [prompt, setPrompt] = useState('')
+      const [size, setSize] = useState('1024x1024')
+      const [busy, setBusy] = useState(false)
+      const [error, setError] = useState('')
+      const [result, setResult] = useState(null)
+      const generate = async () => {
+        if (!String(endpoint).trim() || !String(apiKey).trim() || !prompt.trim()) {
+          setError('需要端点、API Key 和 prompt')
+          return
+        }
+        setBusy(true)
+        setError('')
+        setResult(null)
+        try {
+          const res = await fetch('/plugin/comfy-canvas/remote-image', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ endpoint, key: apiKey, model, prompt, size }),
+          })
+          const data = await res.json().catch(() => null)
+          if (!data || !data.ok) throw new Error((data && data.error) || '请求失败')
+          setResult(data)
+        } catch (err) {
+          setError(String((err && err.message) || err))
+        } finally {
+          setBusy(false)
+        }
+      }
+      const field = {
+        width: '100%',
+        boxSizing: 'border-box',
+        padding: '6px 9px',
+        borderRadius: 8,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 11.5,
+        fontFamily: 'inherit',
+        outline: 'none',
+      }
+      const btn = {
+        padding: '6px 14px',
+        borderRadius: 8,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 11,
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+      }
+      const imgSrc = result && result.b64 ? 'data:image/png;base64,' + result.b64 : result && result.url ? result.url : ''
+      return h(
+        'div',
+        {
+          style: {
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+            height: '100%',
+            boxSizing: 'border-box',
+            overflowY: 'auto',
+            padding: 16,
+            background: 'var(--dsw-alias-bg-base)',
+            color: 'var(--dsw-alias-label-primary)',
+          },
+        },
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+          h('button', { type: 'button', style: btn, onClick: props.onBack }, '← 返回'),
+          h('div', { style: { fontSize: 14, fontWeight: 600 } }, '在线 API 出图'),
+        ),
+        h(
+          'div',
+          { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 } },
+          h('label', { style: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '端点（OpenAI 兼容）', h('input', { value: endpoint, placeholder: 'https://api.quickrouter.ai/v1', style: field, onChange: (event) => setEndpoint(event.target.value) })),
+          h('label', { style: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, 'API Key（只存本机）', h('input', { type: 'password', value: apiKey, placeholder: '填写你的 key', style: field, onChange: (event) => setApiKey(event.target.value) })),
+          h('label', { style: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '模型', h('input', { value: model, placeholder: 'gpt-image-2.5-flare-c', style: field, onChange: (event) => setModel(event.target.value) })),
+          h('label', { style: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '尺寸', h('select', { value: size, style: field, onChange: (event) => setSize(event.target.value) }, ['1024x1024', '1536x1024', '1024x1536'].map((option) => h('option', { key: option, value: option }, option)))),
+        ),
+        h('label', { style: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, 'Prompt', h('textarea', { value: prompt, rows: 5, placeholder: '描述要画的图…', style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.5 }), onChange: (event) => setPrompt(event.target.value) })),
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: 10 } },
+          h('button', { type: 'button', style: Object.assign({}, btn, { background: '#3b82f6', borderColor: '#3b82f6', color: '#fff', fontWeight: 600 }), disabled: busy, onClick: generate }, busy ? '生成中…' : '生成'),
+          error ? h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
+        ),
+        imgSrc
+          ? h(
+              'div',
+              { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+              h('img', { src: imgSrc, alt: '', style: { maxWidth: '100%', maxHeight: '60vh', borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', alignSelf: 'flex-start' } }),
+              h('a', { href: imgSrc, download: 'remote-image.png', style: { fontSize: 11, color: 'var(--dsw-alias-brand-primary)' } }, '下载图片'),
+            )
+          : null,
+      )
+    }
+
     function CanvasWorkspace() {
+      const [view, setView] = useState('chooser')
       const [enabled] = usePref('canvasWorkspace')
       const [canvasTheme, setCanvasTheme] = usePref('workspaceTheme')
       const canvasNight = canvasTheme !== 'light'
@@ -10437,6 +10613,9 @@ window.__ModuleLoader__.load({
               }),
             )
 
+      if (view === 'chooser') return h(WorkbenchChooser, { onPick: setView })
+      if (view === 'online') return h(OnlineImagePanel, { onBack: () => setView('chooser') })
+
       return h(
         'div',
         {
@@ -10501,6 +10680,16 @@ window.__ModuleLoader__.load({
                 ),
               )
             : null,
+          h(
+            'button',
+            {
+              className: 'dshCanvasBtn',
+              title: '返回工作台选择',
+              onClick: () => setView('chooser'),
+              style: { flexShrink: 0 },
+            },
+            '←',
+          ),
           h(
             'div',
             { style: { flex: 'none', width: 180 } },
@@ -11830,7 +12019,7 @@ window.__ModuleLoader__.load({
                   name: 'sidebar.panellist',
                   id: WORKSPACE_KEY,
                   order: 20,
-                  label: () => 'MOSS 画板',
+                  label: () => 'Image 工作台',
                 },
                 WorkspaceIcon,
               )
