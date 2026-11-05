@@ -13,6 +13,7 @@
 import { apply as applyCanvasHost } from './canvas-host.js'
 import { dirname, join } from 'node:path'
 import { readdir, stat, readFile } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
 
 const DEFAULT_URL = 'http://127.0.0.1:8188'
 const UPSTREAM_TIMEOUT_MS = 3000
@@ -28,6 +29,72 @@ async function getJSON(url) {
   const res = await fetch(url, { signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${url}`)
   return res.json()
+}
+
+async function isFile(path) {
+  try {
+    const info = await stat(path)
+    return info.isFile()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Start the local ComfyUI (绘世 layout) with its bundled python.
+ *
+ * The 绘世 launcher is a GUI, so launching `python main.py` directly is the only
+ * way to bring the server up from here. The configured dir may be the launcher
+ * root (with a ComfyUI/ subfolder) or the folder that holds main.py.
+ */
+async function launchComfy(dir, baseUrl) {
+  const candidates = []
+  if (typeof dir === 'string' && dir.trim()) candidates.push(dir.trim())
+  candidates.push('J:\\ComfyUI-aki-v3\\ComfyUI-aki-v3', 'J:\\ComfyUI-aki-v3', 'J:\\comfyui-aki')
+  let found = null
+  for (const candidate of candidates) {
+    try {
+      const info = await stat(candidate)
+      if (!info.isDirectory()) continue
+    } catch {
+      continue
+    }
+    if (await isFile(join(candidate, 'main.py'))) {
+      found = { root: dirname(candidate), comfyDir: candidate }
+      break
+    }
+    const nested = join(candidate, 'ComfyUI')
+    if (await isFile(join(nested, 'main.py'))) {
+      found = { root: candidate, comfyDir: nested }
+      break
+    }
+  }
+  if (!found) {
+    return { ok: false, error: '没有找到 ComfyUI，请在插件设置里填写安装路径（绘世安装根目录或含 main.py 的目录）' }
+  }
+  let python = null
+  for (const candidate of [join(found.root, 'python', 'python.exe'), join(found.comfyDir, 'python', 'python.exe')]) {
+    if (await isFile(candidate)) {
+      python = candidate
+      break
+    }
+  }
+  if (!python) {
+    return { ok: false, error: '没有找到 ComfyUI 自带的 python，请用绘世启动器手动启动' }
+  }
+  let port = '8188'
+  try {
+    port = new URL(baseUrl).port || '8188'
+  } catch {
+    // Keep the default port.
+  }
+  const child = spawn(python, ['main.py', '--listen', '127.0.0.1', '--port', port], {
+    cwd: found.comfyDir,
+    detached: true,
+    stdio: 'ignore',
+  })
+  child.unref()
+  return { ok: true, message: '已请求启动 ComfyUI，请稍候刷新状态', dir: found.comfyDir }
 }
 
 /** ComfyUI's own output directory, derived from the running instance's argv. */
@@ -876,6 +943,18 @@ function createHandler(baseUrl) {
         lastEventAt,
         recent: recentEvents,
       })
+    }
+
+    // Ask the host to start the local ComfyUI install.
+    if (pathname === `${PREFIX}/launch`) {
+      if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const body = await readJson(req)
+        const result = await launchComfy(body.dir, baseUrl)
+        return send(200, result)
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
     }
 
     return send(404, { ok: false, error: 'not found' })

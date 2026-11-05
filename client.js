@@ -72,6 +72,7 @@ window.__ModuleLoader__.load({
         canvas: true,
         clearedBefore: 0,
         sound: true,
+        comfyPath: '',
         editorPositiveHeight: 96,
         editorNegativeHeight: 96,
         viewerPanelWidth: 360,
@@ -101,6 +102,7 @@ window.__ModuleLoader__.load({
               canvas: parsed.canvas !== false,
               clearedBefore: typeof parsed.clearedBefore === 'number' ? parsed.clearedBefore : 0,
               sound: parsed.sound !== false,
+              comfyPath: typeof parsed.comfyPath === 'string' ? parsed.comfyPath : '',
               editorPositiveHeight:
                 typeof parsed.editorPositiveHeight === 'number' ? parsed.editorPositiveHeight : 96,
               editorNegativeHeight:
@@ -156,6 +158,69 @@ window.__ModuleLoader__.load({
      * at 100% OS scaling. Scale them up on wide screens, but never on top of a
      * high devicePixelRatio — the OS already scaled everything there.
      */
+    /** Ask the Host to start the local ComfyUI install. */
+    async function launchLocalComfy() {
+      try {
+        const res = await fetch('/plugin/comfy-status/launch', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ dir: pluginPrefs.get().comfyPath || '' }),
+        })
+        const data = await res.json().catch(() => null)
+        return data || { ok: false, error: '启动请求失败' }
+      } catch (error) {
+        return { ok: false, error: String((error && error.message) || error) }
+      }
+    }
+
+    /** Inline "start ComfyUI" control shared by every surface that can go offline. */
+    function LaunchComfyButton(props) {
+      const [busy, setBusy] = useState(false)
+      const [message, setMessage] = useState('')
+      const run = async () => {
+        if (busy) return
+        setBusy(true)
+        setMessage('')
+        const result = await launchLocalComfy()
+        setBusy(false)
+        setMessage(result && result.ok ? result.message || '已请求启动' : (result && result.error) || '启动失败')
+      }
+      return h(
+        'div',
+        {
+          style: {
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            flexWrap: 'wrap',
+            marginTop: (props && props.marginTop) || 6,
+          },
+        },
+        h(
+          'button',
+          {
+            type: 'button',
+            disabled: busy,
+            onClick: run,
+            style: {
+              padding: '3px 8px',
+              borderRadius: 6,
+              border: '1px solid var(--dsw-alias-border-l2)',
+              background: 'var(--dsw-alias-bg-layer-1)',
+              color: 'var(--dsw-alias-label-primary)',
+              fontSize: 10.5,
+              fontFamily: 'inherit',
+              cursor: 'pointer',
+            },
+          },
+          busy ? '正在启动…' : '启动 ComfyUI',
+        ),
+        message
+          ? h('span', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, message)
+          : null,
+      )
+    }
+
     const UI_SCALE = (() => {
       try {
         const screenWidth = (window.screen && window.screen.width) || window.innerWidth || 0
@@ -738,8 +803,13 @@ window.__ModuleLoader__.load({
           ? null
           : h(
               'div',
-              { style: Object.assign({}, SUB, ELLIPSIS, { fontSize: 9.5 }) },
-              snap ? '端口未响应 ' + (snap.url || '').replace(/^https?:\/\//, '') : '正在连接…',
+              null,
+              h(
+                'div',
+                { style: Object.assign({}, SUB, ELLIPSIS, { fontSize: 9.5 }) },
+                snap ? '端口未响应 ' + (snap.url || '').replace(/^https?:\/\//, '') : '正在连接…',
+              ),
+              h(LaunchComfyButton, { marginTop: 6 }),
             ),
       )
     }
@@ -3566,7 +3636,13 @@ window.__ModuleLoader__.load({
       let content
       if (error) content = h('div', { style: ALBUM_EMPTY }, '无法连接插件后端：' + error)
       else if (!album) content = h('div', { style: ALBUM_EMPTY }, '正在加载…')
-      else if (album.up === false) content = h('div', { style: ALBUM_EMPTY }, 'ComfyUI 未连接')
+      else if (album.up === false)
+        content = h(
+          'div',
+          { style: ALBUM_EMPTY },
+          'ComfyUI 未连接',
+          h(LaunchComfyButton, { marginTop: 8 }),
+        )
       else if (items.length === 0) content = h('div', { style: ALBUM_EMPTY }, '还没有输出图')
       else if (visible.length === 0)
         content = h(
@@ -3756,6 +3832,7 @@ window.__ModuleLoader__.load({
       const [albumOn, setAlbumOn] = usePref('album')
       const [canvasOn, setCanvasOn] = usePref('canvas')
       const [workspaceOn, setWorkspaceOn] = usePref('canvasWorkspace')
+      const [comfyPath, setComfyPath] = usePref('comfyPath')
 
       if (props.view === 'summary') {
         return h(
@@ -3800,6 +3877,41 @@ window.__ModuleLoader__.load({
           checked: workspaceOn,
           onChange: setWorkspaceOn,
         }),
+        h(
+          'div',
+          { style: { padding: '10px 0', borderTop: '1px solid var(--dsw-alias-border-l1)' } },
+          h('div', { style: { fontSize: 12, fontWeight: 500 } }, 'ComfyUI 安装路径'),
+          h(
+            'div',
+            {
+              style: {
+                fontSize: 11,
+                color: 'var(--dsw-alias-label-secondary)',
+                margin: '2px 0 6px',
+                lineHeight: 1.5,
+              },
+            },
+            '用于「启动 ComfyUI」：填绘世安装根目录，或含 main.py 的目录；留空则尝试常见位置。',
+          ),
+          h('input', {
+            value: comfyPath,
+            placeholder: 'J:\\ComfyUI-aki-v3\\ComfyUI-aki-v3',
+            style: {
+              width: '100%',
+              boxSizing: 'border-box',
+              padding: '5px 8px',
+              borderRadius: 6,
+              border: '1px solid var(--dsw-alias-border-l2)',
+              background: 'var(--dsw-alias-bg-layer-1)',
+              color: 'var(--dsw-alias-label-primary)',
+              fontSize: 11,
+              fontFamily: 'inherit',
+              outline: 'none',
+            },
+            onChange: (event) => setComfyPath(event.target.value),
+          }),
+          h(LaunchComfyButton, { marginTop: 8 }),
+        ),
       )
     }
 
@@ -7734,7 +7846,7 @@ window.__ModuleLoader__.load({
       // The overlay owns its open flag in the store: unmounting this tab (an agent
       // turn, a tab switch) must not slam the working view shut.
       let body
-      if (error) body = h('div', { style: EMPTY }, error)
+      if (error) body = h('div', { style: EMPTY }, error, h(LaunchComfyButton, { marginTop: 8 }))
       else if (files === null) body = h('div', { style: EMPTY }, '正在读取工作流…')
       else if (files.length === 0) body = h('div', { style: EMPTY }, '工作流目录是空的')
       else if (!hasNode)
@@ -9179,7 +9291,7 @@ window.__ModuleLoader__.load({
       }
 
       const stageContent = error
-        ? h('div', { style: EMPTY }, error)
+        ? h('div', { style: EMPTY }, error, h(LaunchComfyButton, { marginTop: 8 }))
         : files !== null && files.length === 0
           ? h('div', { style: EMPTY }, '工作流目录是空的')
           : h(
