@@ -8833,11 +8833,12 @@ window.__ModuleLoader__.load({
 
       /** Direct preview: hand the current layout to ComfyUI without the agent. */
       const quickGenerate = async () => {
-        if (boxes.length === 0) {
-          setStatus('画布上还没有框')
+        const plainPrompt = String(summary || '').trim()
+        if (boxes.length === 0 && !plainPrompt) {
+          setStatus('画布上还没有框：可以先写整图描述做文生图')
           return
         }
-        const layout = buildMossLayout(summary, size.width, size.height, boxes)
+        const layout = boxes.length > 0 ? buildMossLayout(summary, size.width, size.height, boxes) : null
         const stored = canvasModelsRef.current || {}
         let sampling = stored.sampling || {}
         if (sampling.seedMode === 'random') {
@@ -8854,6 +8855,7 @@ window.__ModuleLoader__.load({
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
               layout,
+              plainPrompt: boxes.length === 0 ? plainPrompt : '',
               models,
               width: size.width,
               height: size.height,
@@ -11170,11 +11172,12 @@ window.__ModuleLoader__.load({
       }
 
       const quickGenerate = async () => {
-        if (boxes.length === 0) {
-          setStatus('画布上还没有框')
+        const plainPrompt = String(summary || '').trim()
+        if (boxes.length === 0 && !plainPrompt) {
+          setStatus('画布上还没有框：可以先写整图描述做文生图')
           return
         }
-        const layout = buildMossLayout(summary, size.width, size.height, boxes)
+        const layout = boxes.length > 0 ? buildMossLayout(summary, size.width, size.height, boxes) : null
         const stored = canvasModelsRef.current || {}
         let sampling = stored.sampling || {}
         if (sampling.seedMode === 'random') {
@@ -11188,6 +11191,7 @@ window.__ModuleLoader__.load({
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
               layout,
+              plainPrompt: boxes.length === 0 ? plainPrompt : '',
               models: Object.assign({}, stored, { sampling }),
               width: size.width,
               height: size.height,

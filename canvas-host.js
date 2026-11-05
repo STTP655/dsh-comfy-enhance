@@ -315,7 +315,7 @@ async function getModelOptions(baseUrl) {
  * the bundled API template is used first; the newest history entry that ran a
  * MOSSImage node is only the fallback for installs that predate the template.
  */
-async function submitLayout(baseUrl, layout, models, width, height, negative) {
+async function submitLayout(baseUrl, layout, models, width, height, negative, plainText) {
   const wantedModels = models && typeof models === 'object' ? models : {}
   const isSft =
     /sft/i.test(String(wantedModels.clip || '')) || /sft/i.test(String(wantedModels.unet || ''))
@@ -413,7 +413,8 @@ async function submitLayout(baseUrl, layout, models, width, height, negative) {
 
   const positiveId = findPositiveTextNode(graph)
   if (!positiveId) throw new Error('模板里找不到正向提示词节点')
-  graph[positiveId].inputs.text = JSON.stringify(layout)
+  graph[positiveId].inputs.text =
+    typeof plainText === 'string' && plainText.trim() ? plainText.trim() : JSON.stringify(layout)
 
   // An explicit negative prompt replaces whatever the template carried; blank
   // keeps the template's own negative untouched.
@@ -708,10 +709,17 @@ export function apply(ctx, config = {}) {
       if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
       try {
         const body = JSON.parse((await readBody(req)) || '{}')
-        if (!body || typeof body.layout !== 'object' || body.layout === null) {
-          throw new Error('缺少 layout')
+        const plainPrompt = typeof body.plainPrompt === 'string' ? body.plainPrompt.trim() : ''
+        if (!plainPrompt) {
+          if (!body || typeof body.layout !== 'object' || body.layout === null) {
+            throw new Error('缺少 layout 或 plainPrompt')
+          }
+          return send(200, await submitLayout(baseUrl, body.layout, body.models, body.width, body.height, body.negative))
         }
-        return send(200, await submitLayout(baseUrl, body.layout, body.models, body.width, body.height, body.negative))
+        return send(
+          200,
+          await submitLayout(baseUrl, null, body.models, body.width, body.height, body.negative, plainPrompt),
+        )
       } catch (error) {
         return send(502, { ok: false, error: String((error && error.message) || error) })
       }
