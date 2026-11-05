@@ -9461,14 +9461,14 @@ window.__ModuleLoader__.load({
             onClick: () => props.onPick(key),
             style: {
               flex: 1,
-              minHeight: 240,
+              minHeight: 120,
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 12,
-              padding: 24,
-              borderRadius: 16,
+              gap: 8,
+              padding: 16,
+              borderRadius: 12,
               border: '1px solid var(--dsw-alias-border-l2)',
               background: 'var(--dsw-alias-bg-layer-1)',
               boxShadow: '0 4px 18px rgba(0, 0, 0, 0.08)',
@@ -9486,9 +9486,9 @@ window.__ModuleLoader__.load({
               event.currentTarget.style.boxShadow = '0 4px 18px rgba(0, 0, 0, 0.08)'
             },
           },
-          h(Icon, { name: key === 'local' ? 'scan' : 'images', size: 34 }),
-          h('div', { style: { fontSize: 16, fontWeight: 600 } }, title),
-          h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', textAlign: 'center', lineHeight: 1.6 } }, desc),
+          h(Icon, { name: key === 'local' ? 'scan' : 'images', size: 22 }),
+          h('div', { style: { fontSize: 13, fontWeight: 600 } }, title),
+          h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)', textAlign: 'center', lineHeight: 1.6 } }, desc),
         )
       return h(
         'div',
@@ -9508,7 +9508,7 @@ window.__ModuleLoader__.load({
         h('div', { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)' } }, '选择出图方式'),
         h(
           'div',
-          { style: { display: 'flex', gap: 16, flex: 1, minHeight: 0 } },
+          { style: { display: 'flex', gap: 12, width: '50%', margin: '0 auto' } },
           card('local', '本地 ComfyUI', '工作流画板 / 画框 / 快速生成'),
           card('online', '在线 API', '远程出图（gpt-image）'),
         ),
