@@ -48,6 +48,13 @@ async function isFile(path) {
  * root (with a ComfyUI/ subfolder) or the folder that holds main.py.
  */
 async function launchComfy(dir, baseUrl) {
+  // Already up? Starting a second instance would only die on the busy port.
+  try {
+    const probe = await fetch(`${baseUrl}/system_stats`, { signal: AbortSignal.timeout(2500) })
+    if (probe.ok) return { ok: true, message: 'ComfyUI 已经在运行' }
+  } catch {
+    // Not running: launch it below.
+  }
   const candidates = []
   if (typeof dir === 'string' && dir.trim()) candidates.push(dir.trim())
   candidates.push('J:\\ComfyUI-aki-v3\\ComfyUI-aki-v3', 'J:\\ComfyUI-aki-v3', 'J:\\comfyui-aki')
@@ -88,12 +95,28 @@ async function launchComfy(dir, baseUrl) {
   } catch {
     // Keep the default port.
   }
-  const child = spawn(python, ['main.py', '--listen', '127.0.0.1', '--port', port], {
-    cwd: found.comfyDir,
-    detached: true,
-    stdio: 'ignore',
+  let child = null
+  try {
+    child = spawn(python, ['main.py', '--listen', '127.0.0.1', '--port', port], {
+      cwd: found.comfyDir,
+      detached: true,
+      windowsHide: true,
+      stdio: ['ignore', 'ignore', 'pipe'],
+    })
+  } catch (error) {
+    return { ok: false, error: '启动进程失败：' + String((error && error.message) || error) }
+  }
+  let stderr = ''
+  child.stderr.on('data', (chunk) => {
+    if (stderr.length < 4000) stderr += String(chunk)
   })
   child.unref()
+  // A fast exit means the launch failed (bad env, missing deps, busy port).
+  await new Promise((resolve) => setTimeout(resolve, 2500))
+  if (child.exitCode !== null && child.exitCode !== 0) {
+    const detail = stderr.trim() ? '：' + stderr.trim().slice(0, 300) : ''
+    return { ok: false, error: '启动失败（进程已退出）' + detail }
+  }
   return { ok: true, message: '已请求启动 ComfyUI，请稍候刷新状态', dir: found.comfyDir }
 }
 
