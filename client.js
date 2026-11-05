@@ -956,46 +956,21 @@ window.__ModuleLoader__.load({
           visibleRef.current = false
           setVisible(false)
           setClosing(false)
-        }, 340)
+        }, 280)
         return () => clearTimeout(timer)
       }, [draft.open])
-      // Web Animations instead of CSS keyframes: the card mounts and animates in
-      // the same commit (the entrance can never be missed), and the exit runs to
-      // completion before the unmount timer fires. Height is animated too — a
-      // transform-only exit leaves the layout behind, so the transcript above
-      // would only jump once the card is removed.
+      // CSS grid-rows transition (0fr ↔ 1fr) instead of per-frame height writes:
+      // the browser animates the layout itself, so the transcript above is not
+      // reflowed through JS on every frame (see the flow-motion fold approach).
+      const [entered, setEntered] = useState(false)
       useEffect(() => {
-        const node = cardRef.current
-        if (!node || typeof node.animate !== 'function') return undefined
-        if (animRef.current) {
-          try {
-            animRef.current.cancel()
-          } catch {
-            // Finished animations ignore cancel.
-          }
-          animRef.current = null
+        if (!draft.open) {
+          setEntered(false)
+          return undefined
         }
-        if (draft.open) {
-          const height = node.offsetHeight
-          animRef.current = node.animate(
-            [
-              { height: '0px', opacity: 0, transform: 'translateY(12px)', overflow: 'hidden' },
-              { height: height + 'px', opacity: 1, transform: 'translateY(0)', overflow: 'hidden' },
-            ],
-            { duration: 260, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'backwards' },
-          )
-        } else if (closing) {
-          const height = node.offsetHeight
-          animRef.current = node.animate(
-            [
-              { height: height + 'px', opacity: 1, transform: 'translateY(0)', overflow: 'hidden' },
-              { height: '0px', opacity: 0, transform: 'translateY(6px)', overflow: 'hidden' },
-            ],
-            { duration: 220, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'both' },
-          )
-        }
-        return undefined
-      }, [draft.open, closing, visible])
+        const frame = requestAnimationFrame(() => setEntered(true))
+        return () => cancelAnimationFrame(frame)
+      }, [draft.open])
       if (!visible) return null
       if (draft.sessionId && props && props.sessionId && draft.sessionId !== props.sessionId) return null
       const actions = props && props.inputActions ? props.inputActions : null
@@ -1048,27 +1023,39 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         {
-          ref: cardRef,
           style: {
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
+            display: 'grid',
+            gridTemplateRows: entered && !closing ? '1fr' : '0fr',
             width: '100%',
-            boxSizing: 'border-box',
-            // Match the input card's width axis: the composer caps at the shared
-            // --dsh-composer-card-max-width and centers, while a plain dock entry
-            // would stretch across the whole column.
             maxWidth: 'var(--dsh-composer-card-max-width)',
-            margin: '0 auto 8px',
-            padding: 12,
-            borderRadius: 'var(--dsw-radius-panel)',
-            border: '1px solid var(--dsw-alias-border-l2)',
-            background: 'var(--dsw-alias-bg-layer-2)',
-            boxShadow: '0 4px 18px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.06)',
-            maxHeight: '50vh',
-            overflowY: 'auto',
+            margin: '0 auto',
+            marginBottom: entered && !closing ? 8 : 0,
+            opacity: entered ? 1 : 0,
+            transform: entered ? 'translateY(0)' : 'translateY(10px)',
+            transition:
+              'grid-template-rows 240ms cubic-bezier(0.2, 0, 0, 1), margin-bottom 240ms cubic-bezier(0.2, 0, 0, 1), opacity 200ms ease-out, transform 240ms cubic-bezier(0.2, 0, 0, 1)',
           },
         },
+        h(
+          'div',
+          { style: { minHeight: 0, overflow: 'hidden' } },
+          h(
+            'div',
+            {
+              style: {
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                padding: 12,
+                borderRadius: 'var(--dsw-radius-panel)',
+                border: '1px solid var(--dsw-alias-border-l2)',
+                background: 'var(--dsw-alias-bg-layer-2)',
+                boxShadow: '0 4px 18px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.06)',
+                maxHeight: '50vh',
+                overflowY: 'auto',
+                boxSizing: 'border-box',
+              },
+            },
         h(
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: 6 } },
@@ -1204,6 +1191,8 @@ window.__ModuleLoader__.load({
               onClick: submit,
             },
             '提交',
+          ),
+        ),
           ),
         ),
       )
