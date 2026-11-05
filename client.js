@@ -12153,9 +12153,24 @@ window.__ModuleLoader__.load({
                                 style: { flex: 1, textAlign: 'left', fontSize: 10.5, padding: '3px 6px' },
                                 title: entry.name,
                                 onClick: () => applySnapshot(entry),
+                                onMouseEnter: () => thumbSnapshot(entry),
                               },
                               entry.name + ' · ' + (entry.width || '?') + '×' + (entry.height || '?'),
                             ),
+                            entry.thumb
+                              ? h('img', {
+                                  src: entry.thumb,
+                                  alt: '',
+                                  style: {
+                                    width: 32,
+                                    height: 32,
+                                    objectFit: 'cover',
+                                    borderRadius: 6,
+                                    border: '1px solid var(--dsw-alias-border-l2)',
+                                    flex: 'none',
+                                  },
+                                })
+                              : null,
                             h(
                               'button',
                               {
