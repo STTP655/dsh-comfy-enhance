@@ -951,7 +951,7 @@ window.__ModuleLoader__.load({
           visibleRef.current = false
           setVisible(false)
           setClosing(false)
-        }, 190)
+        }, 220)
         return () => clearTimeout(timer)
       }, [draft.open])
       if (!visible) return null
@@ -1024,14 +1024,17 @@ window.__ModuleLoader__.load({
             boxShadow: '0 1px 2px rgba(0, 0, 0, 0.06)',
             maxHeight: '50vh',
             overflowY: 'auto',
-            animation: closing ? 'dshDraftOut .16s ease-in both' : 'dshDraftIn .18s ease-out both',
+            animation: closing
+              ? 'dshDraftOut .2s cubic-bezier(0.4, 0, 0.2, 1) both'
+              : 'dshDraftIn .24s cubic-bezier(0.22, 1, 0.36, 1) both',
           },
         },
         h(
           'style',
           { key: 'dsh-comfy-draft-anim' },
-          '@keyframes dshDraftIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}' +
-            '@keyframes dshDraftOut{from{opacity:1;transform:none}to{opacity:0;transform:translateY(8px)}}',
+          // Ease-out-quint on the way in (a push-up that settles), a gentle sink out.
+          '@keyframes dshDraftIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}' +
+            '@keyframes dshDraftOut{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(5px)}}',
         ),
         h(
           'div',
