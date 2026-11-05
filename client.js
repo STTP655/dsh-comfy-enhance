@@ -85,6 +85,16 @@ window.__ModuleLoader__.load({
         remoteApiKey: '',
         remoteModel: 'gpt-image-2.5-flare-c',
         remoteSaveDir: '',
+        remotePrompt: '',
+        remoteMode: 't2i',
+        remoteProvider: 'openai',
+        remoteSize: '1024x1024',
+        remoteQuality: 'auto',
+        remoteBackground: 'auto',
+        remoteFormat: 'png',
+        remoteCount: 1,
+        remoteAspect: '1:1',
+        remoteOptimizer: false,
         editorPositiveHeight: 96,
         editorNegativeHeight: 96,
         viewerPanelWidth: 360,
@@ -121,6 +131,16 @@ window.__ModuleLoader__.load({
               remoteApiKey: typeof parsed.remoteApiKey === 'string' ? parsed.remoteApiKey : '',
               remoteModel: typeof parsed.remoteModel === 'string' ? parsed.remoteModel : 'gpt-image-2.5-flare-c',
               remoteSaveDir: typeof parsed.remoteSaveDir === 'string' ? parsed.remoteSaveDir : '',
+              remotePrompt: typeof parsed.remotePrompt === 'string' ? parsed.remotePrompt : '',
+              remoteMode: parsed.remoteMode === 'edit' ? 'edit' : 't2i',
+              remoteProvider: parsed.remoteProvider === 'minimax' ? 'minimax' : 'openai',
+              remoteSize: typeof parsed.remoteSize === 'string' ? parsed.remoteSize : '1024x1024',
+              remoteQuality: typeof parsed.remoteQuality === 'string' ? parsed.remoteQuality : 'auto',
+              remoteBackground: typeof parsed.remoteBackground === 'string' ? parsed.remoteBackground : 'auto',
+              remoteFormat: typeof parsed.remoteFormat === 'string' ? parsed.remoteFormat : 'png',
+              remoteCount: typeof parsed.remoteCount === 'number' ? parsed.remoteCount : 1,
+              remoteAspect: typeof parsed.remoteAspect === 'string' ? parsed.remoteAspect : '1:1',
+              remoteOptimizer: Boolean(parsed.remoteOptimizer),
               editorPositiveHeight:
                 typeof parsed.editorPositiveHeight === 'number' ? parsed.editorPositiveHeight : 96,
               editorNegativeHeight:
@@ -9629,19 +9649,22 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /** Remotely generated images through an OpenAI-compatible endpoint. */
+    /** Remotely generated images: OpenAI-compatible and MiniMax adapters. */
     function OnlineImagePanel(props) {
       ensureWorkbenchStyle()
-      const [mode, setMode] = useState('t2i')
+      const [provider, setProvider] = usePref('remoteProvider')
+      const [mode, setMode] = usePref('remoteMode')
       const [endpoint, setEndpoint] = usePref('remoteEndpoint')
       const [apiKey, setApiKey] = usePref('remoteApiKey')
       const [model, setModel] = usePref('remoteModel')
-      const [prompt, setPrompt] = useState('')
-      const [size, setSize] = useState('1024x1024')
-      const [quality, setQuality] = useState('auto')
-      const [background, setBackground] = useState('auto')
-      const [outputFormat, setOutputFormat] = useState('png')
-      const [count, setCount] = useState(1)
+      const [prompt, setPrompt] = usePref('remotePrompt')
+      const [size, setSize] = usePref('remoteSize')
+      const [quality, setQuality] = usePref('remoteQuality')
+      const [background, setBackground] = usePref('remoteBackground')
+      const [outputFormat, setOutputFormat] = usePref('remoteFormat')
+      const [count, setCount] = usePref('remoteCount')
+      const [aspectRatio, setAspectRatio] = usePref('remoteAspect')
+      const [promptOptimizer, setPromptOptimizer] = usePref('remoteOptimizer')
       const [customW, setCustomW] = useState('')
       const [customH, setCustomH] = useState('')
       const [sizeMode, setSizeMode] = useState('preset')
@@ -9657,16 +9680,17 @@ window.__ModuleLoader__.load({
       const [savedTick, setSavedTick] = useState(0)
       const [viewerOpen, setViewerOpen] = useState(false)
       const [viewerIndex, setViewerIndex] = useState(0)
-      const pickImage = (event) => {
-        const file = event.target.files && event.target.files[0]
-        event.target.value = ''
-        if (!file) return
-        const reader = new FileReader()
-        reader.onload = () => setImageData(typeof reader.result === 'string' ? reader.result : '')
-        reader.onerror = () => setError('读取参考图失败')
-        reader.readAsDataURL(file)
-      }
-      // Gallery preview: the newest saved results from the chosen folder.
+      // Switching provider only rewrites values that still equal the other side's
+      // defaults, so a custom endpoint/model survives the toggle.
+      useEffect(() => {
+        if (provider === 'minimax') {
+          if (!endpoint || endpoint === 'https://api.quickrouter.ai/v1') setEndpoint('https://api.minimax.cn/v1')
+          if (!model || model === 'gpt-image-2.5-flare-c') setModel('image-01')
+        } else {
+          if (!endpoint || endpoint === 'https://api.minimax.cn/v1') setEndpoint('https://api.quickrouter.ai/v1')
+          if (!model || model === 'image-01') setModel('gpt-image-2.5-flare-c')
+        }
+      }, [provider])
       useEffect(() => {
         if (!saveDir) return undefined
         let alive = true
@@ -9681,10 +9705,18 @@ window.__ModuleLoader__.load({
           alive = false
         }
       }, [saveDir, savedTick])
-
+      const pickImage = (event) => {
+        const file = event.target.files && event.target.files[0]
+        event.target.value = ''
+        if (!file) return
+        const reader = new FileReader()
+        reader.onload = () => setImageData(typeof reader.result === 'string' ? reader.result : '')
+        reader.onerror = () => setError('读取参考图失败')
+        reader.readAsDataURL(file)
+      }
       const aiWrite = async () => {
         if (aiBusy) return
-        if (!prompt.trim()) {
+        if (!String(prompt).trim()) {
           setAiError('先在输入框写下你的要求，再点 AI 写/润色')
           return
         }
@@ -9706,7 +9738,7 @@ window.__ModuleLoader__.load({
         }
       }
       const generate = async () => {
-        if (!String(endpoint).trim() || !String(apiKey).trim() || !prompt.trim()) {
+        if (!String(endpoint).trim() || !String(apiKey).trim() || !String(prompt).trim()) {
           setError('需要端点、API Key 和 prompt')
           return
         }
@@ -9715,7 +9747,7 @@ window.__ModuleLoader__.load({
           return
         }
         let finalSize = size
-        if (sizeMode === 'custom') {
+        if (provider === 'openai' && sizeMode === 'custom') {
           const width = Number(customW)
           const height = Number(customH)
           if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
@@ -9741,6 +9773,7 @@ window.__ModuleLoader__.load({
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
+              provider,
               endpoint,
               key: apiKey,
               model,
@@ -9752,23 +9785,32 @@ window.__ModuleLoader__.load({
               background,
               output_format: outputFormat,
               n: count,
+              aspect_ratio: aspectRatio,
+              prompt_optimizer: promptOptimizer,
+              width: Number(customW) || 0,
+              height: Number(customH) || 0,
             }),
           })
           const data = await res.json().catch(() => null)
           if (!data || !data.ok) throw new Error((data && data.error) || '请求失败')
           setResult(data)
-          if (saveDir && data.b64) {
-            try {
-              const saved = await fetch('/plugin/comfy-canvas/save-image', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ dir: saveDir, b64: data.b64 }),
-              })
-              const savedData = await saved.json().catch(() => null)
-              if (savedData && savedData.ok) setSavedTick((value) => value + 1)
-            } catch {
-              // Saving is best-effort; the preview still shows the image.
+          const list = Array.isArray(data.b64List) ? data.b64List : data.b64 ? [data.b64] : []
+          if (saveDir && list.length > 0) {
+            let savedAny = false
+            for (const b64 of list) {
+              try {
+                const saved = await fetch('/plugin/comfy-canvas/save-image', {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ dir: saveDir, b64 }),
+                })
+                const savedData = await saved.json().catch(() => null)
+                if (savedData && savedData.ok) savedAny = true
+              } catch {
+                // Saving is best-effort; the preview still shows the images.
+              }
             }
+            if (savedAny) setSavedTick((value) => value + 1)
           }
         } catch (err) {
           setError(String((err && err.message) || err))
@@ -9795,21 +9837,21 @@ window.__ModuleLoader__.load({
         fontSize: 10.5,
         color: 'var(--dsw-alias-label-secondary)',
       }
-      const imgSrc = result && result.b64 ? 'data:image/png;base64,' + result.b64 : result && result.url ? result.url : ''
-      const modeTab = (key, text) =>
+      const images = result ? (Array.isArray(result.b64List) ? result.b64List : result.b64 ? [result.b64] : []) : []
+      const tab = (key, text, current, onClick) =>
         h(
           'button',
           {
             key,
             type: 'button',
-            onClick: () => setMode(key),
+            onClick,
             style: {
               flex: 1,
               padding: '7px 10px',
               borderRadius: 8,
-              border: '1px solid ' + (mode === key ? '#3b82f6' : 'transparent'),
-              background: mode === key ? '#3b82f6' : 'transparent',
-              color: mode === key ? '#ffffff' : 'var(--dsw-alias-label-secondary)',
+              border: '1px solid ' + (current === key ? '#3b82f6' : 'transparent'),
+              background: current === key ? '#3b82f6' : 'transparent',
+              color: current === key ? '#ffffff' : 'var(--dsw-alias-label-secondary)',
               fontSize: 11,
               fontWeight: 600,
               fontFamily: 'inherit',
@@ -9819,6 +9861,17 @@ window.__ModuleLoader__.load({
           },
           text,
         )
+      const btn = {
+        padding: '5px 10px',
+        borderRadius: 8,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-layer-2)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 11,
+        fontWeight: 600,
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+      }
       return h(
         'div',
         {
@@ -9849,25 +9902,7 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { style: { display: 'flex', alignItems: 'center', gap: 8 } },
-            h(
-              'button',
-              {
-                type: 'button',
-                onClick: props.onBack,
-                style: {
-                  padding: '5px 10px',
-                  borderRadius: 8,
-                  border: '1px solid var(--dsw-alias-border-l2)',
-                  background: 'var(--dsw-alias-bg-layer-2)',
-                  color: 'var(--dsw-alias-label-primary)',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  fontFamily: 'inherit',
-                  cursor: 'pointer',
-                },
-              },
-              '返回',
-            ),
+            h('button', { type: 'button', style: btn, onClick: props.onBack }, '返回'),
             h('div', { style: { fontSize: 14, fontWeight: 600 } }, '在线 API 出图'),
           ),
           h(
@@ -9882,8 +9917,23 @@ window.__ModuleLoader__.load({
                 border: '1px solid var(--dsw-alias-border-l2)',
               },
             },
-            modeTab('t2i', '文生图'),
-            modeTab('edit', '参考图编辑'),
+            tab('openai', 'OpenAI 兼容', provider, () => setProvider('openai')),
+            tab('minimax', 'MiniMax', provider, () => setProvider('minimax')),
+          ),
+          h(
+            'div',
+            {
+              style: {
+                display: 'flex',
+                gap: 4,
+                padding: 3,
+                borderRadius: 10,
+                background: 'var(--dsw-alias-bg-layer-1)',
+                border: '1px solid var(--dsw-alias-border-l2)',
+              },
+            },
+            tab('t2i', '文生图', mode, () => setMode('t2i')),
+            tab('edit', '参考图编辑', mode, () => setMode('edit')),
           ),
           mode === 'edit'
             ? h(
@@ -10010,107 +10060,158 @@ window.__ModuleLoader__.load({
               ? h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-state-error-primary)' } }, aiError)
               : null,
           ),
-          h(
-            'div',
-            { style: label },
-            '尺寸',
-            h(
-              'select',
-              {
-                value: sizeMode === 'custom' ? 'custom' : size,
-                style: field,
-                onChange: (event) => {
-                  const value = event.target.value
-                  if (value === 'custom') {
-                    setSizeMode('custom')
-                  } else {
-                    setSizeMode('preset')
-                    setSize(value)
-                  }
-                },
-              },
-              ['1024x1024', '1536x1024', '1024x1536', 'auto'].map((option) =>
-                h('option', { key: option, value: option }, option),
-              ),
-              h('option', { value: 'custom' }, '自定义…'),
-            ),
-            sizeMode === 'custom'
-              ? h(
-                  'div',
-                  { style: { display: 'flex', alignItems: 'center', gap: 6 } },
-                  h('input', {
-                    type: 'number',
-                    value: customW,
-                    placeholder: '宽',
-                    style: Object.assign({}, field, { width: 84 }),
-                    onChange: (event) => setCustomW(event.target.value),
-                  }),
-                  h('span', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, '×'),
-                  h('input', {
-                    type: 'number',
-                    value: customH,
-                    placeholder: '高',
-                    style: Object.assign({}, field, { width: 84 }),
-                    onChange: (event) => setCustomH(event.target.value),
-                  }),
+          provider === 'minimax'
+            ? h(
+                'div',
+                { style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 } },
+                h(
+                  'label',
+                  { style: label },
+                  '宽高比',
                   h(
-                    'span',
-                    { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.4 } },
-                    '16 的倍数 · 1:3~3:1',
+                    'select',
+                    { value: aspectRatio, style: field, onChange: (event) => setAspectRatio(event.target.value) },
+                    ['1:1', '16:9', '4:3', '3:2', '2:3', '3:4', '9:16', '21:9'].map((option) =>
+                      h('option', { key: option, value: option }, option),
+                    ),
                   ),
-                )
-              : null,
-          ),
-          h(
-            'div',
-            { style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 } },
-            h(
-              'label',
-              { style: label },
-              '质量',
-              h(
-                'select',
-                { value: quality, style: field, onChange: (event) => setQuality(event.target.value) },
-                ['auto', 'low', 'medium', 'high', 'xhigh'].map((option) => h('option', { key: option, value: option }, option)),
+                ),
+                h(
+                  'label',
+                  { style: label },
+                  '数量（1-9）',
+                  h('input', {
+                    type: 'number',
+                    min: 1,
+                    max: 9,
+                    value: count,
+                    style: field,
+                    onChange: (event) => {
+                      const next = Math.min(Math.max(1, Math.trunc(Number(event.target.value) || 1)), 9)
+                      setCount(next)
+                    },
+                  }),
+                ),
+                h(
+                  'label',
+                  { style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } },
+                  h('input', {
+                    type: 'checkbox',
+                    checked: Boolean(promptOptimizer),
+                    onChange: (event) => setPromptOptimizer(event.target.checked),
+                  }),
+                  'prompt_optimizer（自动优化提示词）',
+                ),
+              )
+            : h(
+                'div',
+                { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+                h(
+                  'div',
+                  { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
+                  h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '尺寸'),
+                  h(
+                    'select',
+                    {
+                      value: sizeMode === 'custom' ? 'custom' : size,
+                      style: field,
+                      onChange: (event) => {
+                        const value = event.target.value
+                        if (value === 'custom') {
+                          setSizeMode('custom')
+                        } else {
+                          setSizeMode('preset')
+                          setSize(value)
+                        }
+                      },
+                    },
+                    ['1024x1024', '1536x1024', '1024x1536', 'auto'].map((option) =>
+                      h('option', { key: option, value: option }, option),
+                    ),
+                    h('option', { value: 'custom' }, '自定义…'),
+                  ),
+                  sizeMode === 'custom'
+                    ? h(
+                        'div',
+                        { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+                        h('input', {
+                          type: 'number',
+                          value: customW,
+                          placeholder: '宽',
+                          style: Object.assign({}, field, { width: 84 }),
+                          onChange: (event) => setCustomW(event.target.value),
+                        }),
+                        h('span', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, '×'),
+                        h('input', {
+                          type: 'number',
+                          value: customH,
+                          placeholder: '高',
+                          style: Object.assign({}, field, { width: 84 }),
+                          onChange: (event) => setCustomH(event.target.value),
+                        }),
+                        h(
+                          'span',
+                          { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.4 } },
+                          '16 的倍数 · 1:3~3:1',
+                        ),
+                      )
+                    : null,
+                ),
+                h(
+                  'div',
+                  { style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 } },
+                  h(
+                    'label',
+                    { style: label },
+                    '质量',
+                    h(
+                      'select',
+                      { value: quality, style: field, onChange: (event) => setQuality(event.target.value) },
+                      ['auto', 'low', 'medium', 'high', 'xhigh'].map((option) =>
+                        h('option', { key: option, value: option }, option),
+                      ),
+                    ),
+                  ),
+                  h(
+                    'label',
+                    { style: label },
+                    '背景',
+                    h(
+                      'select',
+                      { value: background, style: field, onChange: (event) => setBackground(event.target.value) },
+                      ['auto', 'opaque', 'transparent'].map((option) =>
+                        h('option', { key: option, value: option }, option),
+                      ),
+                    ),
+                  ),
+                  h(
+                    'label',
+                    { style: label },
+                    '格式',
+                    h(
+                      'select',
+                      { value: outputFormat, style: field, onChange: (event) => setOutputFormat(event.target.value) },
+                      ['png', 'jpeg', 'webp'].map((option) => h('option', { key: option, value: option }, option)),
+                    ),
+                  ),
+                  h(
+                    'label',
+                    { style: label },
+                    '数量',
+                    h('input', {
+                      type: 'number',
+                      min: 1,
+                      max: 4,
+                      value: count,
+                      style: field,
+                      onChange: (event) => {
+                        const next = Math.min(Math.max(1, Math.trunc(Number(event.target.value) || 1)), 4)
+                        setCount(next)
+                      },
+                    }),
+                  ),
+                ),
               ),
-            ),
-            h(
-              'label',
-              { style: label },
-              '背景',
-              h(
-                'select',
-                { value: background, style: field, onChange: (event) => setBackground(event.target.value) },
-                ['auto', 'opaque', 'transparent'].map((option) => h('option', { key: option, value: option }, option)),
-              ),
-            ),
-            h(
-              'label',
-              { style: label },
-              '格式',
-              h(
-                'select',
-                { value: outputFormat, style: field, onChange: (event) => setOutputFormat(event.target.value) },
-                ['png', 'jpeg', 'webp'].map((option) => h('option', { key: option, value: option }, option)),
-              ),
-            ),
-            h(
-              'label',
-              { style: label },
-              '数量',
-              h('input', {
-                type: 'number',
-                min: 1,
-                max: 4,
-                value: count,
-                style: field,
-                onChange: (event) => {
-                  const next = Math.min(Math.max(1, Math.trunc(Number(event.target.value) || 1)), 4)
-                  setCount(next)
-                },
-              }),
-            ),
-          ),
           h(
             'div',
             {
@@ -10126,10 +10227,10 @@ window.__ModuleLoader__.load({
             h(
               'label',
               { style: label },
-              '端点（OpenAI 兼容）',
+              '端点',
               h('input', {
                 value: endpoint,
-                placeholder: 'https://api.quickrouter.ai/v1',
+                placeholder: provider === 'minimax' ? 'https://api.minimax.cn/v1' : 'https://api.quickrouter.ai/v1',
                 style: field,
                 onChange: (event) => setEndpoint(event.target.value),
               }),
@@ -10152,7 +10253,7 @@ window.__ModuleLoader__.load({
               '模型',
               h('input', {
                 value: model,
-                placeholder: 'gpt-image-2.5-flare-c',
+                placeholder: provider === 'minimax' ? 'image-01' : 'gpt-image-2.5-flare-c',
                 style: field,
                 onChange: (event) => setModel(event.target.value),
               }),
@@ -10206,24 +10307,7 @@ window.__ModuleLoader__.load({
               { style: { display: 'flex', alignItems: 'center', gap: 6 } },
               h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '保存目录'),
               h('span', { style: { flex: 1 } }),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  onClick: () => setPickerOpen(true),
-                  style: {
-                    padding: '3px 8px',
-                    borderRadius: 6,
-                    border: '1px solid var(--dsw-alias-border-l2)',
-                    background: 'var(--dsw-alias-bg-layer-2)',
-                    color: 'var(--dsw-alias-label-primary)',
-                    fontSize: 10,
-                    fontFamily: 'inherit',
-                    cursor: 'pointer',
-                  },
-                },
-                '选择目录',
-              ),
+              h('button', { type: 'button', style: btn, onClick: () => setPickerOpen(true) }, '选择目录'),
             ),
             saveDir
               ? h(
@@ -10314,11 +10398,7 @@ window.__ModuleLoader__.load({
               })
             : null,
           error
-            ? h(
-                'div',
-                { style: { fontSize: 10.5, color: 'var(--dsw-alias-state-error-primary)', lineHeight: 1.5 } },
-                error,
-              )
+            ? h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-state-error-primary)', lineHeight: 1.5 } }, error)
             : null,
         ),
         h(
@@ -10339,24 +10419,49 @@ window.__ModuleLoader__.load({
               overflow: 'auto',
             },
           },
-          imgSrc
+          images.length > 0
             ? h(
                 React.Fragment,
                 null,
-                h('img', {
-                  src: imgSrc,
-                  alt: '',
-                  style: {
-                    maxWidth: '100%',
-                    maxHeight: '70vh',
-                    borderRadius: 12,
-                    boxShadow: '0 12px 40px rgba(0, 0, 0, 0.18)',
-                  },
-                }),
+                h(
+                  'div',
+                  { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12, width: '100%' } },
+                  images.map((b64, index) =>
+                    h(
+                      'button',
+                      {
+                        key: index,
+                        type: 'button',
+                        onClick: () => {
+                          setViewerIndex(index)
+                          setViewerOpen(true)
+                        },
+                        style: {
+                          padding: 0,
+                          border: '1px solid var(--dsw-alias-border-l2)',
+                          borderRadius: 12,
+                          overflow: 'hidden',
+                          background: 'transparent',
+                          cursor: 'pointer',
+                          boxShadow: '0 12px 40px rgba(0, 0, 0, 0.18)',
+                        },
+                      },
+                      h('img', {
+                        src: 'data:image/png;base64,' + b64,
+                        alt: '',
+                        style: { width: '100%', display: 'block' },
+                      }),
+                    ),
+                  ),
+                ),
                 h(
                   'a',
-                  { href: imgSrc, download: 'remote-image.png', style: { fontSize: 11, color: 'var(--dsw-alias-brand-primary)' } },
-                  '下载图片',
+                  {
+                    href: 'data:image/png;base64,' + images[0],
+                    download: 'remote-image.png',
+                    style: { fontSize: 11, color: 'var(--dsw-alias-brand-primary)' },
+                  },
+                  '下载第一张',
                 ),
               )
             : h(
@@ -10374,6 +10479,13 @@ window.__ModuleLoader__.load({
                 h('div', { style: { fontSize: 11.5 } }, busy ? '正在生成…' : '结果会显示在这里'),
               ),
         ),
+        viewerOpen && images.length > 0
+          ? h(ImageViewer, {
+              images: images.map((b64, index) => ({ url: 'data:image/png;base64,' + b64, filename: 'remote-' + (index + 1) + '.png' })),
+              startIndex: Math.max(0, Math.min(viewerIndex, images.length - 1)),
+              onClose: () => setViewerOpen(false),
+            })
+          : null,
       )
     }
 

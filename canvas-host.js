@@ -809,6 +809,47 @@ export function apply(ctx, config = {}) {
         if (!endpoint || !key || !prompt) {
           return send(400, { ok: false, error: '需要端点、API Key 和 prompt' })
         }
+        const provider = body.provider === 'minimax' ? 'minimax' : 'openai'
+        if (provider === 'minimax') {
+          const aspectRatio =
+            typeof body.aspect_ratio === 'string' && body.aspect_ratio.trim() ? body.aspect_ratio.trim() : '1:1'
+          const mmWidth = Math.trunc(Number(body.width) || 0)
+          const mmHeight = Math.trunc(Number(body.height) || 0)
+          const mmCount = Math.min(Math.max(1, Math.trunc(Number(body.n) || 1)), 9)
+          const payload = {
+            model,
+            prompt,
+            aspect_ratio: aspectRatio,
+            n: mmCount,
+            response_format: 'base64',
+            prompt_optimizer: Boolean(body.prompt_optimizer),
+          }
+          if (mmWidth >= 512 && mmHeight >= 512 && mmWidth <= 2048 && mmHeight <= 2048) {
+            payload.width = mmWidth
+            payload.height = mmHeight
+          }
+          if (imageData) payload.subject_reference = [{ type: 'character', image_file: imageData }]
+          const url = /\/image_generation$/.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/image_generation'
+          const upstream = await fetch(url, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(300000),
+          })
+          const text = await upstream.text()
+          if (!upstream.ok) {
+            return send(502, { ok: false, error: 'HTTP ' + upstream.status + ' ' + text.slice(0, 300) })
+          }
+          let json = null
+          try {
+            json = JSON.parse(text)
+          } catch {
+            return send(502, { ok: false, error: '响应不是 JSON：' + text.slice(0, 200) })
+          }
+          const list = json && json.data && Array.isArray(json.data.image_base64) ? json.data.image_base64 : []
+          if (list.length === 0) return send(502, { ok: false, error: '响应里没有图片数据' })
+          return send(200, { ok: true, model, b64List: list })
+        }
         const mode = body.mode === 'edits' ? 'edits' : 'generations'
         const imageData = typeof body.image === 'string' ? body.image : ''
         const quality = ['low', 'medium', 'high', 'xhigh', 'auto'].includes(body.quality) ? body.quality : 'auto'
