@@ -9638,6 +9638,13 @@ window.__ModuleLoader__.load({
       const [model, setModel] = usePref('remoteModel')
       const [prompt, setPrompt] = useState('')
       const [size, setSize] = useState('1024x1024')
+      const [quality, setQuality] = useState('auto')
+      const [background, setBackground] = useState('auto')
+      const [outputFormat, setOutputFormat] = useState('png')
+      const [count, setCount] = useState(1)
+      const [customW, setCustomW] = useState('')
+      const [customH, setCustomH] = useState('')
+      const [sizeMode, setSizeMode] = useState('preset')
       const [imageData, setImageData] = useState('')
       const [busy, setBusy] = useState(false)
       const [error, setError] = useState('')
@@ -9707,6 +9714,25 @@ window.__ModuleLoader__.load({
           setError('编辑模式需要先选参考图')
           return
         }
+        let finalSize = size
+        if (sizeMode === 'custom') {
+          const width = Number(customW)
+          const height = Number(customH)
+          if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+            setError('自定义尺寸无效')
+            return
+          }
+          if (width % 16 !== 0 || height % 16 !== 0) {
+            setError('宽和高都要是 16 的倍数')
+            return
+          }
+          const ratio = width / height
+          if (ratio < 1 / 3 || ratio > 3) {
+            setError('宽高比需要在 1:3 到 3:1 之间')
+            return
+          }
+          finalSize = width + 'x' + height
+        }
         setBusy(true)
         setError('')
         setResult(null)
@@ -9719,9 +9745,13 @@ window.__ModuleLoader__.load({
               key: apiKey,
               model,
               prompt,
-              size,
+              size: finalSize,
               mode: mode === 'edit' ? 'edits' : 'generations',
               image: mode === 'edit' ? imageData : '',
+              quality,
+              background,
+              output_format: outputFormat,
+              n: count,
             }),
           })
           const data = await res.json().catch(() => null)
@@ -9981,13 +10011,104 @@ window.__ModuleLoader__.load({
               : null,
           ),
           h(
-            'label',
+            'div',
             { style: label },
             '尺寸',
             h(
               'select',
-              { value: size, style: field, onChange: (event) => setSize(event.target.value) },
-              ['1024x1024', '1536x1024', '1024x1536'].map((option) => h('option', { key: option, value: option }, option)),
+              {
+                value: sizeMode === 'custom' ? 'custom' : size,
+                style: field,
+                onChange: (event) => {
+                  const value = event.target.value
+                  if (value === 'custom') {
+                    setSizeMode('custom')
+                  } else {
+                    setSizeMode('preset')
+                    setSize(value)
+                  }
+                },
+              },
+              ['1024x1024', '1536x1024', '1024x1536', 'auto'].map((option) =>
+                h('option', { key: option, value: option }, option),
+              ),
+              h('option', { value: 'custom' }, '自定义…'),
+            ),
+            sizeMode === 'custom'
+              ? h(
+                  'div',
+                  { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+                  h('input', {
+                    type: 'number',
+                    value: customW,
+                    placeholder: '宽',
+                    style: Object.assign({}, field, { width: 84 }),
+                    onChange: (event) => setCustomW(event.target.value),
+                  }),
+                  h('span', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, '×'),
+                  h('input', {
+                    type: 'number',
+                    value: customH,
+                    placeholder: '高',
+                    style: Object.assign({}, field, { width: 84 }),
+                    onChange: (event) => setCustomH(event.target.value),
+                  }),
+                  h(
+                    'span',
+                    { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.4 } },
+                    '16 的倍数 · 1:3~3:1',
+                  ),
+                )
+              : null,
+          ),
+          h(
+            'div',
+            { style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 } },
+            h(
+              'label',
+              { style: label },
+              '质量',
+              h(
+                'select',
+                { value: quality, style: field, onChange: (event) => setQuality(event.target.value) },
+                ['auto', 'low', 'medium', 'high', 'xhigh'].map((option) => h('option', { key: option, value: option }, option)),
+              ),
+            ),
+            h(
+              'label',
+              { style: label },
+              '背景',
+              h(
+                'select',
+                { value: background, style: field, onChange: (event) => setBackground(event.target.value) },
+                ['auto', 'opaque', 'transparent'].map((option) => h('option', { key: option, value: option }, option)),
+              ),
+            ),
+            h(
+              'label',
+              { style: label },
+              '格式',
+              h(
+                'select',
+                { value: outputFormat, style: field, onChange: (event) => setOutputFormat(event.target.value) },
+                ['png', 'jpeg', 'webp'].map((option) => h('option', { key: option, value: option }, option)),
+              ),
+            ),
+            h(
+              'label',
+              { style: label },
+              '数量',
+              h('input', {
+                type: 'number',
+                min: 1,
+                max: 4,
+                value: count,
+                style: field,
+                onChange: (event) => {
+                  const next = Math.min(Math.max(1, Math.trunc(Number(event.target.value) || 1)), 4)
+                  setCount(next)
+                },
+              }),
             ),
           ),
           h(

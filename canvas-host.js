@@ -811,6 +811,10 @@ export function apply(ctx, config = {}) {
         }
         const mode = body.mode === 'edits' ? 'edits' : 'generations'
         const imageData = typeof body.image === 'string' ? body.image : ''
+        const quality = ['low', 'medium', 'high', 'xhigh', 'auto'].includes(body.quality) ? body.quality : 'auto'
+        const background = ['transparent', 'opaque', 'auto'].includes(body.background) ? body.background : 'auto'
+        const outputFormat = ['png', 'jpeg', 'webp'].includes(body.output_format) ? body.output_format : 'png'
+        const count = Math.min(Math.max(1, Math.trunc(Number(body.n) || 1)), 4)
         let upstream
         if (mode === 'edits') {
           if (!imageData) return send(400, { ok: false, error: '编辑模式需要参考图' })
@@ -818,7 +822,11 @@ export function apply(ctx, config = {}) {
           if (!match) return send(400, { ok: false, error: '参考图格式不对（需要 data URL）' })
           const form = new FormData()
           form.append('model', model)
-          form.append('n', '1')
+          form.append('n', String(count))
+          form.append('size', size)
+          form.append('quality', quality)
+          form.append('background', background)
+          form.append('output_format', outputFormat)
           form.append('response_format', 'b64_json')
           form.append('prompt', prompt)
           form.append('image', new Blob([Buffer.from(match[2], 'base64')], { type: match[1] }), 'reference.png')
@@ -834,7 +842,16 @@ export function apply(ctx, config = {}) {
           upstream = await fetch(url, {
             method: 'POST',
             headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
-            body: JSON.stringify({ model, prompt, n: 1, size, response_format: 'b64_json' }),
+            body: JSON.stringify({
+              model,
+              prompt,
+              n: count,
+              size,
+              quality,
+              background,
+              output_format: outputFormat,
+              response_format: 'b64_json',
+            }),
             signal: AbortSignal.timeout(300000),
           })
         }
