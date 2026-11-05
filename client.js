@@ -3638,10 +3638,12 @@ window.__ModuleLoader__.load({
             factLabel: { color: '#6b7280' },
             factValue: { color: '#111827' },
             nav: {
-              background: '#ffffff',
+              background: 'rgba(255, 255, 255, 0.45)',
               color: '#1f2937',
-              border: '1px solid #e5e7eb',
-              boxShadow: '0 4px 14px rgba(15, 23, 42, 0.12)',
+              border: '1px solid rgba(255, 255, 255, 0.55)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+              boxShadow: '0 4px 14px rgba(15, 23, 42, 0.10)',
             },
             thumb: { border: '1px solid #e5e7eb' },
           }
