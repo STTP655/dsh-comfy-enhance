@@ -10959,10 +10959,10 @@ window.__ModuleLoader__.load({
                   ['16:9', 1344, 768],
                   ['9:16', 768, 1344],
                   ['4:3', 1152, 864],
-                ].map(([name, w, h]) =>
+                ].map(([name, widthPx, heightPx]) =>
                   h(
                     'button',
-                    { key: name, type: 'button', style: { padding: '3px 7px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-secondary)', fontSize: 9.5, fontFamily: 'inherit', cursor: 'pointer' }, onClick: () => preset(w, h) },
+                    { key: name, type: 'button', style: { padding: '3px 7px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-secondary)', fontSize: 9.5, fontFamily: 'inherit', cursor: 'pointer' }, onClick: () => preset(widthPx, heightPx) },
                     name,
                   ),
                 ),
