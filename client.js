@@ -3808,6 +3808,10 @@ window.__ModuleLoader__.load({
           onClick: requestClose,
           role: 'presentation',
         },
+        // The viewer is portaled to <body> and can be opened from surfaces that do
+        // not render the album tab (e.g. the online workstation), so it brings its
+        // own copy of the album styles (safe to duplicate).
+        h(AlbumStyles),
         h(
           'div',
           { style: VIEWER_MAIN },
