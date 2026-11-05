@@ -258,8 +258,8 @@ function readPngText(buffer) {
 }
 
 /** Summarized generation parameters of one output file, when it carries them. */
-async function readOutputMeta(dir, filename) {
-  const buffer = await readFile(join(dir, filename))
+async function readOutputMetaFile(filePath) {
+  const buffer = await readFile(filePath)
   const text = readPngText(buffer)
   let prompt = null
   if (typeof text.prompt === 'string') {
@@ -271,6 +271,10 @@ async function readOutputMeta(dir, filename) {
   }
   if (!prompt) return null
   return summarizeWorkflow(prompt)
+}
+
+async function readOutputMeta(dir, filename) {
+  return readOutputMetaFile(join(dir, filename))
 }
 
 /** Pick the discrete accelerator, not an integrated part with a larger pool. */
@@ -1002,6 +1006,7 @@ function createHandler(baseUrl) {
           files.push({
             name: entry.name,
             mtime: info.mtimeMs,
+            path: join(dir, entry.name),
             url,
             thumb: isComfyOutput ? url + '&preview=webp' : url,
           })
@@ -1042,6 +1047,12 @@ function createHandler(baseUrl) {
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(405, { ok: false, error: 'method not allowed' })
       try {
         const query = new URL(req.url || '/', 'http://localhost').searchParams
+        const pathParam = (query.get('path') || '').trim()
+        if (pathParam) {
+          const resolved = resolve(pathParam)
+          if (extname(resolved).toLowerCase() !== '.png') throw new Error('not a png')
+          return send(200, { ok: true, meta: await readOutputMetaFile(resolved) })
+        }
         const filename = query.get('filename') || ''
         if (!filename || filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
           throw new Error('invalid filename')

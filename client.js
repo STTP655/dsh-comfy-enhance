@@ -3908,6 +3908,7 @@ window.__ModuleLoader__.load({
       const [dirNonce, setDirNonce] = useState(0)
       const [dirPick, setDirPick] = useState(0)
       const [dirViewer, setDirViewer] = useState(false)
+      const [dirMetas, setDirMetas] = useState({})
       const [dirPickerOpen, setDirPickerOpen] = useState(false)
       // Compare mode: pick one picture, then another, and the viewer pages only
       // between those two.
@@ -3925,10 +3926,18 @@ window.__ModuleLoader__.load({
       // Directory source items, shaped like album items so the same UI renders them.
       const dirItems = (dirFiles || []).map((file) => ({
         id: 'dir:' + file.name,
-        images: [{ url: file.url, filename: file.name, thumb: file.thumb || file.url }],
+        images: [
+          {
+            url: file.url,
+            filename: file.name,
+            thumb: file.thumb || file.url,
+            path: file.path,
+            meta: dirMetas[file.name] || {},
+          },
+        ],
         startedAt: file.mtime,
         completed: true,
-        meta: {},
+        meta: dirMetas[file.name] || {},
       }))
       const shownItems = source === 'dir' ? dirItems : visible
       const shownGroups = source === 'dir' ? groupByDay(dirItems) : groups
@@ -3979,6 +3988,7 @@ window.__ModuleLoader__.load({
             if (!data || !data.ok) throw new Error((data && data.error) || '读取失败')
             setDirFiles(Array.isArray(data.files) ? data.files : [])
             setDirPath(data.dir || '')
+            setDirMetas({})
           })
           .catch((err) => {
             if (!alive) return
@@ -3993,8 +4003,46 @@ window.__ModuleLoader__.load({
         }
       }, [source, albumDir, dirNonce])
 
+      // Directory pictures embed their parameters in the PNG; read them on demand
+      // so the details panel matches what the album shows.
+      useEffect(() => {
+        if (source !== 'dir') return undefined
+        const image = selected && selected.images ? selected.images[0] : null
+        if (!image || !image.filename || dirMetas[image.filename]) return undefined
+        let alive = true
+        const endpoint = image.path
+          ? '/plugin/comfy-status/output-meta?path=' + encodeURIComponent(image.path)
+          : '/plugin/comfy-status/output-meta?filename=' + encodeURIComponent(image.filename)
+        fetch(endpoint, { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (!alive || !data || !data.ok) return
+            setDirMetas((prev) => ({ ...prev, [image.filename]: data.meta || {} }))
+          })
+          .catch(() => {
+            // No embedded parameters: the details stay empty.
+          })
+        return () => {
+          alive = false
+        }
+      }, [source, selected, dirMetas])
+
       const pickAlbumDir = () => {
         setDirPickerOpen(true)
+      }
+
+      const openDirImage = (index) => {
+        setDirPick(index)
+        setDirViewer(true)
+        const item = shownItems[index]
+        const image = item && item.images ? item.images[0] : null
+        if (!image || !image.filename || !image.path || dirMetas[image.filename]) return
+        fetch('/plugin/comfy-status/output-meta?path=' + encodeURIComponent(image.path), { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data && data.ok) setDirMetas((prev) => ({ ...prev, [image.filename]: data.meta || {} }))
+          })
+          .catch(() => {})
       }
 
       const requestClear = () => {
@@ -4104,10 +4152,7 @@ window.__ModuleLoader__.load({
                 cursor: 'pointer',
                 background: 'var(--dsw-alias-bg-layer-1)',
               },
-              onClick: () => {
-                setDirPick(index)
-                setDirViewer(true)
-              },
+              onClick: () => openDirImage(index),
             },
             h('img', {
               src: thumbOfUrl(item.images[0]),
@@ -4318,7 +4363,11 @@ window.__ModuleLoader__.load({
         }),
         dirViewer && shownItems.length > 0
           ? h(ImageViewer, {
-              images: shownItems.map((item) => ({ url: item.images[0].url, filename: item.images[0].filename })),
+              images: shownItems.map((item) => ({
+                url: item.images[0].url,
+                filename: item.images[0].filename,
+                meta: item.meta,
+              })),
               startIndex: Math.max(0, Math.min(dirPick, shownItems.length - 1)),
               filename: shownItems[dirPick] ? shownItems[dirPick].images[0].filename : '',
               onClose: () => setDirViewer(false),
