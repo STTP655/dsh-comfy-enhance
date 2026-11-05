@@ -4470,6 +4470,7 @@ window.__ModuleLoader__.load({
       const [canvasOn, setCanvasOn] = usePref('canvas')
       const [workspaceOn, setWorkspaceOn] = usePref('canvasWorkspace')
       const [comfyPath, setComfyPath] = usePref('comfyPath')
+      const [templatesMsg, setTemplatesMsg] = useState('')
 
       if (props.view === 'summary') {
         return h(
@@ -4548,6 +4549,57 @@ window.__ModuleLoader__.load({
             onChange: (event) => setComfyPath(event.target.value),
           }),
           h(LaunchComfyButton, { marginTop: 8 }),
+          h(
+            'div',
+            { style: { marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--dsw-alias-border-l1)' } },
+            h('div', { style: { fontSize: 11.5, fontWeight: 500 } }, '内置画板工作流'),
+            h(
+              'div',
+              {
+                style: {
+                  fontSize: 10.5,
+                  color: 'var(--dsw-alias-label-secondary)',
+                  margin: '3px 0 6px',
+                  lineHeight: 1.5,
+                },
+              },
+              '把 moss-base-canvas / moss-sft-canvas 重新写入 ComfyUI 工作流目录（旧文件备份为 .bak）。',
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                style: {
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  border: '1px solid var(--dsw-alias-border-l2)',
+                  background: 'var(--dsw-alias-bg-layer-1)',
+                  color: 'var(--dsw-alias-label-primary)',
+                  fontSize: 10.5,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                },
+                onClick: async () => {
+                  setTemplatesMsg('')
+                  try {
+                    const res = await fetch('/plugin/comfy-canvas/reset-templates', { method: 'POST' })
+                    const data = await res.json().catch(() => null)
+                    setTemplatesMsg(data && data.ok ? '已重新安装' : (data && data.error) || '失败')
+                  } catch (error) {
+                    setTemplatesMsg(String((error && error.message) || error))
+                  }
+                },
+              },
+              '重置内置画板工作流',
+            ),
+            templatesMsg
+              ? h(
+                  'span',
+                  { style: { marginLeft: 8, fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
+                  templatesMsg,
+                )
+              : null,
+          ),
         ),
       )
     }

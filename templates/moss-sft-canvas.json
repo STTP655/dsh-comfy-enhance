@@ -40,7 +40,7 @@
     "Node name for S&R": "CLIPTextEncode"
    },
    "widgets_values": [
-    "A wide view of a refrigerator beside a kitchen counter with a fruit bowl. A small sticky note on the refrigerator door is handwritten in Chinese:\n\"记得买牛奶和鸡蛋！\n牛奶两盒，鸡蛋一打。\n顺便带一袋面包。\""
+    ""
    ],
    "widgets_values_named": {
     "text": "A wide view of a refrigerator beside a kitchen counter with a fruit bowl. A small sticky note on the refrigerator door is handwritten in Chinese:\n\"记得买牛奶和鸡蛋！\n牛奶两盒，鸡蛋一打。\n顺便带一袋面包。\""
@@ -82,7 +82,7 @@
     "Node name for S&R": "CLIPTextEncode"
    },
    "widgets_values": [
-    "nsfw, worst quality, bad anatomy, watermark, jpeg artifact"
+    ""
    ],
    "widgets_values_named": {
     "text": ""
@@ -564,106 +564,8 @@
    "widgets_values": [
     1024,
     1024,
-    [
-     {
-      "x": 154,
-      "y": 123,
-      "width": 748,
-      "height": 676,
-      "metadata": {
-       "type": "obj",
-       "text": "",
-       "desc": "A floating weathered bark fragment covered in velvet moss, pale pink peonies and tiny white umbel flowers, clusters of translucent quartz crystals growing out of the wood, dark olive gradient background, cinematic soft light",
-       "palette": []
-      }
-     },
-     {
-      "x": 635,
-      "y": 799,
-      "width": 384,
-      "height": 164,
-      "metadata": {
-       "type": "text",
-       "text": "MOSS",
-       "desc": "The word MOSS in a lime-green geometric display face, two stacked rows, bottom right",
-       "palette": []
-      }
-     },
-     {
-      "x": 41,
-      "y": 41,
-      "width": 594,
-      "height": 215,
-      "metadata": {
-       "type": "text",
-       "text": "floating bark, velvet moss, pale peonies, quartz crystals, dark olive gradient",
-       "desc": "Small white monospaced text block in the top left, like a prompt readout",
-       "palette": []
-      }
-     },
-     {
-      "x": 41,
-      "y": 922,
-      "width": 51,
-      "height": 51,
-      "metadata": {
-       "type": "text",
-       "text": "+",
-       "desc": "A thin white plus mark, bottom left",
-       "palette": []
-      }
-     }
-    ],
-    [
-     {
-      "x": 154,
-      "y": 123,
-      "width": 748,
-      "height": 676,
-      "metadata": {
-       "type": "obj",
-       "text": "",
-       "desc": "A floating weathered bark fragment covered in velvet moss, pale pink peonies and tiny white umbel flowers, clusters of translucent quartz crystals growing out of the wood, dark olive gradient background, cinematic soft light",
-       "palette": []
-      }
-     },
-     {
-      "x": 635,
-      "y": 799,
-      "width": 384,
-      "height": 164,
-      "metadata": {
-       "type": "text",
-       "text": "MOSS",
-       "desc": "The word MOSS in a lime-green geometric display face, two stacked rows, bottom right",
-       "palette": []
-      }
-     },
-     {
-      "x": 41,
-      "y": 41,
-      "width": 594,
-      "height": 215,
-      "metadata": {
-       "type": "text",
-       "text": "floating bark, velvet moss, pale peonies, quartz crystals, dark olive gradient",
-       "desc": "Small white monospaced text block in the top left, like a prompt readout",
-       "palette": []
-      }
-     },
-     {
-      "x": 41,
-      "y": 922,
-      "width": 51,
-      "height": 51,
-      "metadata": {
-       "type": "text",
-       "text": "+",
-       "desc": "A thin white plus mark, bottom left",
-       "palette": []
-      }
-     }
-    ]
+    [],
+    []
    ],
    "widgets_values_named": {
     "width": 1024,
@@ -926,7 +828,7 @@
     "Node name for S&R": "MOSSImageLayoutPrompt"
    },
    "widgets_values": [
-    "Premium 3D render on a dark olive gradient background: a floating weathered bark fragment covered in velvet moss, pale pink peonies and tiny white umbel flowers, clusters of translucent quartz crystals growing out of the wood, cinematic rim light, soft shadow, ultra realistic product photography. Bottom right the word MOSS is set in a lime-green geometric display face stacked on two rows, a small block of white monospaced text sits in the top left, and a thin white plus mark in the bottom left corner. 4k, no watermark.",
+    "",
     1024,
     1024,
     "1"

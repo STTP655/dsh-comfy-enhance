@@ -53,12 +53,12 @@ async function resolveWorkflowDir(baseUrl) {
 }
 
 /**
- * Install the bundled empty-board workflow on first use.
+ * Install the bundled canvas workflows.
  *
- * A file with the same name is never overwritten, so a user's own edits and an
- * existing setup survive; a read-only workflows directory just means no default.
+ * Without `force` an existing file is kept, so a user's own edits and an earlier
+ * install survive. With `force` the previous file is backed up as `.bak` first.
  */
-async function ensureTemplate(dir) {
+async function installTemplates(dir, force) {
   const entries = [
     [TEMPLATE_NAME, TEMPLATE_URL],
     [TEMPLATE_BASE_NAME, TEMPLATE_BASE_URL],
@@ -66,6 +66,19 @@ async function ensureTemplate(dir) {
   ]
   for (const [name, url] of entries) {
     const target = join(dir, name)
+    if (force) {
+      try {
+        await copyFile(target, target + '.bak')
+      } catch {
+        // Nothing to back up yet.
+      }
+      try {
+        await writeFile(target, await readFile(fileURLToPath(url)))
+      } catch {
+        // Read-only directory: leave it as is.
+      }
+      continue
+    }
     try {
       await stat(target)
       continue
@@ -78,6 +91,10 @@ async function ensureTemplate(dir) {
       // Read-only directory: the canvas simply has no default entry.
     }
   }
+}
+
+async function ensureTemplate(dir) {
+  await installTemplates(dir, false)
 }
 
 /** Reject anything that is not a plain workflow file name. */
@@ -589,6 +606,18 @@ export function apply(ctx, config = {}) {
           ratios: (ratio && ratio[1] && ratio[1].options) || [],
           megapixels: (megapixels && megapixels[1]) || {},
         })
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
+    }
+
+    // Re-install the bundled canvas workflows (backs the current ones up first).
+    if (pathname === `${PREFIX}/reset-templates`) {
+      if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const dir = await dirOf()
+        await installTemplates(dir, true)
+        return send(200, { ok: true })
       } catch (error) {
         return send(502, { ok: false, error: String((error && error.message) || error) })
       }
