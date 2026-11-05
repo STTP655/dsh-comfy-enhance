@@ -9652,6 +9652,27 @@ window.__ModuleLoader__.load({
       })
     }
 
+    /** Render-error fallback so a broken workbench panel shows its error, not a blank page. */
+    class WorkbenchBoundary extends React.Component {
+      constructor(props) {
+        super(props)
+        this.state = { error: null }
+      }
+      static getDerivedStateFromError(error) {
+        return { error }
+      }
+      render() {
+        if (this.state.error) {
+          return h(
+            'div',
+            { style: { padding: 24, fontSize: 12, lineHeight: 1.6, color: 'var(--dsw-alias-state-error-primary)' } },
+            '页面渲染出错：' + String((this.state.error && this.state.error.message) || this.state.error),
+          )
+        }
+        return this.props.children
+      }
+    }
+
     /** Entry screen: pick the local ComfyUI board or the online API workstation. */
     function WorkbenchChooser(props) {
       ensureWorkbenchStyle()
@@ -12090,7 +12111,11 @@ window.__ModuleLoader__.load({
             ? h(WorkbenchChooser, { onPick: changeView })
             : view === 'online'
               ? h(OnlineImagePanel, { onBack: () => changeView('chooser') })
-              : h(LocalText2ImgPanel, { onBack: () => changeView('chooser') }),
+              : h(
+                  WorkbenchBoundary,
+                  null,
+                  h(LocalText2ImgPanel, { onBack: () => changeView('chooser') }),
+                ),
         )
       }
 
