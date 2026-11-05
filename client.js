@@ -982,7 +982,7 @@ window.__ModuleLoader__.load({
               { height: '0px', opacity: 0, transform: 'translateY(12px)', overflow: 'hidden' },
               { height: height + 'px', opacity: 1, transform: 'translateY(0)', overflow: 'hidden' },
             ],
-            { duration: 320, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'backwards' },
+            { duration: 260, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'backwards' },
           )
         } else if (closing) {
           const height = node.offsetHeight
@@ -991,7 +991,7 @@ window.__ModuleLoader__.load({
               { height: height + 'px', opacity: 1, transform: 'translateY(0)', overflow: 'hidden' },
               { height: '0px', opacity: 0, transform: 'translateY(6px)', overflow: 'hidden' },
             ],
-            { duration: 260, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'both' },
+            { duration: 220, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'both' },
           )
         }
         return undefined
