@@ -12,6 +12,13 @@
 - 修复：MOSS 画板润色的 `promptModel` 在 store 解构时被丢弃，模型设置从未进入请求体（`7e7f86f` 只补到调用处）
 - 修复：在线 API 面板与文生图面板的 AI 写作只传 model，跨 provider 时必然错配
 
+### 稳定性
+
+- 客户端 10 个 slot 注册点统一套 `SlotBoundary`：单张卡片渲染失败只坏那一张，带错误信息与「重试」，不再一路卸载到 shell
+- 模块半区的每个注册步骤独立 `try/catch`：状态卡、相册、画布、草稿卡互不牵连
+- 宿主路由外层兜底：异常回 500 JSON，不再变成 webServer 里的未处理 rejection；`index.js` 里画布路由挂载失败也不影响状态卡
+- 提交前钩子 `scripts/preflight.mjs`：一条命令跑 `node --check` + `package.json` / `templates/*.json` 校验，非 0 退出即表示有文件跑不起来，可直接接进 commit hook
+
 ## 0.16.0
 
 - 相册、画框画布、独立工作台合并在一个 bundle 内

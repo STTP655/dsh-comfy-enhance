@@ -7536,6 +7536,93 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Keeps one card's render failure inside that card. Without a boundary React
+     * unmounts up to the shell, so a single broken panel reads as "the plugin
+     * took the UI down" instead of "this card is broken".
+     */
+    class SlotBoundary extends React.Component {
+      constructor(props) {
+        super(props)
+        this.state = { error: null }
+      }
+
+      static getDerivedStateFromError(error) {
+        return { error }
+      }
+
+      render() {
+        if (this.state.error) {
+          return h(
+            'div',
+            {
+              style: {
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                padding: '10px 12px',
+                margin: 6,
+                borderRadius: 8,
+                border: '1px solid var(--dsw-alias-border-l2)',
+                background: 'var(--dsw-alias-bg-layer-1)',
+                color: 'var(--dsw-alias-label-primary)',
+                fontSize: 11,
+                lineHeight: 1.5,
+              },
+            },
+            h('span', { style: { fontWeight: 600 } }, String(this.props.label || 'ComfyUI') + ' 渲染失败'),
+            h(
+              'span',
+              { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)', wordBreak: 'break-word' } },
+              String((this.state.error && this.state.error.message) || this.state.error),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                style: {
+                  alignSelf: 'flex-start',
+                  flex: 'none',
+                  padding: '3px 10px',
+                  borderRadius: 6,
+                  border: '1px solid var(--dsw-alias-border-l2)',
+                  background: 'var(--dsw-alias-bg-layer-2)',
+                  color: 'var(--dsw-alias-label-primary)',
+                  fontSize: 10.5,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                },
+                onClick: () => this.setState({ error: null }),
+              },
+              '重试',
+            ),
+          )
+        }
+        return this.props.children
+      }
+    }
+
+    /** Slot-facing wrapper: every registered entry renders inside its own boundary. */
+    function guardSlot(Component, label) {
+      function Guarded(props) {
+        return h(SlotBoundary, { label }, h(Component, props))
+      }
+      Guarded.displayName = 'Guarded(' + String(label || 'slot') + ')'
+      return Guarded
+    }
+
+    /** One registration step; a throw must not cost the bundle its other cards. */
+    function safe(label, fn) {
+      try {
+        return fn()
+      } catch (error) {
+        if (typeof console !== 'undefined' && console.error) {
+          console.error('[dsh-comfy-enhance] ' + String(label) + '注册失败：', error)
+        }
+        return null
+      }
+    }
+
+    /**
      * Full-screen working view: a larger canvas beside a flat list of every box,
      * so an overlapping box is always reachable even when it cannot be clicked in
      * the pile.
@@ -14774,24 +14861,24 @@ window.__ModuleLoader__.load({
           })
 
           tabCtx.slots.inject('sidebar.right.pane.tab', () =>
-            tabCtx.slots.register({ name: 'sidebar.right.pane.tab', key: CANVAS_TAB_ID }, CanvasTab),
+            tabCtx.slots.register({ name: 'sidebar.right.pane.tab', key: CANVAS_TAB_ID }, guardSlot(CanvasTab, '画框画布')),
           )
           tabCtx.slots.inject('sidebar.right.pane.tab.title', () =>
-            tabCtx.slots.register({ name: 'sidebar.right.pane.tab.title', key: CANVAS_TAB_ID }, CanvasTitle),
+            tabCtx.slots.register({ name: 'sidebar.right.pane.tab.title', key: CANVAS_TAB_ID }, guardSlot(CanvasTitle, '画框标题')),
           )
         })
 
         // The zoom view lives in the frame-wide overlay seat: it must cover every
         // column, and a `position: fixed` inside the pane is clipped by the layout.
         ctx.slots.inject('shell.overlay', () =>
-          ctx.slots.register({ name: 'shell.overlay', id: 'comfy-canvas-zoom' }, ZoomHost),
+          ctx.slots.register({ name: 'shell.overlay', id: 'comfy-canvas-zoom' }, guardSlot(ZoomHost, '放大视图')),
         )
 
         // Standalone workspace: a left-sidebar entry plus the main-panel page it
         // switches to. The entry follows the preference so switching it off
         // removes it from the sidebar immediately.
         ctx.slots.inject('main', () =>
-          ctx.slots.register({ name: 'main', key: WORKSPACE_KEY }, CanvasWorkspace),
+          ctx.slots.register({ name: 'main', key: WORKSPACE_KEY }, guardSlot(CanvasWorkspace, 'Image 工作台')),
         )
         ctx.slots.inject('sidebar.panellist', () => {
           let disposeEntry = null
@@ -14808,7 +14895,7 @@ window.__ModuleLoader__.load({
                   order: 20,
                   label: () => 'Image 工作台',
                 },
-                WorkspaceIcon,
+                guardSlot(WorkspaceIcon, '工作台入口'),
               )
             }
           }
@@ -14829,7 +14916,7 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         // The status card can be switched off, so its registration follows the
         // preference instead of being fixed at apply time.
-        ctx.slots.inject('sidebar.footer.action', () => {
+        safe('状态卡', () => ctx.slots.inject('sidebar.footer.action', () => {
           let dispose = null
           const sync = () => {
             if (dispose) {
@@ -14844,7 +14931,7 @@ window.__ModuleLoader__.load({
                   order: -1,
                   label: () => 'ComfyUI 状态',
                 },
-                ComfyStatus,
+                guardSlot(ComfyStatus, 'ComfyUI 状态'),
               )
             }
           }
@@ -14857,17 +14944,17 @@ window.__ModuleLoader__.load({
               dispose = null
             }
           }
-        })
+        }))
 
         // This bundle's configuration block on its plugin page.
-        ctx.slots.inject('plugins.bundle.config', () =>
+        safe('模块设置', () => ctx.slots.inject('plugins.bundle.config', () =>
           // Keyed by the bundle's package name: the plugin page looks configs up by that key.
-        ctx.slots.register({ name: 'plugins.bundle.config', key: 'dsh-comfy-enhance' }, ModuleSettings),
-        )
+        ctx.slots.register({ name: 'plugins.bundle.config', key: 'dsh-comfy-enhance' }, guardSlot(ModuleSettings, '模块设置')),
+        ))
 
         // The album is an optional surface: without the right sidebar the status
         // card above must keep working, so it registers on its own sub-context.
-        ctx.inject(['sidebarRightTabs'], (tabCtx) => {
+        safe('相册', () => ctx.inject(['sidebarRightTabs'], (tabCtx) => {
           let disposeType = null
           const syncAlbum = () => {
             if (disposeType) {
@@ -14902,19 +14989,21 @@ window.__ModuleLoader__.load({
           })
 
           tabCtx.slots.inject('sidebar.right.pane.tab', () =>
-            tabCtx.slots.register({ name: 'sidebar.right.pane.tab', key: TAB_ID }, AlbumTab),
+            tabCtx.slots.register({ name: 'sidebar.right.pane.tab', key: TAB_ID }, guardSlot(AlbumTab, 'ComfyUI 相册')),
           )
           tabCtx.slots.inject('sidebar.right.pane.tab.title', () =>
-            tabCtx.slots.register({ name: 'sidebar.right.pane.tab.title', key: TAB_ID }, AlbumTitle),
+            tabCtx.slots.register({ name: 'sidebar.right.pane.tab.title', key: TAB_ID }, guardSlot(AlbumTitle, 'ComfyUI 相册标题')),
           )
-        })
+        }))
 
-        canvasHalf.apply(ctx)
+        // The canvas half mounts its own tabs, overlay and page. It failing must
+        // leave the cards above in place, so it gets the same guard.
+        safe('画布', () => canvasHalf.apply(ctx))
 
         // The canvas draft card docks above the composer as a full-width entry —
         // the same place the queue/todo docks live — so it reads as part of the
         // conversation input instead of a floating overlay.
-        ctx.slots.inject('conversation.input.dock', () =>
+        safe('草稿卡', () => ctx.slots.inject('conversation.input.dock', () =>
           ctx.slots.register(
             {
               name: 'conversation.input.dock',
@@ -14922,9 +15011,9 @@ window.__ModuleLoader__.load({
               order: 40,
               label: () => 'ComfyUI 草稿',
             },
-            DraftCard,
+            guardSlot(DraftCard, 'ComfyUI 草稿'),
           ),
-        )
+        ))
       },
     }
   },

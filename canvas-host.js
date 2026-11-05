@@ -847,7 +847,7 @@ export function apply(ctx, config = {}) {
     return dir
   }
 
-  async function handler(req, res) {
+  async function dispatch(req, res) {
     let pathname = ''
     try {
       pathname = new URL(req.url || '/', 'http://localhost').pathname
@@ -1236,6 +1236,35 @@ export function apply(ctx, config = {}) {
     }
 
     return send(404, { ok: false, error: 'not found' })
+  }
+
+  /**
+   * A throw that escapes a route would become an unhandled rejection inside the
+   * web server, where it can only be logged. Answer with JSON instead and keep
+   * the host (and every other plugin's routes) serving.
+   */
+  async function handler(req, res) {
+    try {
+      await dispatch(req, res)
+    } catch (error) {
+      const message = String((error && error.message) || error)
+      try {
+        if (!res.headersSent) {
+          res.writeHead(500, {
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'no-store',
+          })
+          res.end(JSON.stringify({ ok: false, error: message }))
+        } else {
+          res.end()
+        }
+      } catch {
+        // The socket is already gone: there is nothing left to answer on.
+      }
+      if (typeof console !== 'undefined' && console.error) {
+        console.error('[dsh-comfy-enhance] 路由异常：', error)
+      }
+    }
   }
 
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: PREFIX, handler }))

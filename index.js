@@ -1220,6 +1220,12 @@ export function apply(ctx, config = {}) {
     ctx.webServer.register({ kind: 'prefix', path: PREFIX, handler }),
   )
 
-  // The canvas module ships in the same bundle and mounts its own routes.
-  applyCanvasHost(ctx, config)
+  // The canvas module ships in the same bundle and mounts its own routes. A
+  // failure there must not take the status card's route with it, so it reports
+  // instead of throwing out of this plugin's apply().
+  try {
+    applyCanvasHost(ctx, config)
+  } catch (error) {
+    console.error('[dsh-comfy-enhance] 画布路由挂载失败：', error)
+  }
 }
