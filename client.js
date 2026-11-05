@@ -7732,14 +7732,12 @@ window.__ModuleLoader__.load({
               'button',
               {
                 className: 'dshCanvasBtn dshComfyGenBlue',
-                disabled: props.boxes.length === 0,
                 title: '不经过 agent，直接把当前版式提交给 ComfyUI',
                 style: {
                   background: '#3b82f6',
                   borderColor: '#3b82f6',
                   color: '#ffffff',
                   fontWeight: 600,
-                  opacity: props.boxes.length === 0 ? 0.45 : 1,
                 },
                 onClick: () => {
                   if (props.onGenerate) props.onGenerate()
@@ -9392,7 +9390,7 @@ window.__ModuleLoader__.load({
             'button',
             {
               className: 'dshCanvasBtn dshComfyGenBlue',
-              disabled: !hasNode || boxes.length === 0,
+              disabled: !hasNode,
               title: '不经过 agent，直接把当前版式提交给 ComfyUI',
               style: {
                 background: '#3b82f6',
@@ -9400,7 +9398,7 @@ window.__ModuleLoader__.load({
                 color: '#ffffff',
                 fontWeight: 600,
                 flexShrink: 0,
-                opacity: !hasNode || boxes.length === 0 ? 0.45 : 1,
+                opacity: !hasNode ? 0.45 : 1,
               },
               onClick: quickGenerate,
             },
@@ -12056,9 +12054,7 @@ window.__ModuleLoader__.load({
                 borderColor: '#3b82f6',
                 color: '#ffffff',
                 fontWeight: 600,
-                opacity: boxes.length === 0 ? 0.45 : 1,
               },
-              disabled: boxes.length === 0,
               onClick: quickGenerate,
             },
             '快速生成',
