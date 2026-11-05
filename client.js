@@ -77,6 +77,7 @@ window.__ModuleLoader__.load({
         editorNegativeHeight: 96,
         viewerPanelWidth: 360,
         albumTheme: 'dark',
+        albumDir: '',
         zoomSummaryHeight: 54,
         zoomDescHeight: 68,
         zoomPanelWidth: 260,
@@ -110,6 +111,7 @@ window.__ModuleLoader__.load({
               viewerPanelWidth:
                 typeof parsed.viewerPanelWidth === 'number' ? parsed.viewerPanelWidth : 360,
               albumTheme: parsed.albumTheme === 'light' ? 'light' : 'dark',
+              albumDir: typeof parsed.albumDir === 'string' ? parsed.albumDir : '',
               zoomSummaryHeight:
                 typeof parsed.zoomSummaryHeight === 'number' ? parsed.zoomSummaryHeight : 54,
               zoomDescHeight:
@@ -990,6 +992,7 @@ window.__ModuleLoader__.load({
 
     const ALBUM_SHELL = {
       zoom: UI_SCALE,
+      position: 'relative',
       display: 'flex',
       flexDirection: 'column',
       height: '100%',
@@ -3681,6 +3684,15 @@ window.__ModuleLoader__.load({
       const [confirming, setConfirming] = useState(false)
       const [albumTheme, setAlbumTheme] = usePref('albumTheme')
       const nightTheme = albumTheme !== 'light'
+      const [albumDir, setAlbumDir] = usePref('albumDir')
+      const [dirOpen, setDirOpen] = useState(false)
+      const [dirFiles, setDirFiles] = useState(null)
+      const [dirPath, setDirPath] = useState('')
+      const [dirBusy, setDirBusy] = useState(false)
+      const [dirError, setDirError] = useState('')
+      const [dirNonce, setDirNonce] = useState(0)
+      const [dirPick, setDirPick] = useState(0)
+      const [dirViewer, setDirViewer] = useState(false)
       // Compare mode: pick one picture, then another, and the viewer pages only
       // between those two.
       const [compareA, setCompareA] = useState(null)
@@ -3717,6 +3729,54 @@ window.__ModuleLoader__.load({
         const timer = setTimeout(() => setConfirming(false), 4000)
         return () => clearTimeout(timer)
       }, [confirming])
+
+      // Directory browser: lists ComfyUI's output folder (or a custom gallery)
+      // with ComfyUI's webp thumbnails so the list stays cheap.
+      useEffect(() => {
+        if (!dirOpen) return undefined
+        let alive = true
+        setDirBusy(true)
+        setDirError('')
+        fetch('/plugin/comfy-status/outputs?dir=' + encodeURIComponent(albumDir || ''), { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (!alive) return
+            if (!data || !data.ok) throw new Error((data && data.error) || '读取失败')
+            setDirFiles(Array.isArray(data.files) ? data.files : [])
+            setDirPath(data.dir || '')
+          })
+          .catch((err) => {
+            if (!alive) return
+            setDirFiles([])
+            setDirError(String((err && err.message) || err))
+          })
+          .finally(() => {
+            if (alive) setDirBusy(false)
+          })
+        return () => {
+          alive = false
+        }
+      }, [dirOpen, albumDir, dirNonce])
+
+      const openDirectoryView = () => {
+        setDirOpen(true)
+        setDirViewer(false)
+        setDirNonce((value) => value + 1)
+      }
+
+      const pickAlbumDir = async () => {
+        try {
+          const res = await fetch('/plugin/comfy-status/pick-dir', { method: 'POST' })
+          const data = await res.json().catch(() => null)
+          if (data && data.ok && data.dir) {
+            setAlbumDir(data.dir)
+          } else {
+            setDirError((data && data.error) || '没有选择目录')
+          }
+        } catch (error) {
+          setDirError(String((error && error.message) || error))
+        }
+      }
 
       const requestClear = () => {
         if (!confirming) {
@@ -3911,9 +3971,134 @@ window.__ModuleLoader__.load({
             },
             h(ThemeIcon, { night: nightTheme }),
           ),
+          h('button', { className: 'dshComfyAlbum-btn', onClick: openDirectoryView }, '目录'),
           h('button', { className: 'dshComfyAlbum-btn', onClick: reload }, '刷新'),
         ),
         content,
+        dirOpen
+          ? h(
+              'div',
+              {
+                style: {
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 30,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  background: 'var(--dsw-alias-bg-base)',
+                },
+              },
+              h(
+                'div',
+                {
+                  style: {
+                    flex: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '8px 10px',
+                    borderBottom: '1px solid var(--dsw-alias-border-l2)',
+                  },
+                },
+                h(
+                  'span',
+                  {
+                    title: dirPath || albumDir,
+                    style: {
+                      fontSize: 10,
+                      color: 'var(--dsw-alias-label-secondary)',
+                      flex: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    },
+                  },
+                  dirPath || albumDir || '（默认 output）',
+                ),
+                h('button', { className: 'dshComfyAlbum-btn', onClick: pickAlbumDir }, '选择目录'),
+                h('button', { className: 'dshComfyAlbum-btn', onClick: () => setDirNonce((value) => value + 1) }, '刷新'),
+                h('button', { className: 'dshComfyAlbum-btn', onClick: () => setDirOpen(false) }, '关闭'),
+              ),
+              h(
+                'div',
+                {
+                  style: {
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: 'auto',
+                    padding: 10,
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+                    gap: 8,
+                    alignContent: 'start',
+                  },
+                },
+                dirBusy
+                  ? h(
+                      'div',
+                      { style: { gridColumn: '1 / -1', fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } },
+                      '加载中…',
+                    )
+                  : dirError
+                    ? h(
+                        'div',
+                        {
+                          style: {
+                            gridColumn: '1 / -1',
+                            fontSize: 10.5,
+                            color: 'var(--dsw-alias-state-error-primary)',
+                          },
+                        },
+                        dirError,
+                      )
+                    : dirFiles && dirFiles.length === 0
+                      ? h(
+                          'div',
+                          { style: { gridColumn: '1 / -1', fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } },
+                          '这个目录里没有图片',
+                        )
+                      : (dirFiles || []).map((file, index) =>
+                          h(
+                            'button',
+                            {
+                              key: file.name,
+                              type: 'button',
+                              className: 'dshComfyAlbum-btn',
+                              style: {
+                                padding: 0,
+                                border: 0,
+                                overflow: 'hidden',
+                                borderRadius: 8,
+                                height: 120,
+                                background: 'var(--dsw-alias-bg-layer-1)',
+                                cursor: 'pointer',
+                              },
+                              title: file.name,
+                              onClick: () => {
+                                setDirPick(index)
+                                setDirViewer(true)
+                              },
+                            },
+                            h('img', {
+                              src: file.thumb || file.url,
+                              alt: '',
+                              loading: 'lazy',
+                              decoding: 'async',
+                              style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
+                            }),
+                          ),
+                        ),
+              ),
+            )
+          : null,
+        dirViewer && dirFiles && dirFiles.length > 0
+          ? h(ImageViewer, {
+              images: dirFiles.map((file) => ({ url: file.url, filename: file.name })),
+              startIndex: Math.max(0, Math.min(dirPick, dirFiles.length - 1)),
+              filename: dirFiles[dirPick] ? dirFiles[dirPick].name : '',
+              onClose: () => setDirViewer(false),
+            })
+          : null,
       )
     }
 

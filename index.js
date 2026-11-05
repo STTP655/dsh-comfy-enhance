@@ -11,7 +11,7 @@
  */
 
 import { apply as applyCanvasHost } from './canvas-host.js'
-import { dirname, join } from 'node:path'
+import { dirname, extname, join, resolve } from 'node:path'
 import { readdir, stat, readFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 
@@ -979,7 +979,13 @@ function createHandler(baseUrl) {
     if (pathname === `${PREFIX}/outputs`) {
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(405, { ok: false, error: 'method not allowed' })
       try {
-        const dir = await outputDir()
+        const query = new URL(req.url || '/', 'http://localhost').searchParams
+        const requested = (query.get('dir') || '').trim()
+        const comfyOutput = await outputDir()
+        const dir = requested || comfyOutput
+        // ComfyUI's own output folder can be served through /view (with webp
+        // previews); any other folder is streamed as-is by /file.
+        const isComfyOutput = dir === comfyOutput
         const entries = await readdir(dir, { withFileTypes: true })
         const files = []
         for (const entry of entries) {
@@ -990,10 +996,14 @@ function createHandler(baseUrl) {
           } catch {
             continue
           }
+          const url = isComfyOutput
+            ? `${PREFIX}/view?filename=${encodeURIComponent(entry.name)}&type=output`
+            : `${PREFIX}/file?path=${encodeURIComponent(join(dir, entry.name))}`
           files.push({
             name: entry.name,
             mtime: info.mtimeMs,
-            url: `${PREFIX}/view?filename=${encodeURIComponent(entry.name)}&type=output`,
+            url,
+            thumb: isComfyOutput ? url + '&preview=webp' : url,
           })
         }
         files.sort((left, right) => right.mtime - left.mtime)
@@ -1001,6 +1011,30 @@ function createHandler(baseUrl) {
       } catch (error) {
         return send(502, { ok: false, error: String((error && error.message) || error) })
       }
+    }
+
+    // Stream one image file (custom gallery folders; ComfyUI's own output uses /view).
+    if (pathname === `${PREFIX}/file`) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const query = new URL(req.url || '/', 'http://localhost').searchParams
+        const filePath = (query.get('path') || '').trim()
+        if (!filePath) throw new Error('path is required')
+        const resolved = resolve(filePath)
+        const ext = extname(resolved).toLowerCase()
+        if (!['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext)) throw new Error('not an image')
+        const buffer = await readFile(resolved)
+        res.writeHead(200, {
+          'content-type': ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/' + ext.slice(1),
+          'content-length': String(buffer.length),
+          'cache-control': 'private, max-age=60',
+        })
+        res.end(buffer)
+      } catch (error) {
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
+        res.end(String((error && error.message) || error))
+      }
+      return
     }
 
     // Generation parameters embedded in one output PNG, for the workspace preview.
