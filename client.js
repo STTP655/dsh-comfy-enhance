@@ -1051,6 +1051,11 @@ window.__ModuleLoader__.load({
             padding: 12,
             overflowY: 'auto',
             overflowX: 'hidden',
+            // Promote the card to its own composited layer so the entrance/exit
+            // only composites (shadow, form fields, text are rasterized once), and
+            // contain its internal layout/paint so nothing inside repaints the page.
+            willChange: 'opacity, transform',
+            contain: 'layout paint',
             opacity: closing ? 0 : entered ? 1 : 0,
             transform: entered && !closing ? 'translateY(0)' : 'translateY(8px)',
             transition:
