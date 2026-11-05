@@ -106,6 +106,10 @@ window.__ModuleLoader__.load({
         // Submitted size = t2iSize × this factor; the inputs below keep the base
         // box so the same framing can be re-run at another resolution.
         t2iScale: 1,
+        // Quality prefixes pinned in front of every prompt this panel submits.
+        t2iPinPositive: '',
+        t2iPinNegative: '',
+        t2iPinEnabled: true,
         t2iSampling: { steps: 20, cfg: 1, sampler: 'euler', scheduler: 'simple', seed: 0 },
         t2iMeta: {},
         t2iPromptStyle: 'tags',
@@ -185,6 +189,9 @@ window.__ModuleLoader__.load({
                 Number.isFinite(Number(parsed.t2iScale)) && Number(parsed.t2iScale) > 0
                   ? Math.min(4, Math.max(0.25, Number(parsed.t2iScale)))
                   : 1,
+              t2iPinPositive: typeof parsed.t2iPinPositive === 'string' ? parsed.t2iPinPositive : '',
+              t2iPinNegative: typeof parsed.t2iPinNegative === 'string' ? parsed.t2iPinNegative : '',
+              t2iPinEnabled: parsed.t2iPinEnabled !== false,
               t2iSampling:
                 parsed.t2iSampling && typeof parsed.t2iSampling === 'object'
                   ? parsed.t2iSampling
@@ -916,6 +923,10 @@ window.__ModuleLoader__.load({
         ['path', { d: 'M22 18h-5.9c-1.3 0-2.6-.7-3.3-1.8l-.5-.8' }],
         ['path', { d: 'm18 14 4 4-4 4' }],
       ],
+      pin: [
+        ['path', { d: 'M12 17v5' }],
+        ['path', { d: 'M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z' }],
+      ],
       images: [
         ['path', { d: 'M18 22H4a2 2 0 0 1-2-2V6' }],
         ['path', { d: 'm22 13-1.296-1.296a2.41 2.41 0 0 0-3.408 0L11 18' }],
@@ -960,6 +971,27 @@ window.__ModuleLoader__.load({
     /** One pickable route: provider and model ids never travel alone. */
     function routeKey(provider, model) {
       return String(provider || '') + '\u0000' + String(model || '')
+    }
+
+    /**
+     * Join the pinned quality prefix with the text being submitted.
+     *
+     * The prefix goes first (that is the order these models were trained on),
+     * the two sides are trimmed, and stray commas at either seam are dropped so
+     * the result never reads `,,` or ends with a dangling comma.
+     * @param pin - pinned prefix text.
+     * @param text - the prompt/negative the user wrote.
+     * @param enabled - whether the pin is currently switched on.
+     * @returns the text to submit.
+     */
+    function mergePinnedText(pin, text, enabled) {
+      const body = String(text || '').trim().replace(/^[,，\s]+/, '')
+      const head = enabled
+        ? String(pin || '').trim().replace(/^[,，\s]+/, '').replace(/[,，\s]+$/, '')
+        : ''
+      if (!head) return body
+      if (!body) return head
+      return head + ', ' + body
     }
 
     function parseRouteKey(value) {
@@ -10233,6 +10265,268 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * Pinned quality prefix: text every generation in this panel carries.
+     *
+     * Kept in its own dialog so the prompt box stays exactly what the user typed;
+     * the prefix is only joined at submit time.
+     */
+    function PinnedPromptDialog(props) {
+      ensureWorkbenchStyle()
+      const [positive, setPositive] = useState(props.positive || '')
+      const [negative, setNegative] = useState(props.negative || '')
+      const [enabled, setEnabled] = useState(props.enabled !== false)
+      useEffect(() => {
+        if (!props.open) return
+        setPositive(props.positive || '')
+        setNegative(props.negative || '')
+        setEnabled(props.enabled !== false)
+      }, [props.open])
+      if (!props.open) return null
+      const area = {
+        width: '100%',
+        boxSizing: 'border-box',
+        padding: '8px 10px',
+        borderRadius: 9,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 11.5,
+        fontFamily: 'inherit',
+        outline: 'none',
+        resize: 'vertical',
+        lineHeight: 1.55,
+      }
+      const btn = {
+        padding: '5px 12px',
+        borderRadius: 8,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 11,
+        fontWeight: 600,
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+      }
+      const previewPositive = mergePinnedText(positive, props.samplePrompt, enabled)
+      const previewNegative = mergePinnedText(negative, props.sampleNegative, enabled)
+      const hasContent = Boolean(String(positive).trim() || String(negative).trim())
+      const preview = (label, value) =>
+        h(
+          'div',
+          { style: { display: 'flex', gap: 6, alignItems: 'flex-start' } },
+          h('span', { style: { flex: 'none', width: 30, fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } }, label),
+          h(
+            'span',
+            { style: { flex: 1, minWidth: 0, fontSize: 10.5, lineHeight: 1.5, wordBreak: 'break-word' } },
+            value || '（空）',
+          ),
+        )
+      return h(
+        'div',
+        {
+          style: {
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1400,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(0, 0, 0, 0.42)',
+            backdropFilter: 'blur(2px)',
+          },
+          onClick: (event) => {
+            if (event.target === event.currentTarget) props.onClose()
+          },
+        },
+        h(
+          'div',
+          {
+            style: {
+              width: 560,
+              maxWidth: 'calc(100vw - 40px)',
+              maxHeight: '82vh',
+              display: 'flex',
+              flexDirection: 'column',
+              borderRadius: 16,
+              border: '1px solid var(--dsw-alias-border-l2)',
+              background: 'var(--dsw-alias-bg-base)',
+              color: 'var(--dsw-alias-label-primary)',
+              boxShadow: '0 24px 70px rgba(0, 0, 0, 0.3)',
+              overflow: 'hidden',
+            },
+          },
+          h(
+            'div',
+            {
+              style: {
+                flex: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--dsw-alias-border-l2)',
+                background: 'var(--dsw-alias-bg-layer-1)',
+              },
+            },
+            h(Icon, { name: 'pin', size: 14 }),
+            h('span', { style: { fontSize: 13, fontWeight: 600 } }, '固定提示词'),
+            h('span', { style: { flex: 1 } }),
+            h(
+              'button',
+              {
+                type: 'button',
+                onClick: props.onClose,
+                style: {
+                  width: 24,
+                  height: 24,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 0,
+                  borderRadius: '50%',
+                  border: 0,
+                  background: 'var(--dsw-alias-bg-layer-2)',
+                  color: 'var(--dsw-alias-label-secondary)',
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                },
+              },
+              '×',
+            ),
+          ),
+          h(
+            'div',
+            { style: { flex: 1, minHeight: 0, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 } },
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  onClick: () => setEnabled(!enabled),
+                  style: {
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    padding: '3px 9px',
+                    borderRadius: 999,
+                    border: '1px solid ' + (enabled ? '#f59e0b' : 'var(--dsw-alias-border-l2)'),
+                    background: enabled ? 'rgba(245, 158, 11, 0.14)' : 'transparent',
+                    color: enabled ? '#f59e0b' : 'var(--dsw-alias-label-secondary)',
+                    fontSize: 10,
+                    fontWeight: 600,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                    flex: 'none',
+                  },
+                },
+                enabled ? '已启用' : '已停用',
+              ),
+              h('span', null, '停用后内容保留，但生成时不再拼接'),
+              h('span', { style: { flex: 1 } }),
+              h(
+                'span',
+                { style: { fontSize: 10, whiteSpace: 'nowrap' } },
+                enabled && hasContent ? '生效中' : '未生效',
+              ),
+            ),
+            h(
+              'label',
+              { style: { display: 'flex', flexDirection: 'column', gap: 5, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } },
+              '正向（拼在正文前面）',
+              h('textarea', {
+                value: positive,
+                rows: 3,
+                placeholder: '例如：masterpiece, best quality, amazing quality, very awa',
+                style: area,
+                onChange: (event) => setPositive(event.target.value),
+              }),
+            ),
+            h(
+              'label',
+              { style: { display: 'flex', flexDirection: 'column', gap: 5, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } },
+              '负向（拼在负面提示词前面）',
+              h('textarea', {
+                value: negative,
+                rows: 3,
+                placeholder: '例如：worst quality, low quality, lowres, bad anatomy',
+                style: area,
+                onChange: (event) => setNegative(event.target.value),
+              }),
+            ),
+            h(
+              'div',
+              { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+              h('span', { style: { fontSize: 10.5, fontWeight: 600 } }, '实际发送'),
+              h(
+                'div',
+                {
+                  style: {
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 5,
+                    padding: '8px 10px',
+                    borderRadius: 9,
+                    border: '1px dashed var(--dsw-alias-border-l2)',
+                    background: 'var(--dsw-alias-bg-layer-1)',
+                    maxHeight: 120,
+                    overflowY: 'auto',
+                  },
+                },
+                preview('正向', previewPositive),
+                preview('负向', previewNegative),
+              ),
+            ),
+          ),
+          h(
+            'div',
+            {
+              style: {
+                flex: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 16px',
+                borderTop: '1px solid var(--dsw-alias-border-l2)',
+                background: 'var(--dsw-alias-bg-layer-1)',
+              },
+            },
+            h(
+              'button',
+              {
+                type: 'button',
+                style: btn,
+                onClick: () => {
+                  setPositive('')
+                  setNegative('')
+                },
+              },
+              '清空',
+            ),
+            h('span', { style: { flex: 1 } }),
+            h('button', { type: 'button', style: btn, onClick: props.onClose }, '取消'),
+            h(
+              'button',
+              {
+                type: 'button',
+                style: Object.assign({}, btn, {
+                  background: '#3b82f6',
+                  borderColor: '#3b82f6',
+                  color: '#ffffff',
+                }),
+                onClick: () =>
+                  props.onSave({ positive: positive.trim(), negative: negative.trim(), enabled }),
+              },
+              '保存',
+            ),
+          ),
+        ),
+      )
+    }
+
     /** Edit the custom prompt-writing rules per style (tags vs natural language). */
     function PromptRulesDialog(props) {
       ensureWorkbenchStyle()
@@ -11716,6 +12010,14 @@ window.__ModuleLoader__.load({
       const [sampling, setSampling] = usePref('t2iSampling')
       const [meta, setMeta] = usePref('t2iMeta')
       const [promptStyle, setPromptStyle] = usePref('t2iPromptStyle')
+      // Pinned quality prefix: joined onto what is submitted, never onto the
+      // prompt box itself.
+      const [pinPositive, setPinPositive] = usePref('t2iPinPositive')
+      const [pinNegative, setPinNegative] = usePref('t2iPinNegative')
+      const [pinEnabled, setPinEnabled] = usePref('t2iPinEnabled')
+      const [pinOpen, setPinOpen] = useState(false)
+      const pinSet = Boolean(String(pinPositive || '').trim() || String(pinNegative || '').trim())
+      const pinActive = pinSet && pinEnabled !== false
       const [aiBusy, setAiBusy] = useState(false)
       const [aiError, setAiError] = useState('')
       const [rulesOpen, setRulesOpen] = useState(false)
@@ -11927,8 +12229,10 @@ window.__ModuleLoader__.load({
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
-              prompt,
-              negative,
+              // The pinned quality prefix is joined here, at submit time only, so
+              // the prompt box keeps exactly what the user wrote.
+              prompt: mergePinnedText(pinPositive, prompt, pinEnabled !== false),
+              negative: mergePinnedText(pinNegative, negative, pinEnabled !== false),
               models,
               clipType,
               width: outputSize.width,
@@ -12305,6 +12609,41 @@ window.__ModuleLoader__.load({
                     text,
                   ),
                 ),
+              ),
+              // Pinned quality prefix: grey when unset, orange while it is being
+              // applied to every submission.
+              h(
+                'button',
+                {
+                  type: 'button',
+                  title: pinActive
+                    ? '固定提示词已启用：生成时拼在正文前面（点击修改）'
+                    : pinSet
+                      ? '固定提示词已设置但停用（点击启用或修改）'
+                      : '设置固定提示词：每次生成自动拼在正文前面',
+                  onClick: () => setPinOpen(true),
+                  style: {
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    flex: 'none',
+                    padding: '2px 7px',
+                    borderRadius: 6,
+                    // Longhands on purpose: mixing the `border` shorthand with
+                    // `borderStyle` makes React warn on every rerender.
+                    borderWidth: 1,
+                    borderStyle: pinSet && !pinActive ? 'dashed' : 'solid',
+                    borderColor: pinActive ? '#f59e0b' : 'var(--dsw-alias-border-l2)',
+                    background: pinActive ? 'rgba(245, 158, 11, 0.14)' : 'transparent',
+                    color: pinActive ? '#f59e0b' : 'var(--dsw-alias-label-secondary)',
+                    fontSize: 9.5,
+                    fontWeight: 600,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                  },
+                },
+                h(Icon, { name: 'pin', size: 10 }),
+                '钉住',
               ),
             ),
             h('textarea', {
@@ -12687,6 +13026,21 @@ window.__ModuleLoader__.load({
         ),
         h(PromptRulesDialog, { open: rulesOpen, onClose: () => setRulesOpen(false) }),
           h(PromptHistoryDialog, { open: historyOpen, onClose: () => setHistoryOpen(false) }),
+        h(PinnedPromptDialog, {
+          open: pinOpen,
+          positive: pinPositive,
+          negative: pinNegative,
+          enabled: pinEnabled !== false,
+          samplePrompt: prompt,
+          sampleNegative: negative,
+          onClose: () => setPinOpen(false),
+          onSave: (next) => {
+            setPinPositive(next.positive)
+            setPinNegative(next.negative)
+            setPinEnabled(next.enabled)
+            setPinOpen(false)
+          },
+        }),
         viewerOpen && gallery.length > 0
           ? h(ImageViewer, {
               images: gallery.map((file) => ({ url: file.url, filename: file.name })),
