@@ -12184,6 +12184,25 @@ window.__ModuleLoader__.load({
         return () => clearInterval(timer)
       }, [jobActive])
       const jobElapsed = jobActive && job ? Math.max(0, Math.round((jobClock - (job.at || jobClock)) / 1000)) : 0
+      // The overlay stays mounted for one exit animation after the job ends; a
+      // purely derived condition would unmount it before the fade could run.
+      const [overlayShown, setOverlayShown] = useState(false)
+      const [overlayClosing, setOverlayClosing] = useState(false)
+      useEffect(() => {
+        if (jobActive) {
+          setOverlayClosing(false)
+          setOverlayShown(true)
+          return undefined
+        }
+        if (!overlayShown) return undefined
+        setOverlayClosing(true)
+        const timer = setTimeout(() => {
+          setOverlayShown(false)
+          setOverlayClosing(false)
+        }, 140)
+        return () => clearTimeout(timer)
+        // Overlay visibility follows the job; overlayShown is read, not watched.
+      }, [jobActive])
       // Settle once per job status change. The folder is re-read here instead of
       // being polled while it runs: the tracker already knows when it ended.
       const settledRef = useRef('')
@@ -12486,7 +12505,7 @@ window.__ModuleLoader__.load({
           // Live progress sits on the picture it is producing: that is where the
           // eye already is while the image renders, and it leaves the control
           // column free of a moving element.
-          jobActive
+          overlayShown
             ? h(
                 'div',
                 {
@@ -12501,6 +12520,9 @@ window.__ModuleLoader__.load({
                     justifyContent: 'center',
                     pointerEvents: 'none',
                     background: 'rgba(8, 10, 14, 0.5)',
+                    animation: overlayClosing
+                      ? 'dshComfyOverlayOut 140ms ease-out both'
+                      : 'dshComfyOverlayIn 160ms ease-out both',
                   },
                 },
                 h(
@@ -12520,6 +12542,9 @@ window.__ModuleLoader__.load({
                       background: 'rgb(20, 22, 27)',
                       boxShadow: '0 12px 34px rgba(0, 0, 0, 0.45)',
                       color: '#ffffff',
+                      animation: overlayClosing
+                        ? 'dshComfyPanelOut 140ms ease-out both'
+                        : 'dshComfyPanelIn 180ms cubic-bezier(.23, 1, .32, 1) both',
                     },
                   },
                   // Drawn, not bordered, and rotated by animating the dash offset
