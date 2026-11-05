@@ -12572,44 +12572,6 @@ window.__ModuleLoader__.load({
               { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
               h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, 'Prompt'),
               h('span', { style: { flex: 1 } }),
-              h(
-                'div',
-                {
-                  style: {
-                    display: 'flex',
-                    gap: 3,
-                    padding: 2,
-                    borderRadius: 7,
-                    background: 'var(--dsw-alias-bg-layer-1)',
-                    border: '1px solid var(--dsw-alias-border-l2)',
-                  },
-                },
-                [
-                  ['tags', 'SD 标签'],
-                  ['natural', '自然语言'],
-                ].map(([value, text]) =>
-                  h(
-                    'button',
-                    {
-                      key: value,
-                      type: 'button',
-                      onClick: () => setPromptStyle(value),
-                      style: {
-                        padding: '2px 7px',
-                        borderRadius: 5,
-                        border: 0,
-                        background: promptStyle === value ? '#3b82f6' : 'transparent',
-                        color: promptStyle === value ? '#ffffff' : 'var(--dsw-alias-label-secondary)',
-                        fontSize: 9.5,
-                        fontWeight: 600,
-                        fontFamily: 'inherit',
-                        cursor: 'pointer',
-                      },
-                    },
-                    text,
-                  ),
-                ),
-              ),
               // Pinned quality prefix: grey when unset, orange while it is being
               // applied to every submission.
               h(
@@ -12654,11 +12616,51 @@ window.__ModuleLoader__.load({
               onChange: (event) => setPrompt(event.target.value),
             }),
             // The AI trio acts on the prompt above it, so it sits under the box
-            // instead of crowding the label row. The extra box is what the model
-            // is told on top of that prompt.
+            // instead of crowding the label row. The style switch belongs with
+            // them: it decides how those tools write. The extra box is what the
+            // model is told on top of that prompt.
             h(
               'div',
-              { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
+              { style: { display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' } },
+              h(
+                'div',
+                {
+                  style: {
+                    display: 'flex',
+                    gap: 4,
+                    padding: 3,
+                    borderRadius: 8,
+                    flex: 'none',
+                    background: 'var(--dsw-alias-bg-layer-1)',
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                  },
+                },
+                [
+                  ['tags', 'SD 标签'],
+                  ['natural', '自然语言'],
+                ].map(([value, text]) =>
+                  h(
+                    'button',
+                    {
+                      key: value,
+                      type: 'button',
+                      onClick: () => setPromptStyle(value),
+                      style: {
+                        padding: '3px 9px',
+                        borderRadius: 6,
+                        border: 0,
+                        background: promptStyle === value ? '#3b82f6' : 'transparent',
+                        color: promptStyle === value ? '#ffffff' : 'var(--dsw-alias-label-secondary)',
+                        fontSize: 10.5,
+                        fontWeight: 600,
+                        fontFamily: 'inherit',
+                        cursor: 'pointer',
+                      },
+                    },
+                    text,
+                  ),
+                ),
+              ),
               h(
                 'button',
                 {
@@ -12669,20 +12671,20 @@ window.__ModuleLoader__.load({
                   style: {
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: 4,
-                    padding: '3px 8px',
-                    borderRadius: 6,
+                    gap: 5,
+                    padding: '5px 10px',
+                    borderRadius: 8,
                     border: '1px solid var(--dsw-alias-border-l2)',
                     background: 'var(--dsw-alias-bg-layer-2)',
                     color: 'var(--dsw-alias-label-primary)',
-                    fontSize: 10,
+                    fontSize: 11,
                     fontWeight: 600,
                     fontFamily: 'inherit',
                     cursor: aiBusy ? 'default' : 'pointer',
                     opacity: aiBusy ? 0.6 : 1,
                   },
                 },
-                h(Icon, { name: 'sparkles', size: 11 }),
+                h(Icon, { name: 'sparkles', size: 12 }),
                 aiBusy ? '生成中…' : 'AI 写/润色',
               ),
               h(
@@ -12692,12 +12694,12 @@ window.__ModuleLoader__.load({
                   onClick: () => setRulesOpen(true),
                   title: '编辑提示词写作规则',
                   style: {
-                    padding: '3px 8px',
-                    borderRadius: 6,
+                    padding: '5px 10px',
+                    borderRadius: 8,
                     border: '1px solid var(--dsw-alias-border-l2)',
                     background: 'transparent',
                     color: 'var(--dsw-alias-label-secondary)',
-                    fontSize: 10,
+                    fontSize: 11,
                     fontFamily: 'inherit',
                     cursor: 'pointer',
                   },
@@ -12711,12 +12713,12 @@ window.__ModuleLoader__.load({
                   onClick: () => setHistoryOpen(true),
                   title: '查看提示词对话记录',
                   style: {
-                    padding: '3px 8px',
-                    borderRadius: 6,
+                    padding: '5px 10px',
+                    borderRadius: 8,
                     border: '1px solid var(--dsw-alias-border-l2)',
                     background: 'transparent',
                     color: 'var(--dsw-alias-label-secondary)',
-                    fontSize: 10,
+                    fontSize: 11,
                     fontFamily: 'inherit',
                     cursor: 'pointer',
                   },
