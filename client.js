@@ -1044,39 +1044,50 @@ window.__ModuleLoader__.load({
           { style: { display: 'flex', alignItems: 'center', gap: 6 } },
           h('span', { style: { fontSize: 12, fontWeight: 600 } }, (draft.title || '草稿') + ' · 可编辑'),
           h('span', { style: { flex: 1 } }),
-          // A plain div avoids the app's global button chrome (min-width, padding,
-          // radius) so the close control stays a真 24×24 circle.
-          h('div', {
-            role: 'button',
-            tabIndex: 0,
-            title: '关闭草稿',
-            onClick: close,
-            onMouseEnter: () => setHoverClose(true),
-            onMouseLeave: () => setHoverClose(false),
-            onKeyDown: (event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                close()
-              }
-            },
-            style: {
+          // Drawn as SVG instead of a styled element: a <circle> is a真 circle no
+          // matter what the app's global button/div styles do, and the x strokes
+          // are centered by construction.
+          h(
+            'svg',
+            {
               width: 24,
               height: 24,
-              flex: 'none',
-              boxSizing: 'border-box',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: '50%',
-              background: hoverClose ? '#2563eb' : '#3b82f6',
-              color: '#ffffff',
-              cursor: 'pointer',
-              userSelect: 'none',
-              transition: 'background .16s ease, box-shadow .16s ease, transform .16s ease',
-              boxShadow: hoverClose ? '0 4px 14px rgba(59, 130, 246, 0.4)' : 'none',
-              transform: hoverClose ? 'scale(1.06)' : 'none',
+              viewBox: '0 0 24 24',
+              role: 'button',
+              tabIndex: 0,
+              title: '关闭草稿',
+              onClick: close,
+              onMouseEnter: () => setHoverClose(true),
+              onMouseLeave: () => setHoverClose(false),
+              onKeyDown: (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  close()
+                }
+              },
+              style: {
+                flex: 'none',
+                display: 'block',
+                cursor: 'pointer',
+                transform: hoverClose ? 'scale(1.06)' : 'none',
+                transition: 'transform .16s ease, filter .16s ease',
+                filter: hoverClose ? 'drop-shadow(0 4px 8px rgba(59, 130, 246, 0.45))' : 'none',
+              },
             },
-          }, h(Icon, { name: 'x', size: 13 })),
+            h('circle', {
+              cx: 12,
+              cy: 12,
+              r: 11,
+              fill: hoverClose ? '#2563eb' : '#3b82f6',
+              style: { transition: 'fill .16s ease' },
+            }),
+            h('path', {
+              d: 'M9 9l6 6M15 9l-6 6',
+              stroke: '#ffffff',
+              strokeWidth: 1.8,
+              strokeLinecap: 'round',
+            }),
+          ),
         ),
         h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '正文（可直接改）'),
         h('textarea', {
