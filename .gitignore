@@ -3,3 +3,5 @@ node_modules/
 *.bak-*
 .DS_Store
 Thumbs.db
+# scripts/snapshot.mjs 的本地副本，只服务这台机器
+backups/
