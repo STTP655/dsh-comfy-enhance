@@ -1028,41 +1028,37 @@ window.__ModuleLoader__.load({
         outline: 'none',
         resize: 'vertical',
       }
+      // Height auto ↔ 0 through interpolate-size (Chrome 129+): the browser
+      // interpolates the `auto` keyword, so no per-frame JS is needed, and the
+      // card keeps its own overflow/box-shadow instead of being clipped by an
+      // outer hidden container.
       return h(
         'div',
         {
           style: {
-            display: 'grid',
-            gridTemplateRows: entered && !closing ? '1fr' : '0fr',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
             width: '100%',
             maxWidth: 'var(--dsh-composer-card-max-width)',
             margin: '0 auto 8px',
+            boxSizing: 'border-box',
+            borderRadius: 'var(--dsw-radius-panel)',
+            border: '1px solid var(--dsw-alias-border-l2)',
+            background: 'var(--dsw-alias-bg-layer-2)',
+            boxShadow: '0 4px 18px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.06)',
+            maxHeight: '50vh',
+            height: entered && !closing ? 'auto' : 0,
+            padding: entered && !closing ? 12 : 0,
+            overflowY: entered && !closing ? 'auto' : 'hidden',
+            overflowX: 'hidden',
+            interpolateSize: 'allow-keywords',
             opacity: closing ? 0 : entered ? 1 : 0,
             transform: entered && !closing ? 'translateY(0)' : 'translateY(8px)',
             transition:
-              'grid-template-rows 240ms cubic-bezier(0.2, 0, 0, 1), opacity 240ms cubic-bezier(0.2, 0, 0, 1), transform 240ms cubic-bezier(0.2, 0, 0, 1)',
+              'height 240ms cubic-bezier(0.2, 0, 0, 1), padding 240ms cubic-bezier(0.2, 0, 0, 1), opacity 240ms cubic-bezier(0.2, 0, 0, 1), transform 240ms cubic-bezier(0.2, 0, 0, 1)',
           },
         },
-        h(
-          'div',
-          { style: { minHeight: 0, overflow: 'hidden' } },
-          h(
-            'div',
-            {
-              style: {
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 8,
-                padding: 12,
-                borderRadius: 'var(--dsw-radius-panel)',
-                border: '1px solid var(--dsw-alias-border-l2)',
-                background: 'var(--dsw-alias-bg-layer-2)',
-                boxShadow: '0 4px 18px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.06)',
-                maxHeight: '50vh',
-                overflowY: 'auto',
-                boxSizing: 'border-box',
-              },
-            },
         h(
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: 6 } },
@@ -1198,8 +1194,6 @@ window.__ModuleLoader__.load({
               onClick: submit,
             },
             '提交',
-          ),
-        ),
           ),
         ),
       )
