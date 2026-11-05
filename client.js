@@ -10811,6 +10811,9 @@ window.__ModuleLoader__.load({
                     height: size && size.height ? size.height : 1024,
                     steps: (sampling && sampling.steps) || 20,
                     cfg: sampling && sampling.cfg !== undefined ? sampling.cfg : 1,
+                    sampler: (sampling && sampling.sampler) || 'euler',
+                    scheduler: (sampling && sampling.scheduler) || 'simple',
+                    seed: sampling && sampling.seed !== undefined ? sampling.seed : 0,
                     seconds: elapsed,
                   },
                 }),
@@ -10960,9 +10963,46 @@ window.__ModuleLoader__.load({
             images: gallery.map((file) => ({ url: file.url, filename: file.name })),
             startIndex: Math.max(0, gallery.findIndex((file) => file.name === selected)),
             filename: selected,
-            recent: gallery.map((file, index) => ({ at: index, image: { url: file.url, filename: file.name } })),
             onClose: () => {},
           }),
+          current
+            ? h(
+                'div',
+                {
+                  style: {
+                    position: 'absolute',
+                    left: 12,
+                    right: 12,
+                    bottom: 72,
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '3px 12px',
+                    pointerEvents: 'none',
+                    color: '#ffffff',
+                    fontSize: 10.5,
+                    lineHeight: 1.5,
+                    textAlign: 'center',
+                    textShadow: '0 1px 6px rgba(0, 0, 0, 0.8), 0 0 2px rgba(0, 0, 0, 0.6)',
+                    zIndex: 2,
+                  },
+                },
+                h('span', { style: { fontWeight: 600 } }, current.name),
+                meta && meta[current.name]
+                  ? h('span', null, '模型 ' + (meta[current.name].model || '—'))
+                  : null,
+                meta && meta[current.name] ? h('span', null, '步数 ' + meta[current.name].steps) : null,
+                meta && meta[current.name] ? h('span', null, 'CFG ' + meta[current.name].cfg) : null,
+                meta && meta[current.name]
+                  ? h('span', null, '采样器 ' + (meta[current.name].sampler || '—'))
+                  : null,
+                meta && meta[current.name]
+                  ? h('span', null, '调度 ' + (meta[current.name].scheduler || '—'))
+                  : null,
+                meta && meta[current.name] ? h('span', null, '种子 ' + meta[current.name].seed) : null,
+              )
+            : null,
           busy
             ? h(
                 'div',
