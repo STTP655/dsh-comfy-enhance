@@ -108,6 +108,7 @@ window.__ModuleLoader__.load({
         t2iPromptStyle: 'tags',
         promptWriteSystemTags: '',
         promptWriteSystemNatural: '',
+        promptWriteHistory: [],
         editorPositiveHeight: 96,
         editorNegativeHeight: 96,
         viewerPanelWidth: 360,
@@ -181,6 +182,7 @@ window.__ModuleLoader__.load({
               promptWriteSystemTags: typeof parsed.promptWriteSystemTags === 'string' ? parsed.promptWriteSystemTags : '',
               promptWriteSystemNatural:
                 typeof parsed.promptWriteSystemNatural === 'string' ? parsed.promptWriteSystemNatural : '',
+              promptWriteHistory: Array.isArray(parsed.promptWriteHistory) ? parsed.promptWriteHistory : [],
               editorPositiveHeight:
                 typeof parsed.editorPositiveHeight === 'number' ? parsed.editorPositiveHeight : 96,
               editorNegativeHeight:
@@ -9951,6 +9953,154 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /** Read the history of AI prompt-writing turns (per style). */
+    function PromptHistoryDialog(props) {
+      ensureWorkbenchStyle()
+      const [history, setHistory] = usePref('promptWriteHistory')
+      if (!props.open) return null
+      const list = Array.isArray(history) ? history : []
+      const btn = {
+        padding: '5px 12px',
+        borderRadius: 8,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 11,
+        fontWeight: 600,
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+      }
+      return h(
+        'div',
+        {
+          style: {
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1400,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(0, 0, 0, 0.42)',
+            backdropFilter: 'blur(2px)',
+          },
+          onClick: (event) => {
+            if (event.target === event.currentTarget) props.onClose()
+          },
+        },
+        h(
+          'div',
+          {
+            style: {
+              width: 640,
+              maxWidth: 'calc(100vw - 40px)',
+              maxHeight: '80vh',
+              display: 'flex',
+              flexDirection: 'column',
+              borderRadius: 16,
+              border: '1px solid var(--dsw-alias-border-l2)',
+              background: 'var(--dsw-alias-bg-base)',
+              boxShadow: '0 24px 70px rgba(0, 0, 0, 0.3)',
+              overflow: 'hidden',
+              animation: 'dshPageIn 200ms cubic-bezier(0.22, 1, 0.36, 1) both',
+            },
+          },
+          h(
+            'div',
+            {
+              style: {
+                flex: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--dsw-alias-border-l2)',
+              },
+            },
+            h(Icon, { name: 'info', size: 14 }),
+            h('span', { style: { fontSize: 13, fontWeight: 600 } }, '提示词对话'),
+            h('span', { style: { flex: 1 } }),
+            list.length > 0
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    onClick: () => setHistory([]),
+                    style: Object.assign({}, btn, { padding: '3px 8px', fontSize: 10 }),
+                  },
+                  '清空',
+                )
+              : null,
+            h(
+              'button',
+              {
+                type: 'button',
+                onClick: props.onClose,
+                style: {
+                  width: 24,
+                  height: 24,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 0,
+                  borderRadius: '50%',
+                  border: 0,
+                  background: 'var(--dsw-alias-bg-layer-2)',
+                  color: 'var(--dsw-alias-label-secondary)',
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                },
+              },
+              '×',
+            ),
+          ),
+          h(
+            'div',
+            { style: { flex: 1, minHeight: 0, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 } },
+            list.length === 0
+              ? h(
+                  'div',
+                  { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } },
+                  '还没有对话。用「AI 写/润色」生成的每一轮都会记录在这里。',
+                )
+              : list.map((entry, index) =>
+                  h(
+                    'div',
+                    {
+                      key: index,
+                      style: {
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 5,
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                        background: 'var(--dsw-alias-bg-layer-1)',
+                      },
+                    },
+                    h(
+                      'div',
+                      { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } },
+                      (entry.style === 'tags' ? 'SD 标签' : '自然语言') +
+                        ' · ' +
+                        new Date(entry.ts || Date.now()).toLocaleString(),
+                    ),
+                    h(
+                      'div',
+                      { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.45 } },
+                      '输入：' + String(entry.input || ''),
+                    ),
+                    h(
+                      'div',
+                      { style: { fontSize: 11, whiteSpace: 'pre-wrap', lineHeight: 1.55 } },
+                      String(entry.output || ''),
+                    ),
+                  ),
+                ),
+          ),
+        ),
+      )
+    }
+
     /** Entry screen: pick the local ComfyUI board or the online API workstation. */
     function WorkbenchChooser(props) {
       ensureWorkbenchStyle()
@@ -10048,6 +10198,8 @@ window.__ModuleLoader__.load({
       const [aiError, setAiError] = useState('')
       const [rulesOpen, setRulesOpen] = useState(false)
       const [promptWriteSystemNatural] = usePref('promptWriteSystemNatural')
+      const [promptHistory, setPromptHistory] = usePref('promptWriteHistory')
+      const [historyOpen, setHistoryOpen] = useState(false)
       const [modelOptions, setModelOptions] = useState([])
       const [modelsBusy, setModelsBusy] = useState(false)
       const [modelsError, setModelsError] = useState('')
@@ -10135,7 +10287,13 @@ window.__ModuleLoader__.load({
           })
           const data = await res.json().catch(() => null)
           if (!data || !data.ok) throw new Error((data && data.error) || '请求失败')
-          setPrompt(data.text || '')
+          const output = data.text || ''
+          setPrompt(output)
+          setPromptHistory(
+            [{ ts: Date.now(), style: 'natural', input: prompt, output }]
+              .concat(Array.isArray(promptHistory) ? promptHistory : [])
+              .slice(0, 50),
+          )
         } catch (err) {
           setAiError(String((err && err.message) || err))
         } finally {
@@ -10468,6 +10626,25 @@ window.__ModuleLoader__.load({
                   },
                 },
                 '规则',
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  onClick: () => setHistoryOpen(true),
+                  title: '查看提示词对话记录',
+                  style: {
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                    background: 'transparent',
+                    color: 'var(--dsw-alias-label-secondary)',
+                    fontSize: 10,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                  },
+                },
+                '对话',
               ),
             ),
             h('textarea', {
@@ -10848,6 +11025,7 @@ window.__ModuleLoader__.load({
             onClose: () => setPickerOpen(false),
           }),
           h(PromptRulesDialog, { open: rulesOpen, onClose: () => setRulesOpen(false) }),
+          h(PromptHistoryDialog, { open: historyOpen, onClose: () => setHistoryOpen(false) }),
           viewerOpen && savedFiles.length > 0
             ? h(ImageViewer, {
                 images: savedFiles.map((file) => ({ url: file.url, filename: file.name })),
@@ -10964,6 +11142,8 @@ window.__ModuleLoader__.load({
       const [rulesOpen, setRulesOpen] = useState(false)
       const [promptWriteSystemTags] = usePref('promptWriteSystemTags')
       const [promptWriteSystemNatural] = usePref('promptWriteSystemNatural')
+      const [promptHistory, setPromptHistory] = usePref('promptWriteHistory')
+      const [historyOpen, setHistoryOpen] = useState(false)
       const [fileMeta, setFileMeta] = useState({})
       const beforeRef = useRef(new Set())
       const startedRef = useRef(0)
@@ -11119,7 +11299,13 @@ window.__ModuleLoader__.load({
           })
           const data = await res.json().catch(() => null)
           if (!data || !data.ok) throw new Error((data && data.error) || '请求失败')
-          setPrompt(data.text || '')
+          const output = data.text || ''
+          setPrompt(output)
+          setPromptHistory(
+            [{ ts: Date.now(), style: promptStyle, input: prompt, output }]
+              .concat(Array.isArray(promptHistory) ? promptHistory : [])
+              .slice(0, 50),
+          )
         } catch (err) {
           setAiError(String((err && err.message) || err))
         } finally {
@@ -11425,6 +11611,25 @@ window.__ModuleLoader__.load({
                 },
                 '规则',
               ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  onClick: () => setHistoryOpen(true),
+                  title: '查看提示词对话记录',
+                  style: {
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                    background: 'transparent',
+                    color: 'var(--dsw-alias-label-secondary)',
+                    fontSize: 10,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                  },
+                },
+                '对话',
+              ),
             ),
             h('textarea', {
               value: prompt,
@@ -11660,6 +11865,7 @@ window.__ModuleLoader__.load({
           error ? h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
         ),
         h(PromptRulesDialog, { open: rulesOpen, onClose: () => setRulesOpen(false) }),
+          h(PromptHistoryDialog, { open: historyOpen, onClose: () => setHistoryOpen(false) }),
         viewerOpen && gallery.length > 0
           ? h(ImageViewer, {
               images: gallery.map((file) => ({ url: file.url, filename: file.name })),
