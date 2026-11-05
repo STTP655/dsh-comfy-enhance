@@ -640,7 +640,9 @@ async function runPromptWrite(ctx, body) {
       ? ctx.agentDefaultModel.currentSelection()
       : null
   const provider = selection && selection.provider
-  const model = selection && selection.model
+  const requestedModel = typeof body.promptModel === 'string' && body.promptModel.trim() ? body.promptModel.trim() : ''
+  const model = requestedModel || (selection && selection.model)
+  const effort = typeof body.effort === 'string' ? body.effort.trim() : ''
   if (!provider || !model) throw new Error('没有可用的默认模型')
   const style = body.style === 'natural' ? 'natural' : 'tags'
   const customRule = typeof body.system === 'string' && body.system.trim() ? body.system.trim() : ''
@@ -662,9 +664,20 @@ async function runPromptWrite(ctx, body) {
     .filter(Boolean)
     .join('\n')
   const messages = [{ role: 'user', content: [{ type: 'text', text: '请输出最终提示词。' }] }]
+  const options = { provider, model, system, messages }
+  if (effort === 'off' || effort === 'low' || effort === 'high' || effort === 'max') {
+    try {
+      const info = await ctx.llm.resolveModelInfo(provider, model)
+      const efforts = info && info.reasoning && Array.isArray(info.reasoning.efforts) ? info.reasoning.efforts : []
+      const ids = efforts.map((entry) => (entry && entry.id) || entry)
+      if (ids.length === 0 || ids.indexOf(effort) >= 0) options.reasoningEffort = effort
+    } catch {
+      // Cannot inspect the model: leave the effort unset rather than fail the call.
+    }
+  }
   let text = ''
   let finishReason = ''
-  for await (const chunk of llm.stream({ provider, model, system, messages })) {
+  for await (const chunk of llm.stream(options)) {
     if (!chunk) continue
     if (chunk.type === 'text-delta' && typeof chunk.text === 'string') text += chunk.text
     else if (chunk.type === 'finish') finishReason = chunk.reason

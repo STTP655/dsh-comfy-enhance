@@ -108,6 +108,8 @@ window.__ModuleLoader__.load({
         t2iPromptStyle: 'tags',
         promptWriteSystemTags: '',
         promptWriteSystemNatural: '',
+        promptWriteModel: 'v4.1-flash',
+        promptWriteEffort: 'high',
         promptWriteHistory: [],
         editorPositiveHeight: 96,
         editorNegativeHeight: 96,
@@ -182,6 +184,13 @@ window.__ModuleLoader__.load({
               promptWriteSystemTags: typeof parsed.promptWriteSystemTags === 'string' ? parsed.promptWriteSystemTags : '',
               promptWriteSystemNatural:
                 typeof parsed.promptWriteSystemNatural === 'string' ? parsed.promptWriteSystemNatural : '',
+              promptWriteModel:
+                typeof parsed.promptWriteModel === 'string' && parsed.promptWriteModel.trim()
+                  ? parsed.promptWriteModel
+                  : 'v4.1-flash',
+              promptWriteEffort: ['off', 'low', 'high', 'max'].includes(parsed.promptWriteEffort)
+                ? parsed.promptWriteEffort
+                : 'high',
               promptWriteHistory: Array.isArray(parsed.promptWriteHistory) ? parsed.promptWriteHistory : [],
               editorPositiveHeight:
                 typeof parsed.editorPositiveHeight === 'number' ? parsed.editorPositiveHeight : 96,
@@ -9781,10 +9790,16 @@ window.__ModuleLoader__.load({
       const [naturalValue, setNaturalValue] = usePref('promptWriteSystemNatural')
       const [tagsDraft, setTagsDraft] = useState(tagsValue || '')
       const [naturalDraft, setNaturalDraft] = useState(naturalValue || '')
+      const [modelValue, setModelValue] = usePref('promptWriteModel')
+      const [effortValue, setEffortValue] = usePref('promptWriteEffort')
+      const [draftModel, setDraftModel] = useState(modelValue || 'v4.1-flash')
+      const [draftEffort, setDraftEffort] = useState(effortValue || 'high')
       useEffect(() => {
         if (props.open) {
           setTagsDraft(tagsValue || '')
           setNaturalDraft(naturalValue || '')
+          setDraftModel(modelValue || 'v4.1-flash')
+          setDraftEffort(effortValue || 'high')
         }
       }, [props.open])
       if (!props.open) return null
@@ -9903,6 +9918,52 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { style: { flex: 1, minHeight: 0, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 14 } },
+            h(
+              'div',
+              { style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 } },
+              h(
+                'label',
+                {
+                  style: {
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 5,
+                    fontSize: 10.5,
+                    color: 'var(--dsw-alias-label-secondary)',
+                  },
+                },
+                '润色模型',
+                h('input', {
+                  value: draftModel,
+                  placeholder: 'v4.1-flash',
+                  style: field,
+                  onChange: (event) => setDraftModel(event.target.value),
+                }),
+              ),
+              h(
+                'label',
+                {
+                  style: {
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 5,
+                    fontSize: 10.5,
+                    color: 'var(--dsw-alias-label-secondary)',
+                  },
+                },
+                '思考强度',
+                h(
+                  'select',
+                  { value: draftEffort, style: field, onChange: (event) => setDraftEffort(event.target.value) },
+                  [
+                    ['off', '关闭'],
+                    ['low', '低'],
+                    ['high', '高'],
+                    ['max', '最高'],
+                  ].map(([value, text]) => h('option', { key: value, value }, text)),
+                ),
+              ),
+            ),
             block(
               '标签式提示词（SD 风格）',
               'AI 写/润色选择「SD 标签」时使用；留空则用内置的标签风格规则。',
@@ -9943,6 +10004,8 @@ window.__ModuleLoader__.load({
                 onClick: () => {
                   setTagsValue(tagsDraft)
                   setNaturalValue(naturalDraft)
+                  setModelValue(draftModel)
+                  setEffortValue(draftEffort)
                   props.onClose()
                 },
               },
@@ -10199,6 +10262,8 @@ window.__ModuleLoader__.load({
       const [rulesOpen, setRulesOpen] = useState(false)
       const [promptWriteSystemNatural] = usePref('promptWriteSystemNatural')
       const [promptHistory, setPromptHistory] = usePref('promptWriteHistory')
+      const [promptWriteModel] = usePref('promptWriteModel')
+      const [promptWriteEffort] = usePref('promptWriteEffort')
       const [historyOpen, setHistoryOpen] = useState(false)
       const [modelOptions, setModelOptions] = useState([])
       const [modelsBusy, setModelsBusy] = useState(false)
@@ -10283,6 +10348,8 @@ window.__ModuleLoader__.load({
               instruction: prompt,
               targetModel: model,
               system: promptWriteSystemNatural,
+              promptModel: promptWriteModel,
+              effort: promptWriteEffort,
             }),
           })
           const data = await res.json().catch(() => null)
@@ -11143,6 +11210,8 @@ window.__ModuleLoader__.load({
       const [promptWriteSystemTags] = usePref('promptWriteSystemTags')
       const [promptWriteSystemNatural] = usePref('promptWriteSystemNatural')
       const [promptHistory, setPromptHistory] = usePref('promptWriteHistory')
+      const [promptWriteModel] = usePref('promptWriteModel')
+      const [promptWriteEffort] = usePref('promptWriteEffort')
       const [historyOpen, setHistoryOpen] = useState(false)
       const [fileMeta, setFileMeta] = useState({})
       const beforeRef = useRef(new Set())
@@ -11295,6 +11364,8 @@ window.__ModuleLoader__.load({
               targetModel: (models && models.unet) || '',
               style: promptStyle,
               system: promptStyle === 'tags' ? promptWriteSystemTags : promptWriteSystemNatural,
+              promptModel: promptWriteModel,
+              effort: promptWriteEffort,
             }),
           })
           const data = await res.json().catch(() => null)
@@ -11930,6 +12001,7 @@ window.__ModuleLoader__.load({
       const [polishInstruction, setPolishInstruction] = useState('')
       const [polishChatOpen, setPolishChatOpen] = useState(false)
       const [polishEffort, setPolishEffort] = usePref('workspacePolishEffort')
+      const [promptWriteModel, setPromptWriteModel] = usePref('promptWriteModel')
       const [snapshotOpen, setSnapshotOpen] = useState(false)
       const [snapshots, setSnapshots] = useState(() => loadSnapshotList())
       // The polish run lives at module scope: switching panels must not stop the
@@ -13687,6 +13759,28 @@ window.__ModuleLoader__.load({
                   { style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 } },
                   h('span', { style: { fontSize: 10.5, fontWeight: 600 } }, 'AI 润色'),
                   h('span', { style: { flex: 1 } }),
+                  h(
+                    'div',
+                    { style: { width: 130, flex: 'none' } },
+                    h('input', {
+                      value: promptWriteModel,
+                      placeholder: '模型',
+                      title: '润色模型（默认 v4.1-flash）',
+                      style: {
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '2px 6px',
+                        fontSize: 10,
+                        borderRadius: 6,
+                        border: '1px solid var(--dsw-alias-border-l2)',
+                        background: 'var(--dsw-alias-bg-layer-1)',
+                        color: 'var(--dsw-alias-label-primary)',
+                        fontFamily: 'inherit',
+                        outline: 'none',
+                      },
+                      onChange: (event) => setPromptWriteModel(event.target.value),
+                    }),
+                  ),
                   h(
                     'div',
                     { style: { width: 96, flex: 'none' } },
