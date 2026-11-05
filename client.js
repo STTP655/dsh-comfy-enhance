@@ -11908,6 +11908,98 @@ window.__ModuleLoader__.load({
             filename: selected,
             onClose: () => {},
           }),
+          // Live progress sits on the picture it is producing: that is where the
+          // eye already is while the image renders, and it leaves the control
+          // column free of a moving element.
+          jobActive
+            ? h(
+                'div',
+                {
+                  style: {
+                    position: 'absolute',
+                    inset: 0,
+                    // Above the viewer's own floating controls (which top out in the
+                    // sixties) but below the app's dialogs at 1000+.
+                    zIndex: 70,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    pointerEvents: 'none',
+                    background: 'rgba(8, 10, 14, 0.42)',
+                    backdropFilter: 'blur(1.5px)',
+                  },
+                },
+                h(
+                  'div',
+                  {
+                    style: {
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 9,
+                      minWidth: 190,
+                      padding: '16px 20px',
+                      borderRadius: 14,
+                      border: '1px solid rgba(255, 255, 255, 0.16)',
+                      background: 'rgba(18, 20, 24, 0.78)',
+                      boxShadow: '0 12px 34px rgba(0, 0, 0, 0.45)',
+                      color: '#ffffff',
+                    },
+                  },
+                  h('span', {
+                    style: {
+                      width: 22,
+                      height: 22,
+                      borderRadius: '50%',
+                      border: '2px solid rgba(255, 255, 255, 0.22)',
+                      borderTopColor: '#3b82f6',
+                      animation: 'dshComfySpin 0.8s linear infinite',
+                    },
+                  }),
+                  h(
+                    'div',
+                    { style: { display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 11.5 } },
+                    h('span', { style: { fontWeight: 600 } }, job.status === 'running' ? '正在生成' : '排队中'),
+                    job.progress
+                      ? h(
+                          'span',
+                          { style: { fontVariantNumeric: 'tabular-nums', color: 'rgba(255, 255, 255, 0.72)' } },
+                          job.progress.value + '/' + job.progress.max,
+                        )
+                      : null,
+                    h(
+                      'span',
+                      { style: { fontVariantNumeric: 'tabular-nums', color: 'rgba(255, 255, 255, 0.55)' } },
+                      jobElapsed + 's',
+                    ),
+                  ),
+                  h(
+                    'div',
+                    {
+                      style: {
+                        width: 168,
+                        height: 3,
+                        borderRadius: 2,
+                        overflow: 'hidden',
+                        background: 'rgba(255, 255, 255, 0.18)',
+                      },
+                    },
+                    h('div', {
+                      style: {
+                        height: '100%',
+                        borderRadius: 2,
+                        background: '#3b82f6',
+                        transition: 'width 220ms ease',
+                        width:
+                          (job.progress
+                            ? Math.max(4, Math.min(100, (job.progress.value / job.progress.max) * 100))
+                            : 8) + '%',
+                      },
+                    }),
+                  ),
+                ),
+              )
+            : null,
           current
             ? h(
                 'div',
@@ -12394,67 +12486,9 @@ window.__ModuleLoader__.load({
             },
             busy ? '生成中…' : '生成',
           ),
-          jobActive
-            ? h(
-                'div',
-                { style: { display: 'flex', flexDirection: 'column', gap: 4 } },
-                h(
-                  'div',
-                  { style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5 } },
-                  h('span', {
-                    style: {
-                      width: 7,
-                      height: 7,
-                      borderRadius: '50%',
-                      flex: 'none',
-                      background: '#3b82f6',
-                      animation: 'dshComfyJobPulse 1.1s ease-in-out infinite',
-                    },
-                  }),
-                  h(
-                    'span',
-                    { style: { fontWeight: 600, color: 'var(--dsw-alias-label-secondary)' } },
-                    job.status === 'running' ? '正在生成' : '排队中',
-                  ),
-                  job.progress
-                    ? h(
-                        'span',
-                        { style: { color: 'var(--dsw-alias-label-secondary)', fontVariantNumeric: 'tabular-nums' } },
-                        job.progress.value + '/' + job.progress.max,
-                      )
-                    : null,
-                  h(
-                    'span',
-                    { style: { color: 'var(--dsw-alias-label-secondary)', fontVariantNumeric: 'tabular-nums' } },
-                    jobElapsed + 's',
-                  ),
-                ),
-                h(
-                  'div',
-                  {
-                    style: {
-                      height: 3,
-                      borderRadius: 2,
-                      overflow: 'hidden',
-                      background: 'var(--dsw-alias-bg-layer-2)',
-                    },
-                  },
-                  h('div', {
-                    style: {
-                      height: '100%',
-                      background: '#3b82f6',
-                      transition: 'width 200ms linear',
-                      width:
-                        (job.progress
-                          ? Math.max(3, Math.min(100, (job.progress.value / job.progress.max) * 100))
-                          : 12) + '%',
-                    },
-                  }),
-                ),
-              )
-            : status
-              ? h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, status)
-              : null,
+          // The live count lives on the preview overlay; this line only carries the
+          // plain result text (submitted / finished / failed).
+          status ? h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, status) : null,
           error ? h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
         ),
         h(PromptRulesDialog, { open: rulesOpen, onClose: () => setRulesOpen(false) }),
