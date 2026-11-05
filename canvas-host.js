@@ -794,6 +794,36 @@ export function apply(ctx, config = {}) {
       }
     }
 
+    // List the models an OpenAI-compatible endpoint exposes (GET /v1/models).
+    if (pathname === `${PREFIX}/remote-models`) {
+      if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const body = JSON.parse((await readBody(req)) || '{}')
+        const endpoint = typeof body.endpoint === 'string' ? body.endpoint.trim() : ''
+        const key = typeof body.key === 'string' ? body.key.trim() : ''
+        if (!endpoint) return send(400, { ok: false, error: '需要端点' })
+        const url = /\/models$/.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/models'
+        const res = await fetch(url, {
+          headers: key ? { authorization: 'Bearer ' + key } : {},
+          signal: AbortSignal.timeout(20000),
+        })
+        const text = await res.text()
+        if (!res.ok) return send(502, { ok: false, error: 'HTTP ' + res.status + ' ' + text.slice(0, 200) })
+        let json = null
+        try {
+          json = JSON.parse(text)
+        } catch {
+          return send(502, { ok: false, error: '响应不是 JSON：' + text.slice(0, 200) })
+        }
+        const list = Array.isArray(json && json.data)
+          ? json.data.map((item) => (item && (item.id || item.model)) || '').filter(Boolean)
+          : []
+        return send(200, { ok: true, models: list })
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
+    }
+
     // Remote image generation (OpenAI-compatible /images/generations), proxied by
     // the host so the browser never talks to the vendor directly (no CORS, the key
     // never appears in the page's own requests).

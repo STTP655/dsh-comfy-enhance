@@ -9690,6 +9690,9 @@ window.__ModuleLoader__.load({
       const [result, setResult] = useState(null)
       const [aiBusy, setAiBusy] = useState(false)
       const [aiError, setAiError] = useState('')
+      const [modelOptions, setModelOptions] = useState([])
+      const [modelsBusy, setModelsBusy] = useState(false)
+      const [modelsError, setModelsError] = useState('')
       const [saveDir, setSaveDir] = usePref('remoteSaveDir')
       const [pickerOpen, setPickerOpen] = useState(false)
       const [savedFiles, setSavedFiles] = useState([])
@@ -9729,6 +9732,29 @@ window.__ModuleLoader__.load({
         reader.onload = () => setImageData(typeof reader.result === 'string' ? reader.result : '')
         reader.onerror = () => setError('读取参考图失败')
         reader.readAsDataURL(file)
+      }
+      const fetchModels = async () => {
+        if (modelsBusy) return
+        if (!String(endpoint).trim()) {
+          setModelsError('先填端点')
+          return
+        }
+        setModelsBusy(true)
+        setModelsError('')
+        try {
+          const res = await fetch('/plugin/comfy-canvas/remote-models', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ endpoint, key: apiKey }),
+          })
+          const data = await res.json().catch(() => null)
+          if (!data || !data.ok) throw new Error((data && data.error) || '获取失败')
+          setModelOptions(Array.isArray(data.models) ? data.models : [])
+        } catch (err) {
+          setModelsError(String((err && err.message) || err))
+        } finally {
+          setModelsBusy(false)
+        }
       }
       const aiWrite = async () => {
         if (aiBusy) return
@@ -10264,15 +10290,49 @@ window.__ModuleLoader__.load({
               }),
             ),
             h(
-              'label',
-              { style: label },
-              '模型',
+              'div',
+              { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
+              h(
+                'div',
+                { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+                h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '模型'),
+                h('span', { style: { flex: 1 } }),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    disabled: modelsBusy,
+                    onClick: fetchModels,
+                    style: {
+                      padding: '2px 7px',
+                      borderRadius: 6,
+                      border: '1px solid var(--dsw-alias-border-l2)',
+                      background: 'var(--dsw-alias-bg-layer-2)',
+                      color: 'var(--dsw-alias-label-secondary)',
+                      fontSize: 9.5,
+                      fontFamily: 'inherit',
+                      cursor: modelsBusy ? 'default' : 'pointer',
+                      opacity: modelsBusy ? 0.6 : 1,
+                    },
+                  },
+                  modelsBusy ? '获取中…' : '获取列表',
+                ),
+              ),
               h('input', {
                 value: model,
+                list: 'dsh-remote-models',
                 placeholder: provider === 'minimax' ? 'image-01' : 'gpt-image-2.5-flare-c',
                 style: field,
                 onChange: (event) => setModel(event.target.value),
               }),
+              h(
+                'datalist',
+                { id: 'dsh-remote-models' },
+                modelOptions.map((option) => h('option', { key: option, value: option })),
+              ),
+              modelsError
+                ? h('div', { style: { fontSize: 9.5, color: 'var(--dsw-alias-state-error-primary)' } }, modelsError)
+                : null,
             ),
           ),
           h(
