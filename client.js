@@ -9712,7 +9712,7 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: { display: 'flex', gap: 12, width: '78%', margin: '0 auto' } },
-          card('local', '本地 ComfyUI', '工作流画板 / 画框 / 快速生成'),
+          card('local', 'ComfyUI · MOSS 画板模式', 'MOSS 模型 / 画框版式 / 快速生成'),
           card('online', '在线 API', '远程出图（gpt-image / MiniMax）'),
           card('text2img', '本地文生图', '非 MOSS 模型 / DiT 直出'),
         ),
