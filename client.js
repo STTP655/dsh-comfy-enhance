@@ -8972,7 +8972,15 @@ window.__ModuleLoader__.load({
       // The overlay owns its open flag in the store: unmounting this tab (an agent
       // turn, a tab switch) must not slam the working view shut.
       let body
-      if (error) body = h('div', { style: EMPTY }, error, h(LaunchComfyButton, { marginTop: 8 }))
+      if (error) {
+        const workflowError = /CreateBoundingBoxes|没有画板|工作流/.test(String(error))
+        body = h(
+          'div',
+          { style: EMPTY },
+          error,
+          workflowError ? null : h(LaunchComfyButton, { marginTop: 8 }),
+        )
+      }
       else if (files === null) body = h('div', { style: EMPTY }, '正在读取工作流…')
       else if (files.length === 0) body = h('div', { style: EMPTY }, '工作流目录是空的')
       else if (!hasNode)
@@ -11562,7 +11570,14 @@ window.__ModuleLoader__.load({
       }
 
       const stageContent = error
-        ? h('div', { style: EMPTY }, error, h(LaunchComfyButton, { marginTop: 8 }))
+        ? h(
+            'div',
+            { style: EMPTY },
+            error,
+            /CreateBoundingBoxes|没有画板|工作流/.test(String(error))
+              ? null
+              : h(LaunchComfyButton, { marginTop: 8 }),
+          )
         : files !== null && files.length === 0
           ? h('div', { style: EMPTY }, '工作流目录是空的')
           : h(
