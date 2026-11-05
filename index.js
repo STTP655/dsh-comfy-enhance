@@ -163,6 +163,67 @@ function pickDirectory() {
   })
 }
 
+/** Run a console command and collect its stdout (bounded wait). */
+function runCommand(command, args) {
+  return new Promise((resolve) => {
+    let output = ''
+    let child = null
+    try {
+      child = spawn(command, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
+    } catch {
+      resolve('')
+      return
+    }
+    const timer = setTimeout(() => {
+      try {
+        child.kill()
+      } catch {
+        // Ignore.
+      }
+      resolve(output)
+    }, 20000)
+    child.stdout.on('data', (chunk) => {
+      output += String(chunk)
+    })
+    child.on('close', () => {
+      clearTimeout(timer)
+      resolve(output)
+    })
+    child.on('error', () => {
+      clearTimeout(timer)
+      resolve('')
+    })
+  })
+}
+
+/** Stop the python process listening on the ComfyUI port (never a random one). */
+async function stopComfy(baseUrl) {
+  let port = '8188'
+  try {
+    port = new URL(baseUrl).port || '8188'
+  } catch {
+    // Keep the default port.
+  }
+  const netstat = await runCommand('netstat', ['-ano'])
+  const pids = new Set()
+  for (const line of netstat.split(/\r?\n/)) {
+    if (!/LISTENING/i.test(line) || line.indexOf(':' + port) < 0) continue
+    const parts = line.trim().split(/\s+/)
+    const pid = parts[parts.length - 1]
+    if (pid && /^\d+$/.test(pid) && pid !== '0') pids.add(pid)
+  }
+  if (pids.size === 0) return { ok: false, error: '没有找到监听端口 ' + port + ' 的进程' }
+  const stopped = []
+  for (const pid of pids) {
+    const info = await runCommand('tasklist', ['/FI', 'PID eq ' + pid, '/FO', 'CSV', '/NH'])
+    if (!/python/i.test(info)) continue
+    await runCommand('taskkill', ['/PID', pid, '/F'])
+    stopped.push(pid)
+  }
+  if (stopped.length === 0) return { ok: false, error: '端口被非 python 进程占用，未停止（请手动关闭）' }
+  return { ok: true, message: '已停止 ComfyUI（PID ' + stopped.join(', ') + '）' }
+}
+
 /** ComfyUI's own output directory, derived from the running instance's argv. */
 async function resolveOutputDir(baseUrl) {
   const stats = await getJSON(`${baseUrl}/system_stats`)
@@ -1018,6 +1079,16 @@ function createHandler(baseUrl) {
         const dir = await pickDirectory()
         if (!dir) return send(200, { ok: false, error: '没有选择目录' })
         return send(200, { ok: true, dir })
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
+    }
+
+    // Stop the running ComfyUI so it can be restarted with the right argv.
+    if (pathname === `${PREFIX}/stop`) {
+      if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        return send(200, await stopComfy(baseUrl))
       } catch (error) {
         return send(502, { ok: false, error: String((error && error.message) || error) })
       }

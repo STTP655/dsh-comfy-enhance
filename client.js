@@ -173,10 +173,21 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** Ask the Host to stop the running ComfyUI (frees the port for a restart). */
+    async function stopLocalComfy() {
+      try {
+        const res = await fetch('/plugin/comfy-status/stop', { method: 'POST' })
+        return (await res.json().catch(() => null)) || { ok: false, error: '停止请求失败' }
+      } catch (error) {
+        return { ok: false, error: String((error && error.message) || error) }
+      }
+    }
+
     /** Big "start ComfyUI" control with a folder-picker gear beside it. */
     function LaunchComfyButton(props) {
       const compact = Boolean(props && props.compact)
       const [busy, setBusy] = useState(false)
+      const [stopping, setStopping] = useState(false)
       const [picking, setPicking] = useState(false)
       const [message, setMessage] = useState('')
       const run = async () => {
@@ -186,6 +197,14 @@ window.__ModuleLoader__.load({
         const result = await launchLocalComfy()
         setBusy(false)
         setMessage(result && result.ok ? result.message || '已请求启动' : (result && result.error) || '启动失败')
+      }
+      const stop = async () => {
+        if (stopping) return
+        setStopping(true)
+        setMessage('')
+        const result = await stopLocalComfy()
+        setStopping(false)
+        setMessage(result && result.ok ? result.message || '已停止' : (result && result.error) || '停止失败')
       }
       const chooseDir = async () => {
         if (picking) return
@@ -250,6 +269,25 @@ window.__ModuleLoader__.load({
             },
             h(Icon, { name: 'settings', size: 11 }),
           ),
+          h(
+            'button',
+            {
+              type: 'button',
+              disabled: stopping,
+              onClick: stop,
+              title: '停止 ComfyUI',
+              style: {
+                padding: '2px 6px',
+                borderRadius: 6,
+                border: '1px solid rgba(255, 90, 90, 0.5)',
+                background: 'transparent',
+                color: '#ff5a5a',
+                fontSize: 10,
+                cursor: 'pointer',
+              },
+            },
+            stopping ? '停止中…' : '停止',
+          ),
           message ? h('span', { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } }, message) : null,
         )
       }
@@ -303,6 +341,25 @@ window.__ModuleLoader__.load({
             },
             h(Icon, { name: 'settings', size: 13 }),
             '选择目录',
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              disabled: stopping,
+              onClick: stop,
+              style: {
+                padding: '4px 12px',
+                borderRadius: 7,
+                border: '1px solid rgba(255, 90, 90, 0.5)',
+                background: 'transparent',
+                color: '#ff5a5a',
+                fontSize: 11,
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+              },
+            },
+            stopping ? '停止中…' : '停止 ComfyUI',
           ),
           message
             ? h(
