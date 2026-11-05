@@ -4219,16 +4219,18 @@ window.__ModuleLoader__.load({
               'div',
               { style: VIEWER_BAR_GROUP },
               h('button', { className: 'dshComfyAlbum-btn', 'data-dark': light ? undefined : 'true', onClick: resetView }, '还原'),
-              h(
-                'button',
-                {
-                  className: 'dshComfyAlbum-btn',
-                  'data-dark': light ? undefined : 'true',
-                  title: '查看这张图的正向 / 负向提示词',
-                  onClick: openPrompts,
-                },
-                '提示词',
-              ),
+              props.promptButton
+                ? h(
+                    'button',
+                    {
+                      className: 'dshComfyAlbum-btn',
+                      'data-dark': light ? undefined : 'true',
+                      title: '查看这张图的正向 / 负向提示词',
+                      onClick: openPrompts,
+                    },
+                    '提示词',
+                  )
+                : null,
               h(
                 'a',
                 {
@@ -12035,6 +12037,9 @@ window.__ModuleLoader__.load({
             key: selected,
             embedded: true,
             theme: 'light',
+            // Only this panel needs the prompt dialog: the album and the workspace
+            // already show prompts in their own side panel.
+            promptButton: true,
             images: gallery.map((file) => ({ url: file.url, filename: file.name })),
             startIndex: Math.max(0, gallery.findIndex((file) => file.name === selected)),
             filename: selected,
