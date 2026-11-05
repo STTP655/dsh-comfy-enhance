@@ -1018,7 +1018,7 @@ window.__ModuleLoader__.load({
             maxWidth: 'var(--dsh-composer-card-max-width)',
             margin: '0 auto 8px',
             padding: 12,
-            borderRadius: 12,
+            borderRadius: 'var(--dsw-radius-panel)',
             border: '1px solid var(--dsw-alias-border-l2)',
             background: 'var(--dsw-alias-bg-layer-2)',
             boxShadow: '0 4px 18px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.06)',
