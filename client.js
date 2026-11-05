@@ -937,6 +937,9 @@ window.__ModuleLoader__.load({
       // Keep the card mounted through its exit animation, like the model dialog.
       const [visible, setVisible] = useState(draft.open)
       const [closing, setClosing] = useState(false)
+      const [hoverClose, setHoverClose] = useState(false)
+      const [hoverCancel, setHoverCancel] = useState(false)
+      const [hoverSubmit, setHoverSubmit] = useState(false)
       const visibleRef = useRef(draft.open)
       useEffect(() => {
         if (draft.open) {
@@ -1034,47 +1037,46 @@ window.__ModuleLoader__.load({
           { key: 'dsh-comfy-draft-anim' },
           // Ease-out-quint on the way in (a push-up that settles), a gentle sink out.
           '@keyframes dshDraftIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}' +
-            '@keyframes dshDraftOut{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(5px)}}' +
-            '.dshDraftClose{transition:background .16s ease,box-shadow .16s ease,transform .16s ease}' +
-            '.dshDraftClose:hover{background:#dc2626;box-shadow:0 4px 14px rgba(239,68,68,.4);transform:scale(1.06)}' +
-            '.dshDraftBtn{transition:background .18s cubic-bezier(.22,1,.36,1),box-shadow .18s cubic-bezier(.22,1,.36,1),transform .18s cubic-bezier(.22,1,.36,1)}' +
-            '.dshDraftBtn:hover{box-shadow:0 6px 18px rgba(0,0,0,.12);transform:translateY(-1px)}' +
-            '.dshDraftBtnPrimary:hover{box-shadow:0 8px 22px rgba(59,130,246,.38);transform:translateY(-1px)}',
+            '@keyframes dshDraftOut{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(5px)}}',
         ),
         h(
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: 6 } },
           h('span', { style: { fontSize: 12, fontWeight: 600 } }, (draft.title || '草稿') + ' · 可编辑'),
           h('span', { style: { flex: 1 } }),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dshDraftClose',
-              style: {
-                width: 24,
-                height: 24,
-                minWidth: 24,
-                minHeight: 24,
-                flex: 'none',
-                boxSizing: 'border-box',
-                padding: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                appearance: 'none',
-                borderRadius: '50%',
-                border: '1px solid #ef4444',
-                background: '#ef4444',
-                color: '#ffffff',
-                fontFamily: 'inherit',
-                cursor: 'pointer',
-              },
-              onClick: close,
-              title: '关闭草稿',
+          // A plain div avoids the app's global button chrome (min-width, padding,
+          // radius) so the close control stays a真 24×24 circle.
+          h('div', {
+            role: 'button',
+            tabIndex: 0,
+            title: '关闭草稿',
+            onClick: close,
+            onMouseEnter: () => setHoverClose(true),
+            onMouseLeave: () => setHoverClose(false),
+            onKeyDown: (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                close()
+              }
             },
-            h(Icon, { name: 'x', size: 13 }),
-          ),
+            style: {
+              width: 24,
+              height: 24,
+              flex: 'none',
+              boxSizing: 'border-box',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '50%',
+              background: hoverClose ? '#dc2626' : '#ef4444',
+              color: '#ffffff',
+              cursor: 'pointer',
+              userSelect: 'none',
+              transition: 'background .16s ease, box-shadow .16s ease, transform .16s ease',
+              boxShadow: hoverClose ? '0 4px 14px rgba(239, 68, 68, 0.4)' : 'none',
+              transform: hoverClose ? 'scale(1.06)' : 'none',
+            },
+          }, h(Icon, { name: 'x', size: 13 })),
         ),
         h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '正文（可直接改）'),
         h('textarea', {
@@ -1125,8 +1127,16 @@ window.__ModuleLoader__.load({
             'button',
             {
               type: 'button',
-              className: 'dshDraftBtn',
-              style: Object.assign({}, btn, { padding: '7px 16px', fontSize: 12 }),
+              style: Object.assign({}, btn, {
+                padding: '7px 16px',
+                fontSize: 12,
+                transition:
+                  'background .18s cubic-bezier(.22,1,.36,1), box-shadow .18s cubic-bezier(.22,1,.36,1), transform .18s cubic-bezier(.22,1,.36,1)',
+                transform: hoverCancel ? 'translateY(-1px)' : 'none',
+                boxShadow: hoverCancel ? '0 6px 18px rgba(0, 0, 0, 0.12)' : 'none',
+              }),
+              onMouseEnter: () => setHoverCancel(true),
+              onMouseLeave: () => setHoverCancel(false),
               onClick: close,
             },
             '取消',
@@ -1135,7 +1145,6 @@ window.__ModuleLoader__.load({
             'button',
             {
               type: 'button',
-              className: 'dshDraftBtn dshDraftBtnPrimary',
               style: Object.assign({}, btn, {
                 padding: '7px 18px',
                 fontSize: 12,
@@ -1143,7 +1152,13 @@ window.__ModuleLoader__.load({
                 borderColor: '#3b82f6',
                 color: '#ffffff',
                 fontWeight: 600,
+                transition:
+                  'background .18s cubic-bezier(.22,1,.36,1), box-shadow .18s cubic-bezier(.22,1,.36,1), transform .18s cubic-bezier(.22,1,.36,1)',
+                transform: hoverSubmit ? 'translateY(-1px)' : 'none',
+                boxShadow: hoverSubmit ? '0 8px 22px rgba(59, 130, 246, 0.38)' : 'none',
               }),
+              onMouseEnter: () => setHoverSubmit(true),
+              onMouseLeave: () => setHoverSubmit(false),
               onClick: submit,
             },
             '提交',
