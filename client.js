@@ -9596,6 +9596,36 @@ window.__ModuleLoader__.load({
       document.head.appendChild(style)
     }
 
+    /** Load an image URL and return a small JPEG data URL for snapshot previews. */
+    function makeThumbnail(url) {
+      return new Promise((resolve) => {
+        if (!url || typeof Image === 'undefined') return resolve(null)
+        try {
+          const image = new Image()
+          image.crossOrigin = 'anonymous'
+          image.onload = () => {
+            try {
+              const width = 96
+              const height = Math.max(1, Math.round((image.naturalHeight / image.naturalWidth) * width))
+              const canvas = document.createElement('canvas')
+              canvas.width = width
+              canvas.height = height
+              const context = canvas.getContext('2d')
+              if (!context) return resolve(null)
+              context.drawImage(image, 0, 0, width, height)
+              resolve(canvas.toDataURL('image/jpeg', 0.72))
+            } catch {
+              resolve(null)
+            }
+          }
+          image.onerror = () => resolve(null)
+          image.src = url
+        } catch {
+          resolve(null)
+        }
+      })
+    }
+
     /** Entry screen: pick the local ComfyUI board or the online API workstation. */
     function WorkbenchChooser(props) {
       ensureWorkbenchStyle()
@@ -11306,6 +11336,26 @@ window.__ModuleLoader__.load({
         persistSnapshots(next)
         setSnapshots(next)
         setStatus('已保存画板：' + entry.name)
+        // Thumbnail is written asynchronously so saving stays instant.
+        makeThumbnail(referenceUrl).then((thumb) => {
+          if (!thumb) return
+          const current = loadSnapshotList()
+          const updated = current.map((item) => (item && item.id === entry.id ? Object.assign({}, item, { thumb }) : item))
+          persistSnapshots(updated)
+          setSnapshots(updated)
+        })
+      }
+
+      /** Fill a missing preview when the user hovers a legacy snapshot. */
+      const thumbSnapshot = (entry) => {
+        if (!entry || entry.thumb || !entry.referenceUrl) return
+        makeThumbnail(entry.referenceUrl).then((thumb) => {
+          if (!thumb) return
+          const current = loadSnapshotList()
+          const updated = current.map((item) => (item && item.id === entry.id ? Object.assign({}, item, { thumb }) : item))
+          persistSnapshots(updated)
+          setSnapshots(updated)
+        })
       }
 
       const applySnapshot = (entry) => {
