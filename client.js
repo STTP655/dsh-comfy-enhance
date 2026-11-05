@@ -3818,6 +3818,9 @@ window.__ModuleLoader__.load({
       const [dragging, setDragging] = useState(false)
       const [showInfo, setShowInfo] = useState(true)
       const [promptOpen, setPromptOpen] = useState(false)
+      // Kept mounted through its exit animation, like the viewer itself.
+      const [promptClosing, setPromptClosing] = useState(false)
+      const promptTimer = useRef(null)
       // Parameters read from the file on demand, keyed by filename.
       const [promptMetaCache, setPromptMetaCache] = useState({})
       const [promptBusy, setPromptBusy] = useState(false)
@@ -3947,6 +3950,7 @@ window.__ModuleLoader__.load({
         ? meta
         : (current.filename && promptMetaCache[current.filename]) || {}
       const openPrompts = () => {
+        setPromptClosing(false)
         setPromptOpen(true)
         setPromptError('')
         if (meta.positive || meta.negative) return
@@ -3968,6 +3972,19 @@ window.__ModuleLoader__.load({
       const hasPanel = Boolean(
         meta.positive || meta.negative || (meta.models && meta.models.length) || meta.sampler,
       )
+      // Exit runs before unmounting, so the dialog fades out instead of vanishing.
+      const closePrompts = () => {
+        if (promptClosing) return
+        setPromptClosing(true)
+        if (promptTimer.current) clearTimeout(promptTimer.current)
+        promptTimer.current = setTimeout(() => {
+          setPromptClosing(false)
+          setPromptOpen(false)
+        }, 130)
+      }
+      useEffect(() => () => {
+        if (promptTimer.current) clearTimeout(promptTimer.current)
+      }, [])
       const resolution = natural && natural.width
         ? natural.width + ' × ' + natural.height
         : current.width && current.height
@@ -4370,7 +4387,7 @@ window.__ModuleLoader__.load({
                 : null,
             )
           : null,
-        promptOpen
+        promptOpen || promptClosing
           ? h(
               'div',
               {
@@ -4383,9 +4400,12 @@ window.__ModuleLoader__.load({
                   justifyContent: 'center',
                   background: 'rgba(0, 0, 0, 0.55)',
                   backdropFilter: 'blur(2px)',
+                  animation: promptClosing
+                    ? 'dshComfyOverlayOut 120ms ease-out both'
+                    : 'dshComfyOverlayIn 160ms ease-out both',
                 },
                 onClick: (event) => {
-                  if (event.target === event.currentTarget) setPromptOpen(false)
+                  if (event.target === event.currentTarget) closePrompts()
                 },
               },
               h(
@@ -4403,6 +4423,9 @@ window.__ModuleLoader__.load({
                     color: 'var(--dsw-alias-label-primary)',
                     boxShadow: '0 24px 70px rgba(0, 0, 0, 0.42)',
                     overflow: 'hidden',
+                    animation: promptClosing
+                      ? 'dshComfyPanelOut 120ms ease-out both'
+                      : 'dshComfyPanelIn 180ms cubic-bezier(.23, 1, .32, 1) both',
                   },
                 },
                 h(
@@ -4434,7 +4457,7 @@ window.__ModuleLoader__.load({
                   h('span', { style: { flex: 1 } }),
                   h(
                     'button',
-                    { className: 'dshComfyAlbum-btn', onClick: () => setPromptOpen(false) },
+                    { className: 'dshComfyAlbum-btn', onClick: closePrompts },
                     '关闭',
                   ),
                 ),
@@ -10221,6 +10244,7 @@ window.__ModuleLoader__.load({
         '@keyframes dshComfySpin{to{transform:rotate(360deg)}}' +
         '@keyframes dshComfyDropIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}' +
         '@keyframes dshComfyOverlayIn{from{opacity:0}to{opacity:1}}' +
+        '@keyframes dshComfyOverlayOut{from{opacity:1}to{opacity:0}}' +
         // Ring rotation as a paint-only animation: stroke-dashoffset carries the
         // arc around the circle without promoting a composited layer, which is
         // what kept a stale copy of the ring visible behind the new one.
