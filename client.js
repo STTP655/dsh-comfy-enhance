@@ -704,6 +704,13 @@ window.__ModuleLoader__.load({
           },
         ],
       ],
+      sparkles: [
+        ['path', { d: 'm12 3-1.9 5.8a2 2 0 0 1-1.287 1.288L3 12l5.8 1.9a2 2 0 0 1 1.288 1.287L12 21l1.9-5.8a2 2 0 0 1 1.287-1.288L21 12l-5.8-1.9a2 2 0 0 1-1.288-1.287Z' }],
+        ['path', { d: 'M5 3v4' }],
+        ['path', { d: 'M19 17v4' }],
+        ['path', { d: 'M3 5h4' }],
+        ['path', { d: 'M17 19h4' }],
+      ],
       moon: [['path', { d: 'M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z' }]],
       eye: [
         ['path', { d: 'M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0' }],
@@ -9539,6 +9546,8 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState(false)
       const [error, setError] = useState('')
       const [result, setResult] = useState(null)
+      const [aiBusy, setAiBusy] = useState(false)
+      const [aiError, setAiError] = useState('')
       const pickImage = (event) => {
         const file = event.target.files && event.target.files[0]
         event.target.value = ''
@@ -9547,6 +9556,29 @@ window.__ModuleLoader__.load({
         reader.onload = () => setImageData(typeof reader.result === 'string' ? reader.result : '')
         reader.onerror = () => setError('读取参考图失败')
         reader.readAsDataURL(file)
+      }
+      const aiWrite = async () => {
+        if (aiBusy) return
+        if (!prompt.trim()) {
+          setAiError('先在输入框写下你的要求，再点 AI 写/润色')
+          return
+        }
+        setAiBusy(true)
+        setAiError('')
+        try {
+          const res = await fetch('/plugin/comfy-canvas/prompt-write', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ current: prompt, instruction: prompt, targetModel: model }),
+          })
+          const data = await res.json().catch(() => null)
+          if (!data || !data.ok) throw new Error((data && data.error) || '请求失败')
+          setPrompt(data.text || '')
+        } catch (err) {
+          setAiError(String((err && err.message) || err))
+        } finally {
+          setAiBusy(false)
+        }
       }
       const generate = async () => {
         if (!String(endpoint).trim() || !String(apiKey).trim() || !prompt.trim()) {
@@ -9765,16 +9797,57 @@ window.__ModuleLoader__.load({
               )
             : null,
           h(
-            'label',
-            { style: label },
-            mode === 'edit' ? '修改要求' : 'Prompt',
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+              h(
+                'span',
+                { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } },
+                mode === 'edit' ? '修改要求' : 'Prompt',
+              ),
+              h('span', { style: { flex: 1 } }),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  disabled: aiBusy,
+                  onClick: aiWrite,
+                  title: 'AI 写 / 润色提示词',
+                  style: {
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                    background: 'var(--dsw-alias-bg-layer-2)',
+                    color: 'var(--dsw-alias-label-primary)',
+                    fontSize: 10,
+                    fontWeight: 600,
+                    fontFamily: 'inherit',
+                    cursor: aiBusy ? 'default' : 'pointer',
+                    opacity: aiBusy ? 0.6 : 1,
+                  },
+                },
+                h(Icon, { name: 'sparkles', size: 11 }),
+                aiBusy ? '生成中…' : 'AI 写/润色',
+              ),
+            ),
             h('textarea', {
               value: prompt,
               rows: 6,
-              placeholder: mode === 'edit' ? '描述怎么改这张参考图…' : '描述要画的图…',
+              placeholder:
+                mode === 'edit'
+                  ? '描述怎么改这张参考图…'
+                  : '描述要画的图…（也可以先写需求，点「AI 写/润色」）',
               style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.55 }),
               onChange: (event) => setPrompt(event.target.value),
             }),
+            aiError
+              ? h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-state-error-primary)' } }, aiError)
+              : null,
           ),
           h(
             'label',

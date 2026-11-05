@@ -563,6 +563,53 @@ async function runPolish(ctx, body, onEvent) {
   return { ok: true, text: text.trim(), usage: usage || null, skillLength: skill.length }
 }
 
+/** One-shot prompt engineering for the online image workstation. */
+async function runPromptWrite(ctx, body) {
+  const current = typeof body.current === 'string' ? body.current.trim() : ''
+  const instruction = typeof body.instruction === 'string' ? body.instruction.trim() : ''
+  const targetModel =
+    typeof body.targetModel === 'string' && body.targetModel.trim() ? body.targetModel.trim() : 'gpt-image'
+  if (!current && !instruction) throw new Error('先在输入框写下要求或已有的提示词')
+  const llm = ctx && ctx.llm
+  if (!llm || typeof llm.stream !== 'function') throw new Error('LLM 服务不可用')
+  const selection =
+    ctx.agentDefaultModel && typeof ctx.agentDefaultModel.currentSelection === 'function'
+      ? ctx.agentDefaultModel.currentSelection()
+      : null
+  const provider = selection && selection.provider
+  const model = selection && selection.model
+  if (!provider || !model) throw new Error('没有可用的默认模型')
+  const system = [
+    '你是一名图像生成提示词工程师。',
+    '目标模型：' + targetModel,
+    current
+      ? '任务：润色用户已有的提示词——更清晰、具体、可用，保留原意和主题，不要另起炉灶。'
+      : '任务：按照用户的要求，写一份高质量、可直接使用的图像生成提示词。',
+    '规则：只输出提示词正文；不要解释、不要标题、不要中英对照、不要多个版本、不要「如果你需要…」这类话。',
+    current ? '【已有提示词】\n' + current : '',
+    '【用户要求】\n' + (instruction || '（无）'),
+  ]
+    .filter(Boolean)
+    .join('\n')
+  const messages = [{ role: 'user', content: [{ type: 'text', text: '请输出最终提示词。' }] }]
+  let text = ''
+  let finishReason = ''
+  for await (const chunk of llm.stream({ provider, model, system, messages })) {
+    if (!chunk) continue
+    if (chunk.type === 'text-delta' && typeof chunk.text === 'string') text += chunk.text
+    else if (chunk.type === 'finish') finishReason = chunk.reason
+  }
+  const out = text.trim()
+  if (!out) {
+    let detail = ''
+    if (finishReason && finishReason !== 'stop') {
+      detail = typeof finishReason === 'string' ? finishReason : JSON.stringify(finishReason).slice(0, 200)
+    }
+    throw new Error('模型没有返回内容' + (detail ? '（' + detail + '）' : ''))
+  }
+  return { ok: true, text: out }
+}
+
 export function apply(ctx, config = {}) {
   const configured = config && typeof config.comfyUrl === 'string' ? config.comfyUrl.trim() : ''
   const envUrl = typeof process !== 'undefined' && process.env ? process.env.DSH_COMFY_URL : ''
@@ -715,6 +762,16 @@ export function apply(ctx, config = {}) {
       }
 
       return send(405, { ok: false, error: 'method not allowed' })
+    }
+
+    if (pathname === `${PREFIX}/prompt-write`) {
+      if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const body = JSON.parse((await readBody(req)) || '{}')
+        return send(200, await runPromptWrite(ctx, body))
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
     }
 
     // Remote image generation (OpenAI-compatible /images/generations), proxied by
