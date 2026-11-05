@@ -934,7 +934,27 @@ window.__ModuleLoader__.load({
     function DraftCard(props) {
       const [draft, setDraft] = useState(draftStore.get())
       useEffect(() => draftStore.subscribe(() => setDraft(draftStore.get())), [])
-      if (!draft.open) return null
+      // Keep the card mounted through its exit animation, like the model dialog.
+      const [visible, setVisible] = useState(draft.open)
+      const [closing, setClosing] = useState(false)
+      const visibleRef = useRef(draft.open)
+      useEffect(() => {
+        if (draft.open) {
+          visibleRef.current = true
+          setVisible(true)
+          setClosing(false)
+          return undefined
+        }
+        if (!visibleRef.current) return undefined
+        setClosing(true)
+        const timer = setTimeout(() => {
+          visibleRef.current = false
+          setVisible(false)
+          setClosing(false)
+        }, 190)
+        return () => clearTimeout(timer)
+      }, [draft.open])
+      if (!visible) return null
       if (draft.sessionId && props && props.sessionId && draft.sessionId !== props.sessionId) return null
       const actions = props && props.inputActions ? props.inputActions : null
       const close = () => draftStore.set({ open: false })
@@ -1000,8 +1020,15 @@ window.__ModuleLoader__.load({
             boxShadow: '0 1px 2px rgba(0, 0, 0, 0.06)',
             maxHeight: '50vh',
             overflowY: 'auto',
+            animation: closing ? 'dshDraftOut .16s ease-in both' : 'dshDraftIn .18s ease-out both',
           },
         },
+        h(
+          'style',
+          { key: 'dsh-comfy-draft-anim' },
+          '@keyframes dshDraftIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}' +
+            '@keyframes dshDraftOut{from{opacity:1;transform:none}to{opacity:0;transform:translateY(8px)}}',
+        ),
         h(
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: 6 } },
