@@ -987,20 +987,16 @@ window.__ModuleLoader__.load({
         'div',
         {
           style: {
-            position: 'absolute',
-            left: 10,
-            right: 10,
-            bottom: 'calc(100% + 8px)',
-            zIndex: 40,
             display: 'flex',
             flexDirection: 'column',
             gap: 8,
+            margin: '6px 0',
             padding: 12,
             borderRadius: 12,
             border: '1px solid var(--dsw-alias-border-l2)',
-            background: 'var(--dsw-alias-bg-base)',
-            boxShadow: '0 12px 40px rgba(0, 0, 0, 0.28)',
-            maxHeight: '60vh',
+            background: 'var(--dsw-alias-bg-layer-1)',
+            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.06)',
+            maxHeight: '50vh',
             overflowY: 'auto',
           },
         },
@@ -11788,12 +11784,12 @@ window.__ModuleLoader__.load({
 
         canvasHalf.apply(ctx)
 
-        // The canvas draft card rides inside the conversation composer: editing and
-        // confirming happen there, and only the composer's submit reaches the agent.
-        ctx.slots.inject('conversation.input.overlay', () =>
+        // The canvas draft card docks under the composer instead of floating over
+        // it, so it reads as part of the conversation input rather than an overlay.
+        ctx.slots.inject('conversation.composer.dock', () =>
           ctx.slots.register(
             {
-              name: 'conversation.input.overlay',
+              name: 'conversation.composer.dock',
               id: 'dsh-comfy-draft',
               order: 40,
               label: () => 'ComfyUI 草稿',
