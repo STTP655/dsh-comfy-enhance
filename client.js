@@ -12416,7 +12416,7 @@ window.__ModuleLoader__.load({
                     {
                       className: 'dshCanvasBtn',
                       style: { flex: 'none' },
-                      onClick: () => setPolishChatOpen(!polishChatOpen),
+                      onClick: () => setPolishChatOpen(true),
                     },
                     polishChatOpen ? '收起对话' : '查看对话',
                   ),
@@ -12501,58 +12501,7 @@ window.__ModuleLoader__.load({
                     )
                   : null,
                 polishChatOpen
-                  ? h(
-                      'div',
-                      {
-                        style: {
-                          marginTop: 6,
-                          maxHeight: 220,
-                          overflowY: 'auto',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: 6,
-                        },
-                      },
-                      polishHistory.length === 0
-                        ? h(
-                            'div',
-                            { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
-                            '还没有对话',
-                          )
-                        : h(
-                            React.Fragment,
-                            null,
-                            ...polishHistory.map((turn, index) =>
-                              h(
-                                'div',
-                                {
-                                  key: index,
-                                  style: {
-                                    fontSize: 10.5,
-                                    lineHeight: 1.45,
-                                    padding: '4px 6px',
-                                    borderRadius: 6,
-                                    background:
-                                      turn.role === 'assistant'
-                                        ? 'var(--dsw-alias-bg-layer-1)'
-                                        : 'var(--dsw-alias-bg-layer-2)',
-                                    whiteSpace: 'pre-wrap',
-                                    wordBreak: 'break-word',
-                                  },
-                                },
-                                (turn.role === 'assistant' ? '助手' : '你') +
-                                  (turn.tokens ? ' · ' + formatTokens(turn.tokens) : '') +
-                                  '：\n' +
-                                  String(turn.text || ''),
-                              ),
-                            ),
-                            h(
-                              'div',
-                              { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
-                              '累计 token：输入 ' + polishTotals.input + ' / 输出 ' + polishTotals.output,
-                            ),
-                          ),
-                    )
+                  ? null
                   : null,
               ),
             ),
@@ -12609,6 +12558,146 @@ window.__ModuleLoader__.load({
             ),
           ),
         ),
+        polishChatOpen
+          ? h(
+              'div',
+              {
+                style: {
+                  position: 'fixed',
+                  inset: 0,
+                  zIndex: 1400,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'rgba(0, 0, 0, 0.42)',
+                },
+                onClick: (event) => {
+                  if (event.target === event.currentTarget) setPolishChatOpen(false)
+                },
+              },
+              h(
+                'div',
+                {
+                  style: {
+                    width: 720,
+                    maxWidth: 'calc(100vw - 40px)',
+                    maxHeight: '72vh',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    borderRadius: 16,
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                    background: 'var(--dsw-alias-bg-base)',
+                    boxShadow: '0 24px 70px rgba(0, 0, 0, 0.3)',
+                    overflow: 'hidden',
+                    animation: 'dshPageIn 200ms cubic-bezier(0.22, 1, 0.36, 1) both',
+                  },
+                },
+                h(
+                  'div',
+                  {
+                    style: {
+                      flex: 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '12px 16px',
+                      borderBottom: '1px solid var(--dsw-alias-border-l2)',
+                    },
+                  },
+                  h(Icon, { name: 'info', size: 14 }),
+                  h('span', { style: { fontSize: 13, fontWeight: 600 } }, '润色对话'),
+                  h('span', { style: { flex: 1 } }),
+                  h(
+                    'span',
+                    { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
+                    '累计 token：输入 ' + polishTotals.input + ' / 输出 ' + polishTotals.output,
+                  ),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      onClick: () => setPolishChatOpen(false),
+                      style: {
+                        width: 24,
+                        height: 24,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 0,
+                        borderRadius: '50%',
+                        border: 0,
+                        background: 'var(--dsw-alias-bg-layer-2)',
+                        color: 'var(--dsw-alias-label-secondary)',
+                        fontSize: 13,
+                        fontFamily: 'inherit',
+                        cursor: 'pointer',
+                      },
+                    },
+                    '×',
+                  ),
+                ),
+                h(
+                  'div',
+                  {
+                    style: {
+                      flex: 1,
+                      minHeight: 0,
+                      overflowY: 'auto',
+                      padding: 16,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                    },
+                  },
+                  polishHistory.length === 0
+                    ? h(
+                        'div',
+                        { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } },
+                        '还没有对话',
+                      )
+                    : polishHistory.map((turn, index) =>
+                        h(
+                          'div',
+                          { key: index, style: { display: 'flex', flexDirection: 'column', gap: 3 } },
+                          h(
+                            'div',
+                            {
+                              style: {
+                                fontSize: 10,
+                                fontWeight: 600,
+                                color:
+                                  turn.role === 'assistant'
+                                    ? 'var(--dsw-alias-brand-primary)'
+                                    : 'var(--dsw-alias-label-secondary)',
+                              },
+                            },
+                            (turn.role === 'assistant' ? '助手' : '你') +
+                              (turn.tokens ? ' · ' + formatTokens(turn.tokens) : ''),
+                          ),
+                          h(
+                            'div',
+                            {
+                              style: {
+                                fontSize: 11.5,
+                                lineHeight: 1.55,
+                                padding: '8px 10px',
+                                borderRadius: 8,
+                                background:
+                                  turn.role === 'assistant'
+                                    ? 'var(--dsw-alias-bg-layer-1)'
+                                    : 'var(--dsw-alias-bg-layer-2)',
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                              },
+                            },
+                            String(turn.text || ''),
+                          ),
+                        ),
+                      ),
+                ),
+              ),
+            )
+          : null,
         albumOpen
           ? h(
               'div',
