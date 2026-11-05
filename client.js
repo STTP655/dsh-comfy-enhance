@@ -202,16 +202,21 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** In-page directory browser: drives → folders → pick, no native dialog. */
+    /** In-page directory browser: path bar + drive/folder list + confirm. */
     function DirectoryPicker(props) {
+      ensureWorkbenchStyle()
       const open = Boolean(props && props.open)
       const [cwd, setCwd] = useState('')
       const [data, setData] = useState(null)
       const [busy, setBusy] = useState(false)
       const [error, setError] = useState('')
+      const [pathInput, setPathInput] = useState('')
+      const [hovered, setHovered] = useState('')
       useEffect(() => {
         if (!open) return undefined
-        setCwd((props && props.startPath) || '')
+        const startPath = (props && props.startPath) || ''
+        setCwd(startPath)
+        setPathInput(startPath)
         setData(null)
         setError('')
         return undefined
@@ -227,6 +232,7 @@ window.__ModuleLoader__.load({
             if (!alive) return
             if (!payload || !payload.ok) throw new Error((payload && payload.error) || '读取失败')
             setData(payload)
+            if (payload.path) setPathInput(payload.path)
           })
           .catch((err) => {
             if (!alive) return
@@ -240,15 +246,27 @@ window.__ModuleLoader__.load({
           alive = false
         }
       }, [open, cwd])
+      useEffect(() => {
+        if (!open) return undefined
+        const onKey = (event) => {
+          if (event.key === 'Escape') props.onClose()
+        }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+      }, [open, props])
       if (!open) return null
       const picks = data && Array.isArray(data.drives) ? data.drives : data && Array.isArray(data.dirs) ? data.dirs : []
+      const go = (value) => {
+        const next = String(value || '').trim()
+        if (next) setCwd(next)
+      }
       const btn = {
-        padding: '3px 9px',
-        borderRadius: 6,
+        padding: '5px 12px',
+        borderRadius: 8,
         border: '1px solid var(--dsw-alias-border-l2)',
         background: 'var(--dsw-alias-bg-layer-1)',
         color: 'var(--dsw-alias-label-primary)',
-        fontSize: 10.5,
+        fontSize: 11,
         fontFamily: 'inherit',
         cursor: 'pointer',
       }
@@ -262,7 +280,8 @@ window.__ModuleLoader__.load({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: 'rgba(0, 0, 0, 0.45)',
+            background: 'rgba(0, 0, 0, 0.42)',
+            backdropFilter: 'blur(2px)',
           },
           onClick: (event) => {
             if (event.target === event.currentTarget) props.onClose()
@@ -272,16 +291,17 @@ window.__ModuleLoader__.load({
           'div',
           {
             style: {
-              width: 560,
+              width: 620,
               maxWidth: 'calc(100vw - 40px)',
-              maxHeight: '70vh',
+              maxHeight: '72vh',
               display: 'flex',
               flexDirection: 'column',
-              borderRadius: 12,
+              borderRadius: 16,
               border: '1px solid var(--dsw-alias-border-l2)',
               background: 'var(--dsw-alias-bg-base)',
-              boxShadow: '0 24px 64px rgba(0, 0, 0, 0.35)',
+              boxShadow: '0 24px 70px rgba(0, 0, 0, 0.3)',
               overflow: 'hidden',
+              animation: 'dshPageIn 200ms cubic-bezier(0.22, 1, 0.36, 1) both',
             },
           },
           h(
@@ -292,13 +312,37 @@ window.__ModuleLoader__.load({
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
-                padding: '10px 14px',
+                padding: '12px 16px',
                 borderBottom: '1px solid var(--dsw-alias-border-l2)',
               },
             },
-            h('span', { style: { fontSize: 12.5, fontWeight: 600 } }, (props && props.title) || '选择目录'),
+            h(Icon, { name: 'folder', size: 15 }),
+            h('span', { style: { fontSize: 13, fontWeight: 600 } }, (props && props.title) || '选择目录'),
             h('span', { style: { flex: 1 } }),
-            h('button', { type: 'button', style: btn, onClick: () => props.onClose() }, '取消'),
+            h(
+              'button',
+              {
+                type: 'button',
+                onClick: props.onClose,
+                title: '关闭（Esc）',
+                style: {
+                  width: 24,
+                  height: 24,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 0,
+                  borderRadius: '50%',
+                  border: 0,
+                  background: 'var(--dsw-alias-bg-layer-2)',
+                  color: 'var(--dsw-alias-label-secondary)',
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                },
+              },
+              '×',
+            ),
           ),
           h(
             'div',
@@ -307,18 +351,107 @@ window.__ModuleLoader__.load({
                 flex: 'none',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 6,
-                padding: '6px 14px',
+                gap: 8,
+                padding: '10px 16px',
                 borderBottom: '1px solid var(--dsw-alias-border-l1)',
+              },
+            },
+            h(
+              'button',
+              {
+                type: 'button',
+                style: btn,
+                onClick: () => data && data.parent && go(data.parent),
+                disabled: !(data && data.parent),
+              },
+              '上级',
+            ),
+            h('input', {
+              value: pathInput,
+              placeholder: '路径（回车跳转）',
+              onChange: (event) => setPathInput(event.target.value),
+              onKeyDown: (event) => {
+                if (event.key === 'Enter') go(pathInput)
+              },
+              style: {
+                flex: 1,
+                minWidth: 0,
+                padding: '5px 10px',
+                borderRadius: 8,
+                border: '1px solid var(--dsw-alias-border-l2)',
+                background: 'var(--dsw-alias-bg-layer-1)',
+                color: 'var(--dsw-alias-label-primary)',
+                fontSize: 11.5,
+                fontFamily: 'inherit',
+                outline: 'none',
+              },
+            }),
+          ),
+          h(
+            'div',
+            { style: { flex: 1, minHeight: 0, overflowY: 'auto', padding: 8 } },
+            busy
+              ? h('div', { style: { padding: 16, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, '加载中…')
+              : error
+                ? h('div', { style: { padding: 16, fontSize: 11, color: 'var(--dsw-alias-state-error-primary)' } }, error)
+                : picks.length === 0
+                  ? h('div', { style: { padding: 16, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, '没有子目录')
+                  : picks.map((entry) =>
+                      h(
+                        'button',
+                        {
+                          key: entry.path,
+                          type: 'button',
+                          onClick: () => go(entry.path),
+                          onMouseEnter: () => setHovered(entry.path),
+                          onMouseLeave: () => setHovered(''),
+                          style: {
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            width: '100%',
+                            padding: '7px 10px',
+                            borderRadius: 8,
+                            border: 0,
+                            background: hovered === entry.path ? 'var(--dsw-alias-bg-layer-2)' : 'transparent',
+                            color: 'var(--dsw-alias-label-primary)',
+                            fontSize: 11.5,
+                            fontFamily: 'inherit',
+                            textAlign: 'left',
+                            cursor: 'pointer',
+                            transition: 'background .12s ease',
+                          },
+                        },
+                        h(Icon, { name: 'folder', size: 14 }),
+                        h(
+                          'span',
+                          { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+                          entry.name,
+                        ),
+                      ),
+                    ),
+          ),
+          h(
+            'div',
+            {
+              style: {
+                flex: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 16px',
+                borderTop: '1px solid var(--dsw-alias-border-l2)',
+                background: 'var(--dsw-alias-bg-layer-1)',
               },
             },
             h(
               'span',
               {
-                title: cwd || '此电脑',
+                title: cwd,
                 style: {
                   flex: 1,
-                  fontSize: 10.5,
+                  minWidth: 0,
+                  fontSize: 10,
                   color: 'var(--dsw-alias-label-secondary)',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
@@ -327,65 +460,21 @@ window.__ModuleLoader__.load({
               },
               cwd || '此电脑',
             ),
-            data && data.parent ? h('button', { type: 'button', style: btn, onClick: () => setCwd(data.parent) }, '上级') : null,
+            h('button', { type: 'button', style: btn, onClick: props.onClose }, '取消'),
             h(
               'button',
               {
                 type: 'button',
-                style: Object.assign({}, btn, { background: '#3b82f6', borderColor: '#3b82f6', color: '#ffffff' }),
+                style: Object.assign({}, btn, {
+                  background: '#3b82f6',
+                  borderColor: '#3b82f6',
+                  color: '#ffffff',
+                  fontWeight: 600,
+                }),
                 onClick: () => props.onPick(cwd || (picks[0] && picks[0].path) || ''),
               },
               '使用此目录',
             ),
-          ),
-          h(
-            'div',
-            { style: { flex: 1, minHeight: 0, overflowY: 'auto', padding: 8 } },
-            busy
-              ? h('div', { style: { padding: 10, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '加载中…')
-              : error
-                ? h(
-                    'div',
-                    { style: { padding: 10, fontSize: 10.5, color: 'var(--dsw-alias-state-error-primary)' } },
-                    error,
-                  )
-                : picks.length === 0
-                  ? h(
-                      'div',
-                      { style: { padding: 10, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } },
-                      '没有子目录',
-                    )
-                  : picks.map((entry) =>
-                      h(
-                        'button',
-                        {
-                          key: entry.path,
-                          type: 'button',
-                          style: Object.assign({}, btn, {
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 6,
-                            width: '100%',
-                            textAlign: 'left',
-                            marginBottom: 2,
-                          }),
-                          onClick: () => setCwd(entry.path),
-                        },
-                        h(Icon, { name: 'folder', size: 12 }),
-                        h(
-                          'span',
-                          {
-                            style: {
-                              fontSize: 11,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            },
-                          },
-                          entry.name,
-                        ),
-                      ),
-                    ),
           ),
         ),
       )
