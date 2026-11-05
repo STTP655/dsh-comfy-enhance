@@ -9450,8 +9450,19 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** Page-switch motion for the Image workbench views. */
+    function ensureWorkbenchStyle() {
+      if (typeof document === 'undefined' || document.getElementById('dsh-comfy-workbench-styles')) return
+      const style = document.createElement('style')
+      style.id = 'dsh-comfy-workbench-styles'
+      style.textContent =
+        '@keyframes dshPageIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}'
+      document.head.appendChild(style)
+    }
+
     /** Entry screen: pick the local ComfyUI board or the online API workstation. */
     function WorkbenchChooser(props) {
+      ensureWorkbenchStyle()
       const card = (key, title, desc) =>
         h(
           'button',
@@ -9517,6 +9528,7 @@ window.__ModuleLoader__.load({
 
     /** Remotely generated images through an OpenAI-compatible endpoint. */
     function OnlineImagePanel(props) {
+      ensureWorkbenchStyle()
       const [endpoint, setEndpoint] = usePref('remoteEndpoint')
       const [apiKey, setApiKey] = usePref('remoteApiKey')
       const [model, setModel] = usePref('remoteModel')
@@ -9589,7 +9601,43 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: 8 } },
-          h('button', { type: 'button', style: btn, onClick: props.onBack }, '← 返回'),
+          h(
+            'button',
+            {
+              type: 'button',
+              onClick: props.onBack,
+              style: {
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '5px 10px',
+                borderRadius: 8,
+                border: '1px solid var(--dsw-alias-border-l2)',
+                background: 'var(--dsw-alias-bg-layer-2)',
+                color: 'var(--dsw-alias-label-primary)',
+                fontSize: 11,
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+                transition: 'transform .16s ease, box-shadow .16s ease',
+              },
+              onMouseEnter: (event) => {
+                event.currentTarget.style.transform = 'translateY(-1px)'
+                event.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)'
+              },
+              onMouseLeave: (event) => {
+                event.currentTarget.style.transform = 'none'
+                event.currentTarget.style.boxShadow = 'none'
+              },
+            },
+            h(
+              'svg',
+              { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.6, strokeLinecap: 'round', strokeLinejoin: 'round' },
+              h('path', { d: 'M19 12H5' }),
+              h('path', { d: 'm12 19-7-7 7-7' }),
+            ),
+            '返回',
+          ),
           h('div', { style: { fontSize: 14, fontWeight: 600 } }, '在线 API 出图'),
         ),
         h(
@@ -9620,6 +9668,15 @@ window.__ModuleLoader__.load({
 
     function CanvasWorkspace() {
       const [view, setView] = useState('chooser')
+      const [viewFading, setViewFading] = useState(false)
+      const changeView = (next) => {
+        if (next === view) return
+        setViewFading(true)
+        setTimeout(() => {
+          setView(next)
+          setViewFading(false)
+        }, 150)
+      }
       const [enabled] = usePref('canvasWorkspace')
       const [canvasTheme, setCanvasTheme] = usePref('workspaceTheme')
       const canvasNight = canvasTheme !== 'light'
@@ -10613,13 +10670,30 @@ window.__ModuleLoader__.load({
               }),
             )
 
-      if (view === 'chooser') return h(WorkbenchChooser, { onPick: setView })
-      if (view === 'online') return h(OnlineImagePanel, { onBack: () => setView('chooser') })
+      if (view === 'chooser' || view === 'online') {
+        return h(
+          'div',
+          {
+            key: view,
+            style: {
+              height: '100%',
+              opacity: viewFading ? 0 : 1,
+              transition: 'opacity 150ms ease',
+              animation: 'dshPageIn 240ms cubic-bezier(0.22, 1, 0.36, 1) both',
+            },
+          },
+          view === 'chooser'
+            ? h(WorkbenchChooser, { onPick: changeView })
+            : h(OnlineImagePanel, { onBack: () => changeView('chooser') }),
+        )
+      }
 
       return h(
         'div',
         {
-          style: WORKSPACE_SHELL,
+          style: Object.assign({}, WORKSPACE_SHELL, {
+            animation: 'dshPageIn 240ms cubic-bezier(0.22, 1, 0.36, 1) both',
+          }),
           className: canvasNight ? 'dshComfySurface-dark' : 'dshComfySurface-light',
         },
         h(Styles),
@@ -10683,12 +10757,38 @@ window.__ModuleLoader__.load({
           h(
             'button',
             {
-              className: 'dshCanvasBtn',
               title: '返回工作台选择',
-              onClick: () => setView('chooser'),
-              style: { flexShrink: 0 },
+              onClick: () => changeView('chooser'),
+              style: {
+                flexShrink: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 32,
+                height: 28,
+                padding: 0,
+                borderRadius: 8,
+                border: '1px solid var(--dsw-alias-border-l2)',
+                background: 'var(--dsw-alias-bg-layer-2)',
+                color: 'var(--dsw-alias-label-primary)',
+                cursor: 'pointer',
+                transition: 'transform .16s ease, box-shadow .16s ease',
+              },
+              onMouseEnter: (event) => {
+                event.currentTarget.style.transform = 'translateY(-1px)'
+                event.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)'
+              },
+              onMouseLeave: (event) => {
+                event.currentTarget.style.transform = 'none'
+                event.currentTarget.style.boxShadow = 'none'
+              },
             },
-            '←',
+            h(
+              'svg',
+              { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.6, strokeLinecap: 'round', strokeLinejoin: 'round' },
+              h('path', { d: 'M19 12H5' }),
+              h('path', { d: 'm12 19-7-7 7-7' }),
+            ),
           ),
           h(
             'div',
