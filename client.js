@@ -1032,36 +1032,41 @@ window.__ModuleLoader__.load({
       // interpolates the `auto` keyword, so no per-frame JS is needed, and the
       // card keeps its own overflow/box-shadow instead of being clipped by an
       // outer hidden container.
+      // The card floats above the composer on its own layer: the wrapper is zero
+      // height, so opening it never pushes the transcript around.
       return h(
         'div',
-        {
-          style: {
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-            width: '100%',
-            maxWidth: 'var(--dsh-composer-card-max-width)',
-            margin: '0 auto 8px',
-            boxSizing: 'border-box',
-            borderRadius: 'var(--dsw-radius-panel)',
-            border: '1px solid var(--dsw-alias-border-l2)',
-            background: 'var(--dsw-alias-bg-layer-2)',
-            boxShadow: '0 4px 18px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.06)',
-            maxHeight: '50vh',
-            padding: 12,
-            overflowY: 'auto',
-            overflowX: 'hidden',
-            // Promote the card to its own composited layer so the entrance/exit
-            // only composites (shadow, form fields, text are rasterized once), and
-            // contain its internal layout/paint so nothing inside repaints the page.
-            willChange: 'opacity, transform',
-            contain: 'layout paint',
-            opacity: closing ? 0 : entered ? 1 : 0,
-            transform: entered && !closing ? 'translateY(0)' : 'translateY(8px)',
-            transition:
-              'opacity 200ms cubic-bezier(0.2, 0, 0, 1), transform 240ms cubic-bezier(0.16, 1, 0.3, 1)',
+        { style: { position: 'relative', height: 0, zIndex: 20 } },
+        h(
+          'div',
+          {
+            style: {
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 'calc(100% + 8px)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              maxWidth: 'var(--dsh-composer-card-max-width)',
+              margin: '0 auto',
+              boxSizing: 'border-box',
+              padding: 12,
+              borderRadius: 'var(--dsw-radius-panel)',
+              border: '1px solid var(--dsw-alias-border-l2)',
+              background: 'color-mix(in srgb, var(--dsw-alias-bg-layer-2) 84%, transparent)',
+              backdropFilter: 'blur(18px) saturate(1.3)',
+              boxShadow: '0 18px 48px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08)',
+              maxHeight: '50vh',
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              transformOrigin: 'center bottom',
+              willChange: 'opacity, transform',
+              opacity: closing ? 0 : entered ? 1 : 0,
+              transform: entered && !closing ? 'translateY(0) scale(1)' : 'translateY(10px) scale(0.96)',
+              transition: 'opacity 200ms ease, transform 300ms cubic-bezier(0.22, 1, 0.36, 1)',
+            },
           },
-        },
         h(
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: 6 } },
@@ -1198,6 +1203,7 @@ window.__ModuleLoader__.load({
             },
             '提交',
           ),
+        ),
         ),
       )
     }
