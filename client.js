@@ -7045,6 +7045,7 @@ window.__ModuleLoader__.load({
     function Dropdown(props) {
       const dark = Boolean(props.dark)
       const [open, setOpen] = useState(false)
+      const [coords, setCoords] = useState(null)
       const [reducedMotion] = useState(
         () =>
           typeof window !== 'undefined' &&
@@ -7052,12 +7053,16 @@ window.__ModuleLoader__.load({
           window.matchMedia('(prefers-reduced-motion: reduce)').matches,
       )
       const boxRef = useRef(null)
+      const menuRef = useRef(null)
+      const triggerRef = useRef(null)
       const [query, setQuery] = useState('')
 
       useEffect(() => {
         if (!open) return undefined
         const onDown = (event) => {
-          if (boxRef.current && !boxRef.current.contains(event.target)) setOpen(false)
+          if (boxRef.current && boxRef.current.contains(event.target)) return
+          if (menuRef.current && menuRef.current.contains(event.target)) return
+          setOpen(false)
         }
         const onKey = (event) => {
           if (event.isComposing) return
@@ -7070,6 +7075,33 @@ window.__ModuleLoader__.load({
           document.removeEventListener('keydown', onKey)
         }
       }, [open])
+
+      // The menu is portaled to <body> and positioned in viewport coordinates, so
+      // narrow side columns never clip it and it can never widen a flex row.
+      useEffect(() => {
+        if (!open) {
+          setCoords(null)
+          return undefined
+        }
+        const update = () => {
+          const node = triggerRef.current
+          if (!node) return
+          const rect = node.getBoundingClientRect()
+          const width = Math.max(rect.width, props.menuMinWidth || 0)
+          const alignRight = props.menuAlign === 'right'
+          let left = alignRight ? rect.right - width : rect.left
+          const maxLeft = Math.max(8, (window.innerWidth || 1280) - width - 8)
+          left = Math.max(8, Math.min(left, maxLeft))
+          setCoords({ left, top: rect.bottom + 4, width })
+        }
+        update()
+        window.addEventListener('resize', update)
+        window.addEventListener('scroll', update, true)
+        return () => {
+          window.removeEventListener('resize', update)
+          window.removeEventListener('scroll', update, true)
+        }
+      }, [open, props.menuAlign, props.menuMinWidth])
 
       const choices = props.options || []
       const normalized = query.trim().toLowerCase()
@@ -7085,44 +7117,19 @@ window.__ModuleLoader__.load({
           }
         : null
 
-      return h(
-        'div',
-        { ref: boxRef, style: { position: 'relative', flex: '1 1 0', minWidth: 96 } },
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'dshCanvasPicker',
-            'data-dark': dark ? 'true' : undefined,
-            title: props.title,
-            // A flex row with an empty label collapses to its padding; keep the
-            // trigger at a usable height even before a value is picked.
-            style: { minHeight: 22 },
-            onClick: () => {
-              if (!open) {
-                setQuery('')
-                if (props.onOpen) props.onOpen()
-              }
-              setOpen(!open)
-            },
-          },
-          h(
-            'span',
-            { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
-            current ? current.label : props.placeholder || '',
-          ),
-        ),
-        open
+      const menu =
+        open && coords
           ? h(
               'div',
               {
+                ref: menuRef,
                 style: Object.assign({}, DROPDOWN, menuSkin, {
-                  // Long names (workflow files, model files) need a wider menu
-                  // than the trigger can afford.
-                  minWidth: props.menuMinWidth || undefined,
-                  // Right-aligned menus grow towards the left edge, so a picker
-                  // in a narrow side column never pushes the column wider.
-                  ...(props.menuAlign === 'right' ? { left: 'auto', right: 0 } : null),
+                  position: 'fixed',
+                  top: coords.top,
+                  left: coords.left,
+                  width: coords.width,
+                  minWidth: coords.width,
+                  right: 'auto',
                   animation: reducedMotion
                     ? 'dshComfyOverlayIn 120ms ease both'
                     : 'dshComfyDropIn 140ms cubic-bezier(0.23, 1, 0.32, 1) both',
@@ -7179,7 +7186,37 @@ window.__ModuleLoader__.load({
                 ),
               ),
             )
-          : null,
+          : null
+
+      return h(
+        'div',
+        { ref: boxRef, style: { position: 'relative', flex: '1 1 0', minWidth: 96 } },
+        h(
+          'button',
+          {
+            ref: triggerRef,
+            type: 'button',
+            className: 'dshCanvasPicker',
+            'data-dark': dark ? 'true' : undefined,
+            title: props.title,
+            // A flex row with an empty label collapses to its padding; keep the
+            // trigger at a usable height even before a value is picked.
+            style: { minHeight: 22 },
+            onClick: () => {
+              if (!open) {
+                setQuery('')
+                if (props.onOpen) props.onOpen()
+              }
+              setOpen(!open)
+            },
+          },
+          h(
+            'span',
+            { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+            current ? current.label : props.placeholder || '',
+          ),
+        ),
+        menu && createPortal ? createPortal(menu, document.body) : menu,
       )
     }
 
