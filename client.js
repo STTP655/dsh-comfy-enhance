@@ -3864,6 +3864,14 @@ window.__ModuleLoader__.load({
       )
 
       const requestClose = () => {
+        // An embedded viewer has nothing to close: fading its stage out left an
+        // empty pane that no thumbnail could bring back, because the panel, not
+        // the viewer, owns what is shown. Escape resets the zoom instead.
+        if (embedded) {
+          const view = viewRef.current
+          if (view.scale !== 1 || view.offset.x !== 0 || view.offset.y !== 0) resetView()
+          return
+        }
         if (closingRef.current) return
         closingRef.current = true
         setClosing(true)
