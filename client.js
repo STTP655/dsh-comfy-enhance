@@ -12611,6 +12611,23 @@ window.__ModuleLoader__.load({
               { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
               h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, 'Prompt'),
               h('span', { style: { flex: 1 } }),
+              // A quiet line so the joined prefix is never a surprise: it appears
+              // only while the pin is actually being applied.
+              pinActive
+                ? h(
+                    'span',
+                    {
+                      title: '生成时会自动拼在正文最前面',
+                      style: {
+                        fontSize: 9.5,
+                        lineHeight: 1.2,
+                        color: '#f59e0b',
+                        whiteSpace: 'nowrap',
+                      },
+                    },
+                    '已预置固定词',
+                  )
+                : null,
               // Pinned quality prefix: grey when unset, orange while it is being
               // applied to every submission.
               h(
