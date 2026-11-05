@@ -106,7 +106,8 @@ window.__ModuleLoader__.load({
         t2iSampling: { steps: 20, cfg: 1, sampler: 'euler', scheduler: 'simple', seed: 0 },
         t2iMeta: {},
         t2iPromptStyle: 'tags',
-        promptWriteSystem: '',
+        promptWriteSystemTags: '',
+        promptWriteSystemNatural: '',
         editorPositiveHeight: 96,
         editorNegativeHeight: 96,
         viewerPanelWidth: 360,
@@ -177,7 +178,9 @@ window.__ModuleLoader__.load({
                   : { steps: 20, cfg: 1, sampler: 'euler', scheduler: 'simple', seed: 0 },
               t2iMeta: parsed.t2iMeta && typeof parsed.t2iMeta === 'object' ? parsed.t2iMeta : {},
               t2iPromptStyle: parsed.t2iPromptStyle === 'natural' ? 'natural' : 'tags',
-              promptWriteSystem: typeof parsed.promptWriteSystem === 'string' ? parsed.promptWriteSystem : '',
+              promptWriteSystemTags: typeof parsed.promptWriteSystemTags === 'string' ? parsed.promptWriteSystemTags : '',
+              promptWriteSystemNatural:
+                typeof parsed.promptWriteSystemNatural === 'string' ? parsed.promptWriteSystemNatural : '',
               editorPositiveHeight:
                 typeof parsed.editorPositiveHeight === 'number' ? parsed.editorPositiveHeight : 96,
               editorNegativeHeight:
@@ -9769,13 +9772,18 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** Edit the custom prompt-writing rules the prompt helper follows. */
+    /** Edit the custom prompt-writing rules per style (tags vs natural language). */
     function PromptRulesDialog(props) {
       ensureWorkbenchStyle()
-      const [value, setValue] = usePref('promptWriteSystem')
-      const [draft, setDraft] = useState(value || '')
+      const [tagsValue, setTagsValue] = usePref('promptWriteSystemTags')
+      const [naturalValue, setNaturalValue] = usePref('promptWriteSystemNatural')
+      const [tagsDraft, setTagsDraft] = useState(tagsValue || '')
+      const [naturalDraft, setNaturalDraft] = useState(naturalValue || '')
       useEffect(() => {
-        if (props.open) setDraft(value || '')
+        if (props.open) {
+          setTagsDraft(tagsValue || '')
+          setNaturalDraft(naturalValue || '')
+        }
       }, [props.open])
       if (!props.open) return null
       const field = {
@@ -9803,6 +9811,20 @@ window.__ModuleLoader__.load({
         fontFamily: 'inherit',
         cursor: 'pointer',
       }
+      const block = (title, hint, value, onChange) =>
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
+          h('div', { style: { fontSize: 11, fontWeight: 600 } }, title),
+          h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.5 } }, hint),
+          h('textarea', {
+            value,
+            rows: 6,
+            placeholder: '例如：用中文标签；不要质量词；强调构图与光影…',
+            style: field,
+            onChange: (event) => onChange(event.target.value),
+          }),
+        )
       return h(
         'div',
         {
@@ -9824,8 +9846,9 @@ window.__ModuleLoader__.load({
           'div',
           {
             style: {
-              width: 560,
+              width: 640,
               maxWidth: 'calc(100vw - 40px)',
+              maxHeight: '84vh',
               display: 'flex',
               flexDirection: 'column',
               borderRadius: 16,
@@ -9840,6 +9863,7 @@ window.__ModuleLoader__.load({
             'div',
             {
               style: {
+                flex: 'none',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
@@ -9876,24 +9900,25 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
-            { style: { padding: 16, display: 'flex', flexDirection: 'column', gap: 8 } },
-            h(
-              'div',
-              { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.6 } },
-              'AI 写/润色时附加的写作要求（留空则用内置风格规则）：',
+            { style: { flex: 1, minHeight: 0, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 14 } },
+            block(
+              '标签式提示词（SD 风格）',
+              'AI 写/润色选择「SD 标签」时使用；留空则用内置的标签风格规则。',
+              tagsDraft,
+              setTagsDraft,
             ),
-            h('textarea', {
-              value: draft,
-              rows: 10,
-              placeholder: '例如：用中文标签描述；不要出现质量词；强调构图与光影；最多 40 个标签…',
-              style: field,
-              onChange: (event) => setDraft(event.target.value),
-            }),
+            block(
+              '自然语言提示词',
+              'AI 写/润色选择「自然语言」（在线 API 面板也用它）时使用；留空则用内置的自然语言规则。',
+              naturalDraft,
+              setNaturalDraft,
+            ),
           ),
           h(
             'div',
             {
               style: {
+                flex: 'none',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
@@ -9914,7 +9939,8 @@ window.__ModuleLoader__.load({
                   color: '#ffffff',
                 }),
                 onClick: () => {
-                  setValue(draft)
+                  setTagsValue(tagsDraft)
+                  setNaturalValue(naturalDraft)
                   props.onClose()
                 },
               },
@@ -10021,7 +10047,7 @@ window.__ModuleLoader__.load({
       const [aiBusy, setAiBusy] = useState(false)
       const [aiError, setAiError] = useState('')
       const [rulesOpen, setRulesOpen] = useState(false)
-      const [promptWriteSystem] = usePref('promptWriteSystem')
+      const [promptWriteSystemNatural] = usePref('promptWriteSystemNatural')
       const [modelOptions, setModelOptions] = useState([])
       const [modelsBusy, setModelsBusy] = useState(false)
       const [modelsError, setModelsError] = useState('')
@@ -10104,7 +10130,7 @@ window.__ModuleLoader__.load({
               current: prompt,
               instruction: prompt,
               targetModel: model,
-              system: promptWriteSystem,
+              system: promptWriteSystemNatural,
             }),
           })
           const data = await res.json().catch(() => null)
@@ -10936,7 +10962,8 @@ window.__ModuleLoader__.load({
       const [aiBusy, setAiBusy] = useState(false)
       const [aiError, setAiError] = useState('')
       const [rulesOpen, setRulesOpen] = useState(false)
-      const [promptWriteSystem] = usePref('promptWriteSystem')
+      const [promptWriteSystemTags] = usePref('promptWriteSystemTags')
+      const [promptWriteSystemNatural] = usePref('promptWriteSystemNatural')
       const [fileMeta, setFileMeta] = useState({})
       const beforeRef = useRef(new Set())
       const startedRef = useRef(0)
@@ -11087,7 +11114,7 @@ window.__ModuleLoader__.load({
               instruction: prompt,
               targetModel: (models && models.unet) || '',
               style: promptStyle,
-              system: promptWriteSystem,
+              system: promptStyle === 'tags' ? promptWriteSystemTags : promptWriteSystemNatural,
             }),
           })
           const data = await res.json().catch(() => null)
