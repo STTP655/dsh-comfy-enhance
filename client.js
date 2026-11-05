@@ -938,6 +938,8 @@ window.__ModuleLoader__.load({
       const [visible, setVisible] = useState(draft.open)
       const [closing, setClosing] = useState(false)
       const [hoverClose, setHoverClose] = useState(false)
+      const cardRef = useRef(null)
+      const animRef = useRef(null)
       const [hoverCancel, setHoverCancel] = useState(false)
       const [hoverSubmit, setHoverSubmit] = useState(false)
       const visibleRef = useRef(draft.open)
@@ -954,9 +956,42 @@ window.__ModuleLoader__.load({
           visibleRef.current = false
           setVisible(false)
           setClosing(false)
-        }, 220)
+        }, 340)
         return () => clearTimeout(timer)
       }, [draft.open])
+      // Web Animations instead of CSS keyframes: the card mounts and animates in
+      // the same commit (the entrance can never be missed), and the exit runs to
+      // completion before the unmount timer fires.
+      useEffect(() => {
+        const node = cardRef.current
+        if (!node || typeof node.animate !== 'function') return undefined
+        if (animRef.current) {
+          try {
+            animRef.current.cancel()
+          } catch {
+            // Finished animations ignore cancel.
+          }
+          animRef.current = null
+        }
+        if (draft.open) {
+          animRef.current = node.animate(
+            [
+              { opacity: 0, transform: 'translateY(12px)' },
+              { opacity: 1, transform: 'translateY(0)' },
+            ],
+            { duration: 320, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'both' },
+          )
+        } else if (closing) {
+          animRef.current = node.animate(
+            [
+              { opacity: 1, transform: 'translateY(0)' },
+              { opacity: 0, transform: 'translateY(6px)' },
+            ],
+            { duration: 260, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'both' },
+          )
+        }
+        return undefined
+      }, [draft.open, closing, visible])
       if (!visible) return null
       if (draft.sessionId && props && props.sessionId && draft.sessionId !== props.sessionId) return null
       const actions = props && props.inputActions ? props.inputActions : null
@@ -1009,6 +1044,7 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         {
+          ref: cardRef,
           style: {
             display: 'flex',
             flexDirection: 'column',
@@ -1027,18 +1063,8 @@ window.__ModuleLoader__.load({
             boxShadow: '0 4px 18px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.06)',
             maxHeight: '50vh',
             overflowY: 'auto',
-            animation: closing
-              ? 'dshDraftOut .2s cubic-bezier(0.4, 0, 0.2, 1) both'
-              : 'dshDraftIn .24s cubic-bezier(0.22, 1, 0.36, 1) both',
           },
         },
-        h(
-          'style',
-          { key: 'dsh-comfy-draft-anim' },
-          // Ease-out-quint on the way in (a push-up that settles), a gentle sink out.
-          '@keyframes dshDraftIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}' +
-            '@keyframes dshDraftOut{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(5px)}}',
-        ),
         h(
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: 6 } },
