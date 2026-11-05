@@ -110,7 +110,7 @@ window.__ModuleLoader__.load({
         t2iPinPositive: '',
         t2iPinNegative: '',
         t2iPinEnabled: true,
-        t2iSampling: { steps: 20, cfg: 1, sampler: 'euler', scheduler: 'simple', seed: 0 },
+        t2iSampling: { steps: 20, cfg: 1, sampler: 'euler', scheduler: 'simple', seed: 0, seedMode: 'fixed' },
         t2iMeta: {},
         t2iPromptStyle: 'tags',
         promptWriteSystemTags: '',
@@ -12041,6 +12041,9 @@ window.__ModuleLoader__.load({
       const [pinOpen, setPinOpen] = useState(false)
       const pinSet = Boolean(String(pinPositive || '').trim() || String(pinNegative || '').trim())
       const pinActive = pinSet && pinEnabled !== false
+      // Seed mode is stored with the sampling settings so the request carries it
+      // and the choice survives a reload, the same way the canvas does it.
+      const randomSeed = Boolean(sampling && sampling.seedMode === 'random')
       const [aiBusy, setAiBusy] = useState(false)
       const [aiError, setAiError] = useState('')
       const [rulesOpen, setRulesOpen] = useState(false)
@@ -12242,6 +12245,13 @@ window.__ModuleLoader__.load({
           setError('先写 prompt')
           return
         }
+        // Random mode: a fresh seed per submission, written back so the field
+        // shows the seed that was actually used.
+        let submittedSampling = sampling || {}
+        if (randomSeed) {
+          submittedSampling = Object.assign({}, submittedSampling, { seed: Math.floor(Math.random() * 1e15) })
+          setSampling(submittedSampling)
+        }
         setBusy(true)
         setError('')
         setStatus('')
@@ -12260,7 +12270,7 @@ window.__ModuleLoader__.load({
               clipType,
               width: outputSize.width,
               height: outputSize.height,
-              sampling,
+              sampling: submittedSampling,
             }),
           })
           const data = await res.json().catch(() => null)
@@ -13040,11 +13050,16 @@ window.__ModuleLoader__.load({
               h('input', {
                 type: 'number',
                 value: sampling && sampling.seed !== undefined ? sampling.seed : 0,
-                style: field,
+                // Random mode picks the seed at submit time, so typing here would
+                // be overwritten a moment later.
+                disabled: randomSeed,
+                title: randomSeed ? '随机模式下由每次生成决定种子' : '固定种子',
+                style: Object.assign({}, field, { opacity: randomSeed ? 0.55 : 1 }),
                 onChange: (event) => updateSampling({ seed: Math.max(0, Math.floor(Number(event.target.value) || 0)) }),
               }),
             ),
-            // Fills the empty cell beside the seed: one click, a fresh seed.
+            // Fills the empty cell beside the seed. It is a mode, not a one-shot:
+            // once on, every generation gets a fresh seed and the field is locked.
             h(
               'div',
               { style: { display: 'flex', alignItems: 'flex-end' } },
@@ -13052,17 +13067,36 @@ window.__ModuleLoader__.load({
                 'button',
                 {
                   type: 'button',
-                  title: '换一个随机种子',
-                  onClick: () => updateSampling({ seed: Math.floor(Math.random() * 1e15) }),
-                  style: Object.assign({}, btn, {
+                  title: randomSeed
+                    ? '随机模式已开启：每次生成都换一个种子（点击关闭）'
+                    : '开启随机模式：每次生成自动换一个种子',
+                  onClick: () => {
+                    const nextMode = randomSeed ? 'fixed' : 'random'
+                    const patch = { seedMode: nextMode }
+                    if (nextMode === 'random') patch.seed = Math.floor(Math.random() * 1e15)
+                    updateSampling(patch)
+                  },
+                  style: {
                     width: '100%',
+                    // Same box as the inputs beside it, so the row lines up.
+                    boxSizing: 'border-box',
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 5,
-                  }),
+                    gap: 6,
+                    padding: '7px 10px',
+                    borderRadius: 9,
+                    border: '1px solid ' + (randomSeed ? '#3b82f6' : 'var(--dsw-alias-border-l2)'),
+                    background: randomSeed ? '#3b82f6' : 'var(--dsw-alias-bg-layer-2)',
+                    color: randomSeed ? '#ffffff' : 'var(--dsw-alias-label-primary)',
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                    transition: 'background 160ms ease, border-color 160ms ease, color 160ms ease',
+                  },
                 },
-                h(Icon, { name: 'shuffle', size: 12 }),
+                h(Icon, { name: 'shuffle', size: 13 }),
                 '随机',
               ),
             ),
