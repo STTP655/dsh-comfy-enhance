@@ -9644,6 +9644,8 @@ window.__ModuleLoader__.load({
       const [pickerOpen, setPickerOpen] = useState(false)
       const [savedFiles, setSavedFiles] = useState([])
       const [savedTick, setSavedTick] = useState(0)
+      const [viewerOpen, setViewerOpen] = useState(false)
+      const [viewerIndex, setViewerIndex] = useState(0)
       const pickImage = (event) => {
         const file = event.target.files && event.target.files[0]
         event.target.value = ''
@@ -10127,21 +10129,43 @@ window.__ModuleLoader__.load({
               ? h(
                   'div',
                   { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 } },
-                  savedFiles.slice(0, 6).map((file) =>
-                    h('img', {
-                      key: file.name,
-                      src: file.thumb || file.url,
-                      alt: '',
-                      loading: 'lazy',
-                      title: file.name,
-                      style: {
-                        width: '100%',
-                        height: 56,
-                        objectFit: 'cover',
-                        borderRadius: 8,
-                        border: '1px solid var(--dsw-alias-border-l2)',
+                  savedFiles.slice(0, 6).map((file, index) =>
+                    h(
+                      'button',
+                      {
+                        key: file.name,
+                        type: 'button',
+                        onClick: () => {
+                          setViewerIndex(index)
+                          setViewerOpen(true)
+                        },
+                        title: file.name,
+                        style: {
+                          padding: 0,
+                          border: 0,
+                          background: 'transparent',
+                          borderRadius: 8,
+                          overflow: 'hidden',
+                          height: 56,
+                          cursor: 'pointer',
+                          transition: 'transform .16s ease, box-shadow .16s ease',
+                        },
+                        onMouseEnter: (event) => {
+                          event.currentTarget.style.transform = 'translateY(-1px)'
+                          event.currentTarget.style.boxShadow = '0 6px 16px rgba(0, 0, 0, 0.18)'
+                        },
+                        onMouseLeave: (event) => {
+                          event.currentTarget.style.transform = 'none'
+                          event.currentTarget.style.boxShadow = 'none'
+                        },
                       },
-                    }),
+                      h('img', {
+                        src: file.thumb || file.url,
+                        alt: '',
+                        loading: 'lazy',
+                        style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
+                      }),
+                    ),
                   ),
                 )
               : null,
@@ -10156,6 +10180,14 @@ window.__ModuleLoader__.load({
             },
             onClose: () => setPickerOpen(false),
           }),
+          viewerOpen && savedFiles.length > 0
+            ? h(ImageViewer, {
+                images: savedFiles.map((file) => ({ url: file.url, filename: file.name })),
+                startIndex: Math.max(0, Math.min(viewerIndex, savedFiles.length - 1)),
+                filename: savedFiles[viewerIndex] ? savedFiles[viewerIndex].name : '',
+                onClose: () => setViewerOpen(false),
+              })
+            : null,
           error
             ? h(
                 'div',
