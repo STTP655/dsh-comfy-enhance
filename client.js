@@ -927,6 +927,7 @@ window.__ModuleLoader__.load({
         ['path', { d: 'M12 17v5' }],
         ['path', { d: 'M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z' }],
       ],
+      'chevron-left': [['path', { d: 'm15 18-6-6 6-6' }]],
       images: [
         ['path', { d: 'M18 22H4a2 2 0 0 1-2-2V6' }],
         ['path', { d: 'm22 13-1.296-1.296a2.41 2.41 0 0 0-3.408 0L11 18' }],
@@ -10220,7 +10221,19 @@ window.__ModuleLoader__.load({
         '@media (hover:hover) and (pointer:fine){.dshComfyAiBtn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 0 22px rgba(255,92,122,.45),0 8px 22px rgba(255,92,122,.4)}}' +
         '.dshComfyAiBtn:active:not(:disabled){transform:translateY(1px) scale(.985);box-shadow:0 0 10px rgba(255,92,122,.3)}' +
         '.dshComfyAiBtn:disabled{opacity:.55;box-shadow:none;transform:none;cursor:default}' +
-        '@media (prefers-reduced-motion:reduce){.dshComfyAiBtn{transition:none}.dshComfyAiBtn:hover:not(:disabled),.dshComfyAiBtn:active:not(:disabled){transform:none}}'
+        '@media (prefers-reduced-motion:reduce){.dshComfyAiBtn{transition:none}.dshComfyAiBtn:hover:not(:disabled),.dshComfyAiBtn:active:not(:disabled){transform:none}}' +
+        // Floating back chip over the preview: dark glass so it reads on any
+        // picture, and no transform animation (a moving layer under a blurred
+        // backdrop is what smeared elsewhere in this panel).
+        '.dshComfyBackChip{display:inline-flex;align-items:center;gap:3px;padding:5px 11px 5px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.22);background:rgba(14,16,20,.55);color:#fff;font-size:11.5px;font-weight:600;font-family:inherit;cursor:pointer;transition:background 160ms ease,border-color 160ms ease}' +
+        '.dshComfyBackChip:hover{background:rgba(14,16,20,.72);border-color:rgba(255,255,255,.34)}' +
+        // Panel title with light running through the letters. The gradient is the
+        // same warm pair as the call-to-action button; colour is a fallback for
+        // engines without background-clip:text.
+        '.dshComfyShimmerTitle{font-size:21px;font-weight:800;line-height:1.15;letter-spacing:.01em;color:#ff6a3d}' +
+        '@supports ((-webkit-background-clip:text) or (background-clip:text)){.dshComfyShimmerTitle{background:linear-gradient(100deg,#ff4d4d,#ff8a3d 26%,#ffe3c2 42%,#ff8a3d 58%,#ff4d4d 86%);background-size:220% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:dshComfyTitleFlow 5.5s linear infinite}}' +
+        '@keyframes dshComfyTitleFlow{from{background-position:200% center}to{background-position:-120% center}}' +
+        '@media (prefers-reduced-motion:reduce){.dshComfyShimmerTitle{animation:none;background-position:38% center}}'
       document.head.appendChild(style)
     }
 
@@ -12347,6 +12360,23 @@ window.__ModuleLoader__.load({
               overflow: 'hidden',
             },
           },
+          // Back sits on the preview's own top-left corner, the same place the
+          // other full-page modules put theirs, instead of in the control column.
+          h(
+            'div',
+            { style: { position: 'absolute', left: 12, top: 12, zIndex: 6 } },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dshComfyBackChip',
+                title: '返回工作台',
+                onClick: props.onBack,
+              },
+              h(Icon, { name: 'chevron-left', size: 14 }),
+              '返回',
+            ),
+          ),
           h(ImageViewer, {
             key: selected,
             embedded: true,
@@ -12570,9 +12600,8 @@ window.__ModuleLoader__.load({
           },
           h(
             'div',
-            { style: { display: 'flex', alignItems: 'center', gap: 8 } },
-            h('button', { type: 'button', style: btn, onClick: props.onBack }, '返回'),
-            h('div', { style: { fontSize: 14, fontWeight: 600 } }, '本地文生图'),
+            { style: { display: 'flex', alignItems: 'center', gap: 8, minHeight: 30 } },
+            h('div', { className: 'dshComfyShimmerTitle' }, '本地文生图'),
           ),
           h(
             'div',
