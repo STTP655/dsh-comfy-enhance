@@ -173,9 +173,11 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** Inline "start ComfyUI" control shared by every surface that can go offline. */
+    /** Big "start ComfyUI" control with a folder-picker gear beside it. */
     function LaunchComfyButton(props) {
+      const compact = Boolean(props && props.compact)
       const [busy, setBusy] = useState(false)
+      const [picking, setPicking] = useState(false)
       const [message, setMessage] = useState('')
       const run = async () => {
         if (busy) return
@@ -185,17 +187,75 @@ window.__ModuleLoader__.load({
         setBusy(false)
         setMessage(result && result.ok ? result.message || '已请求启动' : (result && result.error) || '启动失败')
       }
+      const chooseDir = async () => {
+        if (picking) return
+        setPicking(true)
+        setMessage('')
+        try {
+          const res = await fetch('/plugin/comfy-status/pick-dir', { method: 'POST' })
+          const data = await res.json().catch(() => null)
+          if (data && data.ok && data.dir) {
+            pluginPrefs.set('comfyPath', data.dir)
+            setMessage('已选择：' + data.dir)
+          } else {
+            setMessage((data && data.error) || '没有选择目录')
+          }
+        } catch (error) {
+          setMessage(String((error && error.message) || error))
+        } finally {
+          setPicking(false)
+        }
+      }
+      if (compact) {
+        return h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 6 } },
+          h(
+            'button',
+            {
+              type: 'button',
+              disabled: busy,
+              onClick: run,
+              style: {
+                padding: '2px 7px',
+                borderRadius: 6,
+                border: '1px solid #3b82f6',
+                background: '#3b82f6',
+                color: '#ffffff',
+                fontSize: 10,
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+              },
+            },
+            busy ? '启动中…' : '启动 ComfyUI',
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              disabled: picking,
+              onClick: chooseDir,
+              title: '选择 ComfyUI 目录',
+              style: {
+                padding: '2px 6px',
+                borderRadius: 6,
+                border: '1px solid var(--dsw-alias-border-l2)',
+                background: 'transparent',
+                color: 'var(--dsw-alias-label-secondary)',
+                fontSize: 10,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+              },
+            },
+            h(Icon, { name: 'settings', size: 11 }),
+          ),
+          message ? h('span', { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } }, message) : null,
+        )
+      }
       return h(
         'div',
-        {
-          style: {
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            flexWrap: 'wrap',
-            marginTop: (props && props.marginTop) || 6,
-          },
-        },
+        { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginTop: 16 } },
         h(
           'button',
           {
@@ -203,21 +263,62 @@ window.__ModuleLoader__.load({
             disabled: busy,
             onClick: run,
             style: {
-              padding: '3px 8px',
-              borderRadius: 6,
-              border: '1px solid var(--dsw-alias-border-l2)',
-              background: 'var(--dsw-alias-bg-layer-1)',
-              color: 'var(--dsw-alias-label-primary)',
-              fontSize: 10.5,
+              padding: '10px 30px',
+              borderRadius: 10,
+              border: '1px solid #3b82f6',
+              background: '#3b82f6',
+              color: '#ffffff',
+              fontSize: 14,
+              fontWeight: 600,
               fontFamily: 'inherit',
               cursor: 'pointer',
+              boxShadow: '0 4px 14px rgba(59, 130, 246, 0.35)',
             },
           },
           busy ? '正在启动…' : '启动 ComfyUI',
         ),
-        message
-          ? h('span', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, message)
-          : null,
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'center' } },
+          h(
+            'button',
+            {
+              type: 'button',
+              disabled: picking,
+              onClick: chooseDir,
+              title: '选择 ComfyUI 目录',
+              style: {
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '4px 9px',
+                borderRadius: 7,
+                border: '1px solid var(--dsw-alias-border-l2)',
+                background: 'var(--dsw-alias-bg-layer-1)',
+                color: 'var(--dsw-alias-label-secondary)',
+                fontSize: 10.5,
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+              },
+            },
+            h(Icon, { name: 'settings', size: 13 }),
+            '选择目录',
+          ),
+          message
+            ? h(
+                'span',
+                {
+                  style: {
+                    fontSize: 10,
+                    color: 'var(--dsw-alias-label-secondary)',
+                    maxWidth: 280,
+                    wordBreak: 'break-all',
+                  },
+                },
+                message,
+              )
+            : null,
+        ),
       )
     }
 
@@ -315,6 +416,15 @@ window.__ModuleLoader__.load({
         ['path', { d: 'M20 12h2' }],
         ['path', { d: 'm6.34 17.66-1.41 1.41' }],
         ['path', { d: 'm19.07 4.93-1.41 1.41' }],
+      ],
+      settings: [
+        [
+          'path',
+          {
+            d: 'M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z',
+          },
+        ],
+        ['circle', { cx: 12, cy: 12, r: 3 }],
       ],
       moon: [['path', { d: 'M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z' }]],
       eye: [
@@ -809,7 +919,7 @@ window.__ModuleLoader__.load({
                 { style: Object.assign({}, SUB, ELLIPSIS, { fontSize: 9.5 }) },
                 snap ? '端口未响应 ' + (snap.url || '').replace(/^https?:\/\//, '') : '正在连接…',
               ),
-              h(LaunchComfyButton, { marginTop: 6 }),
+              h(LaunchComfyButton, { marginTop: 6, compact: true }),
             ),
       )
     }

@@ -97,6 +97,48 @@ async function launchComfy(dir, baseUrl) {
   return { ok: true, message: '已请求启动 ComfyUI，请稍候刷新状态', dir: found.comfyDir }
 }
 
+/** Native folder picker (Windows WinForms) for the ComfyUI install dir. */
+function pickDirectory() {
+  return new Promise((resolve) => {
+    let child = null
+    try {
+      child = spawn(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-STA',
+          '-Command',
+          'Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = "选择 ComfyUI 安装目录"; if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }',
+        ],
+        { stdio: ['ignore', 'pipe', 'ignore'] },
+      )
+    } catch {
+      resolve('')
+      return
+    }
+    let out = ''
+    const timer = setTimeout(() => {
+      try {
+        child.kill()
+      } catch {
+        // Ignore.
+      }
+      resolve(out.trim())
+    }, 180000)
+    child.stdout.on('data', (chunk) => {
+      out += String(chunk)
+    })
+    child.on('close', () => {
+      clearTimeout(timer)
+      resolve(out.trim())
+    })
+    child.on('error', () => {
+      clearTimeout(timer)
+      resolve('')
+    })
+  })
+}
+
 /** ComfyUI's own output directory, derived from the running instance's argv. */
 async function resolveOutputDir(baseUrl) {
   const stats = await getJSON(`${baseUrl}/system_stats`)
@@ -943,6 +985,18 @@ function createHandler(baseUrl) {
         lastEventAt,
         recent: recentEvents,
       })
+    }
+
+    // Open the native folder picker so the install dir can be set without typing.
+    if (pathname === `${PREFIX}/pick-dir`) {
+      if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const dir = await pickDirectory()
+        if (!dir) return send(200, { ok: false, error: '没有选择目录' })
+        return send(200, { ok: true, dir })
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
     }
 
     // Ask the host to start the local ComfyUI install.
