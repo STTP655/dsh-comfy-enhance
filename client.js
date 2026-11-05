@@ -84,6 +84,7 @@ window.__ModuleLoader__.load({
         remoteEndpoint: 'https://api.quickrouter.ai/v1',
         remoteApiKey: '',
         remoteModel: 'gpt-image-2.5-flare-c',
+        remoteSaveDir: '',
         editorPositiveHeight: 96,
         editorNegativeHeight: 96,
         viewerPanelWidth: 360,
@@ -119,6 +120,7 @@ window.__ModuleLoader__.load({
                 typeof parsed.remoteEndpoint === 'string' ? parsed.remoteEndpoint : 'https://api.quickrouter.ai/v1',
               remoteApiKey: typeof parsed.remoteApiKey === 'string' ? parsed.remoteApiKey : '',
               remoteModel: typeof parsed.remoteModel === 'string' ? parsed.remoteModel : 'gpt-image-2.5-flare-c',
+              remoteSaveDir: typeof parsed.remoteSaveDir === 'string' ? parsed.remoteSaveDir : '',
               editorPositiveHeight:
                 typeof parsed.editorPositiveHeight === 'number' ? parsed.editorPositiveHeight : 96,
               editorNegativeHeight:
@@ -9463,7 +9465,8 @@ window.__ModuleLoader__.load({
       const style = document.createElement('style')
       style.id = 'dsh-comfy-workbench-styles'
       style.textContent =
-        '@keyframes dshPageIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}'
+        '@keyframes dshPageIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}' +
+        '@keyframes dshBlink{0%,100%{opacity:1}50%{opacity:.3}}'
       document.head.appendChild(style)
     }
 
@@ -9548,6 +9551,10 @@ window.__ModuleLoader__.load({
       const [result, setResult] = useState(null)
       const [aiBusy, setAiBusy] = useState(false)
       const [aiError, setAiError] = useState('')
+      const [saveDir, setSaveDir] = usePref('remoteSaveDir')
+      const [pickerOpen, setPickerOpen] = useState(false)
+      const [savedFiles, setSavedFiles] = useState([])
+      const [savedTick, setSavedTick] = useState(0)
       const pickImage = (event) => {
         const file = event.target.files && event.target.files[0]
         event.target.value = ''
@@ -9557,6 +9564,22 @@ window.__ModuleLoader__.load({
         reader.onerror = () => setError('读取参考图失败')
         reader.readAsDataURL(file)
       }
+      // Gallery preview: the newest saved results from the chosen folder.
+      useEffect(() => {
+        if (!saveDir) return undefined
+        let alive = true
+        fetch('/plugin/comfy-status/outputs?dir=' + encodeURIComponent(saveDir), { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (!alive || !data || !data.ok) return
+            setSavedFiles(Array.isArray(data.files) ? data.files : [])
+          })
+          .catch(() => {})
+        return () => {
+          alive = false
+        }
+      }, [saveDir, savedTick])
+
       const aiWrite = async () => {
         if (aiBusy) return
         if (!prompt.trim()) {
@@ -9609,6 +9632,19 @@ window.__ModuleLoader__.load({
           const data = await res.json().catch(() => null)
           if (!data || !data.ok) throw new Error((data && data.error) || '请求失败')
           setResult(data)
+          if (saveDir && data.b64) {
+            try {
+              const saved = await fetch('/plugin/comfy-canvas/save-image', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ dir: saveDir, b64: data.b64 }),
+              })
+              const savedData = await saved.json().catch(() => null)
+              if (savedData && savedData.ok) setSavedTick((value) => value + 1)
+            } catch {
+              // Saving is best-effort; the preview still shows the image.
+            }
+          }
         } catch (err) {
           setError(String((err && err.message) || err))
         } finally {
@@ -9937,6 +9973,100 @@ window.__ModuleLoader__.load({
             },
             busy ? '生成中…' : '生成',
           ),
+          h(
+            'div',
+            {
+              style: {
+                marginTop: 8,
+                paddingTop: 8,
+                borderTop: '1px solid var(--dsw-alias-border-l1)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              },
+            },
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+              h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '保存目录'),
+              h('span', { style: { flex: 1 } }),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  onClick: () => setPickerOpen(true),
+                  style: {
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                    background: 'var(--dsw-alias-bg-layer-2)',
+                    color: 'var(--dsw-alias-label-primary)',
+                    fontSize: 10,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                  },
+                },
+                '选择目录',
+              ),
+            ),
+            saveDir
+              ? h(
+                  'div',
+                  {
+                    style: {
+                      fontSize: 10,
+                      color: 'var(--dsw-alias-label-secondary)',
+                      wordBreak: 'break-all',
+                      lineHeight: 1.5,
+                    },
+                  },
+                  saveDir,
+                )
+              : h(
+                  'div',
+                  {
+                    style: {
+                      fontSize: 10.5,
+                      fontWeight: 600,
+                      color: 'var(--dsw-alias-state-warn-primary)',
+                      animation: 'dshBlink 1.2s ease-in-out infinite',
+                    },
+                  },
+                  '请先设置保存目录（生成的图会存到这里）',
+                ),
+            savedFiles.length > 0
+              ? h(
+                  'div',
+                  { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 } },
+                  savedFiles.slice(0, 6).map((file) =>
+                    h('img', {
+                      key: file.name,
+                      src: file.thumb || file.url,
+                      alt: '',
+                      loading: 'lazy',
+                      title: file.name,
+                      style: {
+                        width: '100%',
+                        height: 56,
+                        objectFit: 'cover',
+                        borderRadius: 8,
+                        border: '1px solid var(--dsw-alias-border-l2)',
+                      },
+                    }),
+                  ),
+                )
+              : null,
+          ),
+          h(DirectoryPicker, {
+            open: pickerOpen,
+            title: '选择保存目录',
+            startPath: saveDir || '',
+            onPick: (path) => {
+              setSaveDir(path)
+              setPickerOpen(false)
+            },
+            onClose: () => setPickerOpen(false),
+          }),
           error
             ? h(
                 'div',

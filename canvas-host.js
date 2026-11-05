@@ -764,6 +764,26 @@ export function apply(ctx, config = {}) {
       return send(405, { ok: false, error: 'method not allowed' })
     }
 
+    // Persist one remote result into the user-chosen gallery folder.
+    if (pathname === `${PREFIX}/save-image`) {
+      if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const body = JSON.parse((await readBody(req)) || '{}')
+        const dir = typeof body.dir === 'string' ? body.dir.trim() : ''
+        const b64 = typeof body.b64 === 'string' ? body.b64 : ''
+        if (!dir) return send(400, { ok: false, error: '还没有设置保存目录' })
+        if (!b64) return send(400, { ok: false, error: '没有图片数据' })
+        const info = await stat(dir).catch(() => null)
+        if (!info || !info.isDirectory()) return send(400, { ok: false, error: '保存目录不存在' })
+        const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)
+        const filename = 'remote-' + stamp + '-' + Math.random().toString(36).slice(2, 6) + '.png'
+        await writeFile(join(dir, filename), Buffer.from(b64, 'base64'))
+        return send(200, { ok: true, file: filename, path: join(dir, filename) })
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
+    }
+
     if (pathname === `${PREFIX}/prompt-write`) {
       if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
       try {
