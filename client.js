@@ -83,6 +83,8 @@ window.__ModuleLoader__.load({
         comfyPath: '',
         remoteEndpoint: 'https://api.quickrouter.ai/v1',
         remoteApiKey: '',
+        remoteApiKeyOpenai: '',
+        remoteApiKeyMinimax: '',
         remoteModel: 'gpt-image-2.5-flare-c',
         remoteSaveDir: '',
         remotePrompt: '',
@@ -130,6 +132,13 @@ window.__ModuleLoader__.load({
               remoteEndpoint:
                 typeof parsed.remoteEndpoint === 'string' ? parsed.remoteEndpoint : 'https://api.quickrouter.ai/v1',
               remoteApiKey: typeof parsed.remoteApiKey === 'string' ? parsed.remoteApiKey : '',
+              remoteApiKeyOpenai:
+                typeof parsed.remoteApiKeyOpenai === 'string'
+                  ? parsed.remoteApiKeyOpenai
+                  : typeof parsed.remoteApiKey === 'string'
+                    ? parsed.remoteApiKey
+                    : '',
+              remoteApiKeyMinimax: typeof parsed.remoteApiKeyMinimax === 'string' ? parsed.remoteApiKeyMinimax : '',
               remoteModel: typeof parsed.remoteModel === 'string' ? parsed.remoteModel : 'gpt-image-2.5-flare-c',
               remoteSaveDir: typeof parsed.remoteSaveDir === 'string' ? parsed.remoteSaveDir : '',
               remotePrompt: typeof parsed.remotePrompt === 'string' ? parsed.remotePrompt : '',
@@ -9659,7 +9668,10 @@ window.__ModuleLoader__.load({
       const [provider, setProvider] = usePref('remoteProvider')
       const [mode, setMode] = usePref('remoteMode')
       const [endpoint, setEndpoint] = usePref('remoteEndpoint')
-      const [apiKey, setApiKey] = usePref('remoteApiKey')
+      const [openaiKey, setOpenaiKey] = usePref('remoteApiKeyOpenai')
+      const [minimaxKey, setMinimaxKey] = usePref('remoteApiKeyMinimax')
+      const apiKey = provider === 'minimax' ? minimaxKey : openaiKey
+      const setApiKey = (value) => (provider === 'minimax' ? setMinimaxKey(value) : setOpenaiKey(value))
       const [model, setModel] = usePref('remoteModel')
       const [prompt, setPrompt] = usePref('remotePrompt')
       const [size, setSize] = usePref('remoteSize')
