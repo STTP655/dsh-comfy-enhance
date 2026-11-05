@@ -969,6 +969,20 @@ window.__ModuleLoader__.load({
 
     // ------------------------------------------------------- DSH model catalog
 
+    /**
+     * 0..4 LoRA entries as { name, strength }, the shape the host rebuilds the
+     * chain from: UNET → lora… → sampler, in this order.
+     */
+    function normalizeLoraList(raw) {
+      return (Array.isArray(raw) ? raw : [])
+        .filter((entry) => entry && typeof entry.name === 'string' && entry.name.trim())
+        .map((entry) => ({
+          name: entry.name.trim(),
+          strength: Number.isFinite(Number(entry.strength)) ? Number(entry.strength) : 1,
+        }))
+        .slice(0, 4)
+    }
+
     /** One pickable route: provider and model ids never travel alone. */
     function routeKey(provider, model) {
       return String(provider || '') + '\u0000' + String(model || '')
@@ -12365,6 +12379,35 @@ window.__ModuleLoader__.load({
         cursor: 'pointer',
       }
       const pickModel = (key, value) => setModels(Object.assign({}, models || {}, { [key]: value }))
+      // LoRA chain: keep 0..4 entries, each { name, strength }, in application order.
+      const loraList = normalizeLoraList(models && models.loras)
+      const loraOptions = ((options && options.lora) || []).filter(
+        (name) => !loraList.some((entry) => entry.name === name),
+      )
+      const [dragLora, setDragLora] = useState(null)
+      const [dropLora, setDropLora] = useState(null)
+      const setLoras = (next) => setModels(Object.assign({}, models || {}, { loras: normalizeLoraList(next) }))
+      const addLora = (name) => {
+        if (!name) return
+        setLoras(loraList.concat([{ name, strength: 1 }]))
+      }
+      const removeLora = (index) => setLoras(loraList.filter((entry, at) => at !== index))
+      const setLoraStrength = (index, value) => {
+        const next = loraList.slice()
+        next[index] = Object.assign({}, next[index], {
+          strength: Math.max(-2, Math.min(2, Number(value) || 0)),
+        })
+        setLoras(next)
+      }
+      const moveLora = (from, to) => {
+        if (from === null || to === null || from === to) return
+        const next = loraList.slice()
+        const [moved] = next.splice(from, 1)
+        next.splice(to, 0, moved)
+        setLoras(next)
+        setDragLora(null)
+        setDropLora(null)
+      }
       const updateSampling = (patch) => setSampling(Object.assign({}, sampling || {}, patch))
       const preset = (w, h) => setSize({ width: w, height: h })
       const clampSize = (value) => Math.max(64, Math.min(4096, Math.round(Number(value) || 1024)))
@@ -13090,6 +13133,197 @@ window.__ModuleLoader__.load({
                 onChange: (event) => updateSampling({ scheduler: event.target.value }),
               }),
             ),
+          ),
+          // LoRA chain: order here is the order they are applied, so the rows are
+          // reorderable. The host rebuilds UNET → lora… → sampler from this list.
+          h(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+              h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, 'LoRA'),
+              h('span', { style: { flex: 1 } }),
+              h(
+                'span',
+                { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } },
+                loraList.length + ' / 4' + (loraList.length > 0 ? ' · 拖动调整顺序' : ''),
+              ),
+            ),
+            loraList.length > 0
+              ? h(
+                  'div',
+                  { style: { display: 'flex', flexDirection: 'column', gap: 4 } },
+                  ...loraList.map((entry, index) =>
+                    h(
+                      'div',
+                      {
+                        key: entry.name,
+                        onDragOver: (event) => {
+                          event.preventDefault()
+                          if (dragLora !== null) setDropLora(index)
+                        },
+                        onDragLeave: () => setDropLora((current) => (current === index ? null : current)),
+                        onDrop: (event) => {
+                          event.preventDefault()
+                          moveLora(dragLora, index)
+                        },
+                        style: {
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '3px 6px',
+                          borderRadius: 7,
+                          borderWidth: 1,
+                          borderStyle: 'solid',
+                          borderColor:
+                            dropLora === index && dragLora !== null
+                              ? '#3b82f6'
+                              : 'var(--dsw-alias-border-l2)',
+                          background: 'var(--dsw-alias-bg-layer-1)',
+                          opacity: dragLora === index ? 0.45 : 1,
+                        },
+                      },
+                      h(
+                        'span',
+                        {
+                          draggable: true,
+                          title: '拖动调整顺序',
+                          onDragStart: (event) => {
+                            setDragLora(index)
+                            // jsdom and some drag sources hand over no transfer.
+                            const transfer = event.dataTransfer
+                            if (transfer) {
+                              transfer.effectAllowed = 'move'
+                              try {
+                                transfer.setData('text/plain', String(index))
+                              } catch {
+                                // The state already carries the index.
+                              }
+                            }
+                          },
+                          onDragEnd: () => {
+                            setDragLora(null)
+                            setDropLora(null)
+                          },
+                          style: {
+                            flex: 'none',
+                            cursor: 'grab',
+                            fontSize: 12,
+                            lineHeight: 1,
+                            color: 'var(--dsw-alias-label-secondary)',
+                            userSelect: 'none',
+                          },
+                        },
+                        '⠿',
+                      ),
+                      h(
+                        'span',
+                        {
+                          title: entry.name,
+                          style: {
+                            flex: 1,
+                            minWidth: 0,
+                            fontSize: 10.5,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          },
+                        },
+                        entry.name,
+                      ),
+                      h('input', {
+                        type: 'number',
+                        step: 0.05,
+                        min: -2,
+                        max: 2,
+                        value: entry.strength,
+                        title: '权重（strength_model）',
+                        style: Object.assign({}, field, {
+                          width: 56,
+                          flex: 'none',
+                          padding: '3px 6px',
+                          fontSize: 10.5,
+                        }),
+                        onChange: (event) => setLoraStrength(index, event.target.value),
+                      }),
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          title: '移除',
+                          onClick: () => removeLora(index),
+                          style: {
+                            flex: 'none',
+                            width: 20,
+                            height: 20,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: 0,
+                            borderRadius: 5,
+                            border: 0,
+                            background: 'transparent',
+                            color: 'var(--dsw-alias-label-secondary)',
+                            fontSize: 12,
+                            fontFamily: 'inherit',
+                            cursor: 'pointer',
+                          },
+                        },
+                        '×',
+                      ),
+                    ),
+                  ),
+                )
+              : h(
+                  'div',
+                  { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)', opacity: 0.8 } },
+                  '还没添加；选的 LoRA 会按上面的顺序串在 UNET 之后',
+                ),
+            h(
+              'div',
+              { style: { minWidth: 0 } },
+              h(Dropdown, {
+                title: '从 models/loras 里选一个加进链条',
+                placeholder: loraOptions.length > 0 ? '+ 添加 LoRA' : '（没有发现 LoRA 文件）',
+                value: '',
+                options: loraOptions.map((name) => ({ value: name, label: name })),
+                onPick: (name) => addLora(name),
+                menuMinWidth: 300,
+                menuAlign: 'right',
+              }),
+            ),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              disabled: busy,
+              onClick: generate,
+              style: {
+                padding: '10px 14px',
+                borderRadius: 10,
+                border: '1px solid #3b82f6',
+                background: '#3b82f6',
+                color: '#ffffff',
+                fontSize: 12,
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                cursor: busy ? 'default' : 'pointer',
+                opacity: busy ? 0.7 : 1,
+              },
+            },
+            busy ? '生成中…' : '生成',
+          ),
+          // The live count lives on the preview overlay; this line only carries the
+          // plain result text (submitted / finished / failed).
+          status ? h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, status) : null,
+          error ? h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
+          // Seed sits at the bottom of the column: it is the setting changed least
+          // often, and the LoRA chain took its old place above.
+          h(
+            'div',
+            { style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 } },
             h(
               'label',
               { style: label },
@@ -13105,8 +13339,8 @@ window.__ModuleLoader__.load({
                 onChange: (event) => updateSampling({ seed: Math.max(0, Math.floor(Number(event.target.value) || 0)) }),
               }),
             ),
-            // Fills the empty cell beside the seed. It is a mode, not a one-shot:
-            // once on, every generation gets a fresh seed and the field is locked.
+            // It is a mode, not a one-shot: once on, every generation gets a fresh
+            // seed and the field is locked.
             h(
               'div',
               { style: { display: 'flex', alignItems: 'flex-end' } },
@@ -13148,31 +13382,6 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
-          h(
-            'button',
-            {
-              type: 'button',
-              disabled: busy,
-              onClick: generate,
-              style: {
-                padding: '10px 14px',
-                borderRadius: 10,
-                border: '1px solid #3b82f6',
-                background: '#3b82f6',
-                color: '#ffffff',
-                fontSize: 12,
-                fontWeight: 600,
-                fontFamily: 'inherit',
-                cursor: busy ? 'default' : 'pointer',
-                opacity: busy ? 0.7 : 1,
-              },
-            },
-            busy ? '生成中…' : '生成',
-          ),
-          // The live count lives on the preview overlay; this line only carries the
-          // plain result text (submitted / finished / failed).
-          status ? h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, status) : null,
-          error ? h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
         ),
         h(PromptRulesDialog, { open: rulesOpen, onClose: () => setRulesOpen(false) }),
           h(PromptHistoryDialog, { open: historyOpen, onClose: () => setHistoryOpen(false) }),
