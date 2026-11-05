@@ -8621,6 +8621,18 @@ window.__ModuleLoader__.load({
                 }),
                 '本地',
               ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dshCanvasBtn',
+                  style: { padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 },
+                  title: '读取参考图的画板参数（画框、描述、比例、MP、种子）覆盖当前画板',
+                  onClick: () => setImportOpen(true),
+                },
+                h(Icon, { name: 'scan', size: 12 }),
+                h('span', null, '取画板'),
+              ),
               h('input', {
                 type: 'number',
                 min: 0,
@@ -9171,6 +9183,8 @@ window.__ModuleLoader__.load({
       const [draft, setDraft] = useState('')
       const [dirty, setDirty] = useState(false)
       const [status, setStatus] = useState('')
+      const [importOpen, setImportOpen] = useState(false)
+      const [importBusy, setImportBusy] = useState(false)
       const [error, setError] = useState('')
       const [preview, setPreview] = useState(false)
       const [modelPanel, setModelPanel] = useState(false)
@@ -9899,6 +9913,109 @@ window.__ModuleLoader__.load({
         setStatus('已载入画板：' + entry.name)
       }
 
+      /** Layout-JSON item (abs_centralized yxyx) to one canvas box. */
+      const layoutItemToBox = (item, width, height) => {
+        const bbox = Array.isArray(item && item.bbox) ? item.bbox.map(Number) : null
+        if (!bbox || bbox.length !== 4 || bbox.some((value) => !Number.isFinite(value))) return null
+        const [y1, x1, y2, x2] = bbox
+        return {
+          x: width / 2 + Math.min(x1, x2),
+          y: height / 2 + Math.min(y1, y2),
+          width: Math.abs(x2 - x1),
+          height: Math.abs(y2 - y1),
+          metadata: {
+            type: item.label === 'text' ? 'text' : item.label || 'object',
+            character: item.label === 'character',
+            desc: typeof item.caption === 'string' ? item.caption : '',
+          },
+        }
+      }
+
+      /** Fill the board (boxes, summary, ratio/MP, seed) from the reference image. */
+      const importReferenceBoard = async () => {
+        const reference = referenceUrl
+        if (!reference) {
+          setStatus('先选择参考图')
+          setImportOpen(false)
+          return
+        }
+        let filename = ''
+        try {
+          filename = new URL(reference, window.location.origin).searchParams.get('filename') || ''
+        } catch {
+          filename = ''
+        }
+        if (!filename) {
+          setStatus('本地参考图没有画板参数')
+          setImportOpen(false)
+          return
+        }
+        setImportBusy(true)
+        try {
+          const res = await fetch('/plugin/comfy-status/output-meta?filename=' + encodeURIComponent(filename), {
+            cache: 'no-store',
+          })
+          const data = await res.json().catch(() => null)
+          const meta = data && data.ok ? data.meta : null
+          let layout = meta && meta.layout ? meta.layout : null
+          // The plugin's own generations carry the layout in the positive prompt
+          // instead of a MOSSImageLayoutPrompt node.
+          if (!layout && meta && meta.positive) {
+            const raw =
+              typeof meta.positive.raw === 'string'
+                ? meta.positive.raw
+                : typeof meta.positive.text === 'string'
+                  ? meta.positive.text
+                  : ''
+            if (raw) {
+              try {
+                const parsed = JSON.parse(raw)
+                if (parsed && typeof parsed === 'object') layout = parsed
+              } catch {
+                // Not a layout prompt: nothing to import.
+              }
+            }
+          }
+          const items = layout && Array.isArray(layout.items) ? layout.items : []
+          if (!layout || items.length === 0) {
+            setStatus('参考图里没有画板参数')
+            setImportOpen(false)
+            return
+          }
+          const width = meta && meta.size && Number.isFinite(meta.size.width) ? meta.size.width : size.width
+          const height = meta && meta.size && Number.isFinite(meta.size.height) ? meta.size.height : size.height
+          const summaryText =
+            layout.summary && typeof layout.summary.caption === 'string'
+              ? layout.summary.caption
+              : typeof layout.summary === 'string'
+                ? layout.summary
+                : ''
+          const nextBoxes = items.map((item) => layoutItemToBox(item, width, height)).filter(Boolean)
+          setSize({ width, height })
+          if (meta.resolution) {
+            if (typeof meta.resolution.ratio === 'string') setRatio(meta.resolution.ratio)
+            if (typeof meta.resolution.megapixels === 'number') setMegapixels(meta.resolution.megapixels)
+            if (typeof meta.resolution.multiple === 'number') setMultiple(meta.resolution.multiple)
+          }
+          setSummary(summaryText)
+          setBoxes(sanitizeBoxes(nextBoxes, width, height))
+          if (meta.sampler && typeof meta.sampler.seed === 'number') {
+            setCanvasModels({
+              ...canvasModels,
+              sampling: { ...(canvasModels.sampling || {}), seed: meta.sampler.seed },
+            })
+          }
+          setSelected(null)
+          setDirty(true)
+          setStatus('已从参考图导入画板')
+        } catch (error) {
+          setStatus('读取参考图失败：' + String((error && error.message) || error))
+        } finally {
+          setImportBusy(false)
+          setImportOpen(false)
+        }
+      }
+
       const removeSnapshot = (id) => {
         const next = loadSnapshotList().filter((item) => item && item.id !== id)
         persistSnapshots(next)
@@ -10047,6 +10164,60 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: WORKSPACE_TOOLBAR },
+          importOpen
+            ? h(
+                'div',
+                {
+                  style: {
+                    position: 'fixed',
+                    inset: 0,
+                    zIndex: 1300,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'rgba(0, 0, 0, 0.45)',
+                  },
+                  onClick: (event) => {
+                    if (event.target === event.currentTarget) setImportOpen(false)
+                  },
+                },
+                h(
+                  'div',
+                  {
+                    style: {
+                      width: 380,
+                      maxWidth: 'calc(100vw - 40px)',
+                      padding: '16px 18px',
+                      borderRadius: 12,
+                      border: '1px solid var(--dsw-alias-border-l2)',
+                      background: 'var(--dsw-alias-bg-base)',
+                      boxShadow: '0 24px 64px rgba(0, 0, 0, 0.35)',
+                    },
+                  },
+                  h('div', { style: { fontSize: 12.5, fontWeight: 600, marginBottom: 8 } }, '导入参考图画板'),
+                  h(
+                    'div',
+                    { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.6 } },
+                    '将会覆盖当前的画板设置（画框、整图描述、比例 / MP、种子），是否确认填入参考图的画板参数？',
+                  ),
+                  h(
+                    'div',
+                    { style: { display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 } },
+                    h('button', { className: 'dshCanvasBtn', onClick: () => setImportOpen(false) }, '取消'),
+                    h(
+                      'button',
+                      {
+                        className: 'dshCanvasBtn',
+                        style: { background: '#3b82f6', borderColor: '#3b82f6', color: '#ffffff' },
+                        disabled: importBusy,
+                        onClick: importReferenceBoard,
+                      },
+                      importBusy ? '导入中…' : '确认填入',
+                    ),
+                  ),
+                ),
+              )
+            : null,
           h(
             'div',
             { style: { flex: 'none', width: 180 } },

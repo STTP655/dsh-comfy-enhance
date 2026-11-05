@@ -427,6 +427,8 @@ function summarizeWorkflow(nodes) {
   const seen = new Set()
   let samplerNode = null
   let latent = null
+  let layout = null
+  let resolution = null
 
   for (const [id, node] of Object.entries(nodes || {})) {
     if (!node || typeof node !== 'object') continue
@@ -457,9 +459,26 @@ function summarizeWorkflow(nodes) {
     if (latent === null && typeof inputs.width === 'number' && typeof inputs.height === 'number') {
       latent = { width: inputs.width, height: inputs.height }
     }
+    // The MOSS layout prompt carries the whole board (summary + boxes); the
+    // resolution selector carries how the canvas was sized.
+    if (layout === null && node.class_type === 'MOSSImageLayoutPrompt' && typeof inputs.text === 'string') {
+      try {
+        const parsed = JSON.parse(inputs.text)
+        if (parsed && typeof parsed === 'object') layout = parsed
+      } catch {
+        // Not JSON: no board to import from this picture.
+      }
+    }
+    if (resolution === null && node.class_type === 'ResolutionSelector') {
+      resolution = {
+        ratio: typeof inputs.ratio === 'string' ? inputs.ratio : null,
+        megapixels: typeof inputs.megapixels === 'number' ? inputs.megapixels : null,
+        multiple: typeof inputs.multiple === 'number' ? inputs.multiple : null,
+      }
+    }
   }
 
-  const result = { models, sampler: null, positive: null, negative: null, size: latent }
+  const result = { models, sampler: null, positive: null, negative: null, size: latent, layout, resolution }
   if (samplerNode === null) return result
 
   const inputs = samplerNode.inputs
