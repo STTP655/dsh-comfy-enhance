@@ -97,7 +97,8 @@ async function launchComfy(dir, baseUrl) {
   }
   let child = null
   try {
-    child = spawn(python, ['main.py', '--listen', '127.0.0.1', '--port', port], {
+    // Absolute main.py so sys.argv[0] lets the workflow-dir resolver find the install.
+    child = spawn(python, [join(found.comfyDir, 'main.py'), '--listen', '127.0.0.1', '--port', port], {
       cwd: found.comfyDir,
       detached: true,
       windowsHide: true,

@@ -7,7 +7,7 @@
  * `/system_stats`, so no path needs to be configured while the engine is local.
  */
 
-import { dirname, join, extname, resolve } from 'node:path'
+import { isAbsolute, dirname, join, extname, resolve } from 'node:path'
 import { readFile, writeFile, readdir, stat, copyFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
@@ -44,6 +44,11 @@ async function resolveWorkflowDir(baseUrl) {
   const argv = (stats && stats.system && stats.system.argv) || []
   const mainPy = argv.find((entry) => typeof entry === 'string' && /main\.py$/i.test(entry))
   if (!mainPy) throw new Error('cannot derive the ComfyUI root from system_stats.argv')
+  // A relative "main.py" resolves against this process's cwd (the DSH install),
+  // not the ComfyUI folder: refuse instead of scanning a random directory.
+  if (!isAbsolute(mainPy)) {
+    throw new Error('ComfyUI 是用相对路径启动的，无法定位工作流目录；请关闭它并改用插件里的「启动 ComfyUI」重新启动一次')
+  }
   return join(dirname(mainPy), 'user', 'default', 'workflows')
 }
 
