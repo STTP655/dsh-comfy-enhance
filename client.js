@@ -1012,7 +1012,11 @@ window.__ModuleLoader__.load({
             gap: 8,
             width: '100%',
             boxSizing: 'border-box',
-            marginBottom: 8,
+            // Match the input card's width axis: the composer caps at the shared
+            // --dsh-composer-card-max-width and centers, while a plain dock entry
+            // would stretch across the whole column.
+            maxWidth: 'var(--dsh-composer-card-max-width)',
+            margin: '0 auto 8px',
             padding: 12,
             borderRadius: 12,
             border: '1px solid var(--dsw-alias-border-l2)',
