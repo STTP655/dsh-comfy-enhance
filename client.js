@@ -10745,6 +10745,8 @@ window.__ModuleLoader__.load({
       const [size, setSize] = usePref('t2iSize')
       const [sampling, setSampling] = usePref('t2iSampling')
       const [meta, setMeta] = usePref('t2iMeta')
+      const [fileMeta, setFileMeta] = useState({})
+      const beforeRef = useRef(new Set())
       const startedRef = useRef(0)
       const [options, setOptions] = useState(null)
       const [busy, setBusy] = useState(false)
@@ -10785,11 +10787,27 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         refreshGallery()
       }, [])
+      // Read the embedded ComfyUI parameters for the selected file (the same
+      // endpoint the album viewer uses).
+      useEffect(() => {
+        if (!selected || fileMeta[selected]) return undefined
+        let alive = true
+        fetch('/plugin/comfy-status/output-meta?filename=' + encodeURIComponent(selected), { cache: 'no-store' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (!alive || !data || !data.ok) return
+            setFileMeta((prev) => Object.assign({}, prev, { [selected]: data.meta || {} }))
+          })
+          .catch(() => {})
+        return () => {
+          alive = false
+        }
+      }, [selected, fileMeta])
       // While a job runs, poll the output folder until a new file shows up, then
       // select it so the big preview switches automatically.
       useEffect(() => {
         if (!busy || !jobId) return undefined
-        const before = new Set(gallery.map((file) => file.name))
+        const before = beforeRef.current
         let stopped = false
         const timer = setInterval(() => {
           fetch('/plugin/comfy-status/outputs', { cache: 'no-store' })
@@ -10869,6 +10887,7 @@ window.__ModuleLoader__.load({
         setError('')
         setStatus('')
         setJobId('')
+        beforeRef.current = new Set(gallery.map((file) => file.name))
         startedRef.current = Date.now()
         try {
           const res = await fetch('/plugin/comfy-canvas/text2img', {
@@ -10990,19 +11009,31 @@ window.__ModuleLoader__.load({
                     zIndex: 2,
                   },
                 },
-                h('span', { style: { fontWeight: 600 } }, current.name),
-                meta && meta[current.name]
-                  ? h('span', null, '模型 ' + (meta[current.name].model || '—'))
-                  : null,
-                meta && meta[current.name] ? h('span', null, '步数 ' + meta[current.name].steps) : null,
-                meta && meta[current.name] ? h('span', null, 'CFG ' + meta[current.name].cfg) : null,
-                meta && meta[current.name]
-                  ? h('span', null, '采样器 ' + (meta[current.name].sampler || '—'))
-                  : null,
-                meta && meta[current.name]
-                  ? h('span', null, '调度 ' + (meta[current.name].scheduler || '—'))
-                  : null,
-                meta && meta[current.name] ? h('span', null, '种子 ' + meta[current.name].seed) : null,
+                ...(() => {
+                  const fm = fileMeta[current.name] || null
+                  const sampler = fm && fm.sampler ? fm.sampler : null
+                  const modelName = fm && Array.isArray(fm.models) && fm.models[0] ? fm.models[0].name : ''
+                  const local = meta && meta[current.name] ? meta[current.name] : null
+                  const parts = [h('span', { key: 'name', style: { fontWeight: 600 } }, current.name)]
+                  const model = modelName || (local && local.model)
+                  if (model) parts.push(h('span', { key: 'model' }, '模型 ' + model))
+                  const steps =
+                    sampler && sampler.steps !== null && sampler.steps !== undefined
+                      ? sampler.steps
+                      : local && local.steps
+                  if (steps !== undefined && steps !== null) parts.push(h('span', { key: 'steps' }, '步数 ' + steps))
+                  const cfg =
+                    sampler && sampler.cfg !== null && sampler.cfg !== undefined ? sampler.cfg : local && local.cfg
+                  if (cfg !== undefined && cfg !== null) parts.push(h('span', { key: 'cfg' }, 'CFG ' + cfg))
+                  const samplerName = sampler && sampler.name ? sampler.name : local && local.sampler
+                  if (samplerName) parts.push(h('span', { key: 'sampler' }, '采样器 ' + samplerName))
+                  const scheduler = sampler && sampler.scheduler ? sampler.scheduler : local && local.scheduler
+                  if (scheduler) parts.push(h('span', { key: 'scheduler' }, '调度 ' + scheduler))
+                  const seed =
+                    sampler && sampler.seed !== null && sampler.seed !== undefined ? sampler.seed : local && local.seed
+                  if (seed !== undefined && seed !== null) parts.push(h('span', { key: 'seed' }, '种子 ' + seed))
+                  return parts
+                })(),
               )
             : null,
           busy
