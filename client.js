@@ -10035,7 +10035,10 @@ window.__ModuleLoader__.load({
         // progress ring stood still and dropdowns opened without the fade.
         '@keyframes dshComfySpin{to{transform:rotate(360deg)}}' +
         '@keyframes dshComfyDropIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}' +
-        '@keyframes dshComfyOverlayIn{from{opacity:0}to{opacity:1}}'
+        '@keyframes dshComfyOverlayIn{from{opacity:0}to{opacity:1}}' +
+        // The album-picker panel in this same workspace fades in with these.
+        '@keyframes dshComfyPanelIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}' +
+        '@keyframes dshComfyPanelOut{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.98)}}'
       document.head.appendChild(style)
     }
 
