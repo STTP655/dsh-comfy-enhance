@@ -106,6 +106,7 @@ window.__ModuleLoader__.load({
         t2iSampling: { steps: 20, cfg: 1, sampler: 'euler', scheduler: 'simple', seed: 0 },
         t2iMeta: {},
         t2iPromptStyle: 'tags',
+        promptWriteSystem: '',
         editorPositiveHeight: 96,
         editorNegativeHeight: 96,
         viewerPanelWidth: 360,
@@ -176,6 +177,7 @@ window.__ModuleLoader__.load({
                   : { steps: 20, cfg: 1, sampler: 'euler', scheduler: 'simple', seed: 0 },
               t2iMeta: parsed.t2iMeta && typeof parsed.t2iMeta === 'object' ? parsed.t2iMeta : {},
               t2iPromptStyle: parsed.t2iPromptStyle === 'natural' ? 'natural' : 'tags',
+              promptWriteSystem: typeof parsed.promptWriteSystem === 'string' ? parsed.promptWriteSystem : '',
               editorPositiveHeight:
                 typeof parsed.editorPositiveHeight === 'number' ? parsed.editorPositiveHeight : 96,
               editorNegativeHeight:
@@ -9767,6 +9769,162 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** Edit the custom prompt-writing rules the prompt helper follows. */
+    function PromptRulesDialog(props) {
+      ensureWorkbenchStyle()
+      const [value, setValue] = usePref('promptWriteSystem')
+      const [draft, setDraft] = useState(value || '')
+      useEffect(() => {
+        if (props.open) setDraft(value || '')
+      }, [props.open])
+      if (!props.open) return null
+      const field = {
+        width: '100%',
+        boxSizing: 'border-box',
+        padding: '8px 10px',
+        borderRadius: 9,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 11.5,
+        fontFamily: 'inherit',
+        outline: 'none',
+        resize: 'vertical',
+        lineHeight: 1.55,
+      }
+      const btn = {
+        padding: '5px 12px',
+        borderRadius: 8,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 11,
+        fontWeight: 600,
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+      }
+      return h(
+        'div',
+        {
+          style: {
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1400,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(0, 0, 0, 0.42)',
+            backdropFilter: 'blur(2px)',
+          },
+          onClick: (event) => {
+            if (event.target === event.currentTarget) props.onClose()
+          },
+        },
+        h(
+          'div',
+          {
+            style: {
+              width: 560,
+              maxWidth: 'calc(100vw - 40px)',
+              display: 'flex',
+              flexDirection: 'column',
+              borderRadius: 16,
+              border: '1px solid var(--dsw-alias-border-l2)',
+              background: 'var(--dsw-alias-bg-base)',
+              boxShadow: '0 24px 70px rgba(0, 0, 0, 0.3)',
+              overflow: 'hidden',
+              animation: 'dshPageIn 200ms cubic-bezier(0.22, 1, 0.36, 1) both',
+            },
+          },
+          h(
+            'div',
+            {
+              style: {
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--dsw-alias-border-l2)',
+              },
+            },
+            h(Icon, { name: 'sparkles', size: 14 }),
+            h('span', { style: { fontSize: 13, fontWeight: 600 } }, '提示词写作规则'),
+            h('span', { style: { flex: 1 } }),
+            h(
+              'button',
+              {
+                type: 'button',
+                onClick: props.onClose,
+                style: {
+                  width: 24,
+                  height: 24,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 0,
+                  borderRadius: '50%',
+                  border: 0,
+                  background: 'var(--dsw-alias-bg-layer-2)',
+                  color: 'var(--dsw-alias-label-secondary)',
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                },
+              },
+              '×',
+            ),
+          ),
+          h(
+            'div',
+            { style: { padding: 16, display: 'flex', flexDirection: 'column', gap: 8 } },
+            h(
+              'div',
+              { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.6 } },
+              'AI 写/润色时附加的写作要求（留空则用内置风格规则）：',
+            ),
+            h('textarea', {
+              value: draft,
+              rows: 10,
+              placeholder: '例如：用中文标签描述；不要出现质量词；强调构图与光影；最多 40 个标签…',
+              style: field,
+              onChange: (event) => setDraft(event.target.value),
+            }),
+          ),
+          h(
+            'div',
+            {
+              style: {
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 16px',
+                borderTop: '1px solid var(--dsw-alias-border-l2)',
+                background: 'var(--dsw-alias-bg-layer-1)',
+              },
+            },
+            h('span', { style: { flex: 1 } }),
+            h('button', { type: 'button', style: btn, onClick: props.onClose }, '取消'),
+            h(
+              'button',
+              {
+                type: 'button',
+                style: Object.assign({}, btn, {
+                  background: '#3b82f6',
+                  borderColor: '#3b82f6',
+                  color: '#ffffff',
+                }),
+                onClick: () => {
+                  setValue(draft)
+                  props.onClose()
+                },
+              },
+              '保存',
+            ),
+          ),
+        ),
+      )
+    }
+
     /** Entry screen: pick the local ComfyUI board or the online API workstation. */
     function WorkbenchChooser(props) {
       ensureWorkbenchStyle()
@@ -9862,6 +10020,8 @@ window.__ModuleLoader__.load({
       const [result, setResult] = useState(null)
       const [aiBusy, setAiBusy] = useState(false)
       const [aiError, setAiError] = useState('')
+      const [rulesOpen, setRulesOpen] = useState(false)
+      const [promptWriteSystem] = usePref('promptWriteSystem')
       const [modelOptions, setModelOptions] = useState([])
       const [modelsBusy, setModelsBusy] = useState(false)
       const [modelsError, setModelsError] = useState('')
@@ -9940,7 +10100,12 @@ window.__ModuleLoader__.load({
           const res = await fetch('/plugin/comfy-canvas/prompt-write', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ current: prompt, instruction: prompt, targetModel: model }),
+            body: JSON.stringify({
+              current: prompt,
+              instruction: prompt,
+              targetModel: model,
+              system: promptWriteSystem,
+            }),
           })
           const data = await res.json().catch(() => null)
           if (!data || !data.ok) throw new Error((data && data.error) || '请求失败')
@@ -10258,6 +10423,25 @@ window.__ModuleLoader__.load({
                 },
                 h(Icon, { name: 'sparkles', size: 11 }),
                 aiBusy ? '生成中…' : 'AI 写/润色',
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  onClick: () => setRulesOpen(true),
+                  title: '编辑提示词写作规则',
+                  style: {
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                    background: 'transparent',
+                    color: 'var(--dsw-alias-label-secondary)',
+                    fontSize: 10,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                  },
+                },
+                '规则',
               ),
             ),
             h('textarea', {
@@ -10637,6 +10821,7 @@ window.__ModuleLoader__.load({
             },
             onClose: () => setPickerOpen(false),
           }),
+          h(PromptRulesDialog, { open: rulesOpen, onClose: () => setRulesOpen(false) }),
           viewerOpen && savedFiles.length > 0
             ? h(ImageViewer, {
                 images: savedFiles.map((file) => ({ url: file.url, filename: file.name })),
@@ -10750,6 +10935,8 @@ window.__ModuleLoader__.load({
       const [promptStyle, setPromptStyle] = usePref('t2iPromptStyle')
       const [aiBusy, setAiBusy] = useState(false)
       const [aiError, setAiError] = useState('')
+      const [rulesOpen, setRulesOpen] = useState(false)
+      const [promptWriteSystem] = usePref('promptWriteSystem')
       const [fileMeta, setFileMeta] = useState({})
       const beforeRef = useRef(new Set())
       const startedRef = useRef(0)
@@ -10900,6 +11087,7 @@ window.__ModuleLoader__.load({
               instruction: prompt,
               targetModel: (models && models.unet) || '',
               style: promptStyle,
+              system: promptWriteSystem,
             }),
           })
           const data = await res.json().catch(() => null)
@@ -11191,6 +11379,25 @@ window.__ModuleLoader__.load({
                 h(Icon, { name: 'sparkles', size: 11 }),
                 aiBusy ? '生成中…' : 'AI 写/润色',
               ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  onClick: () => setRulesOpen(true),
+                  title: '编辑提示词写作规则',
+                  style: {
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                    background: 'transparent',
+                    color: 'var(--dsw-alias-label-secondary)',
+                    fontSize: 10,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                  },
+                },
+                '规则',
+              ),
             ),
             h('textarea', {
               value: prompt,
@@ -11425,6 +11632,7 @@ window.__ModuleLoader__.load({
           status ? h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, status) : null,
           error ? h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
         ),
+        h(PromptRulesDialog, { open: rulesOpen, onClose: () => setRulesOpen(false) }),
         viewerOpen && gallery.length > 0
           ? h(ImageViewer, {
               images: gallery.map((file) => ({ url: file.url, filename: file.name })),

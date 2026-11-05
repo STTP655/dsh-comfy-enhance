@@ -643,6 +643,7 @@ async function runPromptWrite(ctx, body) {
   const model = selection && selection.model
   if (!provider || !model) throw new Error('没有可用的默认模型')
   const style = body.style === 'natural' ? 'natural' : 'tags'
+  const customRule = typeof body.system === 'string' && body.system.trim() ? body.system.trim() : ''
   const styleRule =
     style === 'tags'
       ? '风格：Stable Diffusion 标签风格——英文逗号分隔的标签/短语，按重要度排序，可用 (tag:1.2) 权重；不要自然语言长句、不要解释。'
@@ -650,7 +651,7 @@ async function runPromptWrite(ctx, body) {
   const system = [
     '你是一名图像生成提示词工程师。',
     '目标模型：' + targetModel,
-    styleRule,
+    customRule || styleRule,
     current
       ? '任务：润色用户已有的提示词——更清晰、具体、可用，保留原意和主题，不要另起炉灶。'
       : '任务：按照用户的要求，写一份高质量、可直接使用的图像生成提示词。',
