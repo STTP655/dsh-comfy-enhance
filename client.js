@@ -2734,7 +2734,11 @@ window.__ModuleLoader__.load({
       height: 28,
       objectFit: 'cover',
       borderRadius: 4,
-      border: '1px solid rgba(255, 255, 255, 0.25)',
+      // Longhands on purpose: the selected state overrides only the colour, and a
+      // `border` shorthand here made React skip that update on rerender.
+      borderWidth: 1,
+      borderStyle: 'solid',
+      borderColor: 'rgba(255, 255, 255, 0.25)',
       opacity: 0.65,
       cursor: 'pointer',
     }
@@ -3804,7 +3808,7 @@ window.__ModuleLoader__.load({
               WebkitBackdropFilter: 'blur(8px)',
               boxShadow: '0 4px 14px rgba(15, 23, 42, 0.10)',
             },
-            thumb: { border: '1px solid #e5e7eb' },
+            thumb: { borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' },
           }
         : null
       const images = props.images && props.images.length ? props.images : [{ url: props.src, filename: props.filename }]
