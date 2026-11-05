@@ -926,33 +926,6 @@ window.__ModuleLoader__.load({
       }
     })()
 
-    /** View-transition helpers: only the draft card animates, the page does not. */
-    function ensureViewTransitionBase() {
-      if (typeof document === 'undefined' || document.getElementById('dsh-comfy-view-transition')) return
-      const style = document.createElement('style')
-      style.id = 'dsh-comfy-view-transition'
-      style.textContent =
-        '::view-transition-old(root),::view-transition-new(root){animation:none}' +
-        '::view-transition-group(comfy-draft-card){animation-duration:240ms;animation-timing-function:cubic-bezier(0.2,0,0,1)}'
-      document.head.appendChild(style)
-    }
-
-    /** Run an update inside a view transition (plain update when unsupported). */
-    function runViewTransition(update) {
-      if (typeof document === 'undefined' || typeof document.startViewTransition !== 'function') return update()
-      ensureViewTransitionBase()
-      try {
-        document.startViewTransition(() => {
-          update()
-          // Let React commit the new tree before the new snapshot is captured.
-          return new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)))
-        })
-      } catch {
-        update()
-      }
-      return undefined
-    }
-
     /**
      * Canvas draft over the composer: the layout lands here as editable text with
      * a note box and a final/submit mode, and only the confirmed payload reaches
@@ -961,13 +934,55 @@ window.__ModuleLoader__.load({
     function DraftCard(props) {
       const [draft, setDraft] = useState(draftStore.get())
       useEffect(() => draftStore.subscribe(() => setDraft(draftStore.get())), [])
+      // Keep the card mounted through its exit animation, like the model dialog.
+      const [visible, setVisible] = useState(draft.open)
+      const [closing, setClosing] = useState(false)
       const [hoverClose, setHoverClose] = useState(false)
+      const cardRef = useRef(null)
+      const animRef = useRef(null)
       const [hoverCancel, setHoverCancel] = useState(false)
       const [hoverSubmit, setHoverSubmit] = useState(false)
-      if (!draft.open) return null
+      const visibleRef = useRef(draft.open)
+      useEffect(() => {
+        if (draft.open) {
+          visibleRef.current = true
+          setVisible(true)
+          setClosing(false)
+          return undefined
+        }
+        if (!visibleRef.current) return undefined
+        setClosing(true)
+        const timer = setTimeout(() => {
+          visibleRef.current = false
+          setVisible(false)
+          setClosing(false)
+        }, 280)
+        return () => clearTimeout(timer)
+      }, [draft.open])
+      // CSS grid-rows transition (0fr ↔ 1fr) instead of per-frame height writes:
+      // the browser animates the layout itself, so the transcript above is not
+      // reflowed through JS on every frame (see the flow-motion fold approach).
+      const [entered, setEntered] = useState(false)
+      useEffect(() => {
+        if (!draft.open) {
+          setEntered(false)
+          return undefined
+        }
+        // Two frames: the first paints the collapsed state, the second starts the
+        // transition, so the browser actually animates the entrance.
+        let second = 0
+        const first = requestAnimationFrame(() => {
+          second = requestAnimationFrame(() => setEntered(true))
+        })
+        return () => {
+          cancelAnimationFrame(first)
+          cancelAnimationFrame(second)
+        }
+      }, [draft.open])
+      if (!visible) return null
       if (draft.sessionId && props && props.sessionId && draft.sessionId !== props.sessionId) return null
       const actions = props && props.inputActions ? props.inputActions : null
-      const close = () => runViewTransition(() => draftStore.set({ open: false }))
+      const close = () => draftStore.set({ open: false })
       const submit = () => {
         if (!actions) {
           draftStore.set({ note: '当前面板没有可用的会话输入通道' })
@@ -984,7 +999,7 @@ window.__ModuleLoader__.load({
           actions.setDraft(payload)
           actions.persistDraft()
           actions.submit()
-          runViewTransition(() => draftStore.set({ open: false }))
+          draftStore.set({ open: false })
         } catch (error) {
           draftStore.set({ note: String((error && error.message) || error) })
         }
@@ -1033,10 +1048,15 @@ window.__ModuleLoader__.load({
             background: 'var(--dsw-alias-bg-layer-2)',
             boxShadow: '0 4px 18px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.06)',
             maxHeight: '50vh',
-            padding: 12,
-            overflowY: 'auto',
+            height: entered && !closing ? 'auto' : 0,
+            padding: entered && !closing ? 12 : 0,
+            overflowY: entered && !closing ? 'auto' : 'hidden',
             overflowX: 'hidden',
-            viewTransitionName: 'comfy-draft-card',
+            interpolateSize: 'allow-keywords',
+            opacity: closing ? 0 : entered ? 1 : 0,
+            transform: entered && !closing ? 'translateY(0)' : 'translateY(8px)',
+            transition:
+              'height 240ms cubic-bezier(0.2, 0, 0, 1), padding 240ms cubic-bezier(0.2, 0, 0, 1), opacity 240ms cubic-bezier(0.2, 0, 0, 1), transform 240ms cubic-bezier(0.2, 0, 0, 1)',
           },
         },
         h(
@@ -8640,16 +8660,14 @@ window.__ModuleLoader__.load({
           '```',
           'caption 就是每个框的 desc，空的请补；bbox 已按 abs_centralized / yxyx 算好，不要改动。',
         ].join('\n')
-        runViewTransition(() =>
-          draftStore.set({
-            open: true,
-            sessionId: (props && props.sessionId) || '',
-            title: 'MOSS 画板 · ' + file,
-            text,
-            mode: 'final',
-            note: '',
-          }),
-        )
+        draftStore.set({
+          open: true,
+          sessionId: (props && props.sessionId) || '',
+          title: 'MOSS 画板 · ' + file,
+          text,
+          mode: 'final',
+          note: '',
+        })
         setStatus('草稿已打开：可在输入框上方编辑后提交')
       }
 
