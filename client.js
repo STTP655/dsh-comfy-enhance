@@ -12062,8 +12062,7 @@ window.__ModuleLoader__.load({
                     alignItems: 'center',
                     justifyContent: 'center',
                     pointerEvents: 'none',
-                    background: 'rgba(8, 10, 14, 0.42)',
-                    backdropFilter: 'blur(1.5px)',
+                    background: 'rgba(8, 10, 14, 0.5)',
                   },
                 },
                 h(
@@ -12078,24 +12077,45 @@ window.__ModuleLoader__.load({
                       padding: '16px 20px',
                       borderRadius: 14,
                       border: '1px solid rgba(255, 255, 255, 0.16)',
-                      background: 'rgba(18, 20, 24, 0.78)',
+                      background: 'rgba(18, 20, 24, 0.92)',
                       boxShadow: '0 12px 34px rgba(0, 0, 0, 0.45)',
                       color: '#ffffff',
                     },
                   },
-                  h('span', {
-                    style: {
-                      display: 'block',
-                      flex: 'none',
-                      boxSizing: 'border-box',
+                  // Drawn, not bordered: a border-radius ring is at the mercy of
+                  // whatever global stylesheet the host injects, and a rotating
+                  // box inside a blurred backdrop is what left a smear behind.
+                  h(
+                    'svg',
+                    {
                       width: 22,
                       height: 22,
-                      borderRadius: '50%',
-                      border: '2px solid rgba(255, 255, 255, 0.22)',
-                      borderTopColor: '#3b82f6',
-                      animation: 'dshComfySpin 0.8s linear infinite',
+                      viewBox: '0 0 22 22',
+                      'aria-hidden': 'true',
+                      style: { display: 'block', flex: 'none', animation: 'dshComfySpin 0.9s linear infinite' },
                     },
-                  }),
+                    h('circle', {
+                      cx: 11,
+                      cy: 11,
+                      r: 8.5,
+                      fill: 'none',
+                      stroke: 'rgba(255, 255, 255, 0.22)',
+                      strokeWidth: 2,
+                    }),
+                    h('circle', {
+                      cx: 11,
+                      cy: 11,
+                      r: 8.5,
+                      fill: 'none',
+                      stroke: '#3b82f6',
+                      strokeWidth: 2,
+                      strokeLinecap: 'round',
+                      // Circumference at r=8.5 is 53.4: a quarter-arc plus a gap
+                      // long enough that the dash never wraps into a second turn.
+                      strokeDasharray: '13.4 53.4',
+                      transform: 'rotate(-90 11 11)',
+                    }),
+                  ),
                   h(
                     'div',
                     { style: { display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 11.5 } },
