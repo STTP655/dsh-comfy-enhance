@@ -502,6 +502,152 @@ async function submitText2Img(baseUrl, body) {
   return { ok: true, promptId: (payload && payload.prompt_id) || '' }
 }
 
+// ------------------------------------------------------------ llm model catalog
+
+/** How long one catalog answer is reused before the registry is read again. */
+const CATALOG_TTL_MS = 30000
+let catalogCache = null
+
+/** The model DSH itself would pick when a request names none. */
+function defaultSelectionOf(ctx) {
+  let selection = null
+  try {
+    selection =
+      ctx && ctx.agentDefaultModel && typeof ctx.agentDefaultModel.currentSelection === 'function'
+        ? ctx.agentDefaultModel.currentSelection()
+        : null
+  } catch {
+    selection = null
+  }
+  if (!selection || typeof selection.provider !== 'string' || typeof selection.model !== 'string') return null
+  if (!selection.provider || !selection.model) return null
+  return { provider: selection.provider, model: selection.model }
+}
+
+/** A badge may be translated; a one-line selector needs one plain string. */
+function badgeLabel(badge) {
+  const text = badge && badge.text
+  if (typeof text === 'string') return text
+  if (text && typeof text === 'object') {
+    const values = Object.keys(text).map((key) => text[key])
+    const english = typeof text.en === 'string' ? text.en : ''
+    return english || values.find((value) => typeof value === 'string') || ''
+  }
+  return ''
+}
+
+/** One provider group with every model it advertises, reasoning tiers included. */
+async function readProviderGroup(llm, provider) {
+  const models = await llm.listModels(provider.id)
+  const entries = await Promise.all(
+    models.map(async (model) => {
+      const entry = { id: String(model.id), name: String(model.name || model.id) }
+      if (typeof model.description === 'string' && model.description) entry.description = model.description
+      const badge = badgeLabel(model.badge)
+      if (badge) entry.badge = badge
+      // Reasoning tiers are advisory: a route without them stays selectable.
+      try {
+        const info = await llm.resolveModelInfo(provider.id, model.id)
+        const reasoning = info && info.reasoning
+        const efforts = reasoning && Array.isArray(reasoning.efforts) ? reasoning.efforts : []
+        if (efforts.length > 0) {
+          entry.efforts = efforts.map((effort) => ({
+            id: String((effort && effort.id) || effort),
+            name: String((effort && effort.name) || (effort && effort.id) || effort),
+          }))
+        }
+        if (reasoning && typeof reasoning.defaultEffort === 'string') entry.defaultEffort = reasoning.defaultEffort
+      } catch {
+        // No reasoning metadata on this route.
+      }
+      return entry
+    }),
+  )
+  return { id: String(provider.id), name: String(provider.name || provider.id), models: entries }
+}
+
+/** Every route the host can reach, read straight from DSH's LLM registry. */
+async function readLlmCatalog(ctx) {
+  const llm = ctx && ctx.llm
+  if (!llm || typeof llm.listProviders !== 'function' || typeof llm.listModels !== 'function') {
+    throw new Error('LLM 服务不可用')
+  }
+  const providers = llm
+    .listProviders()
+    .filter((provider) => provider && typeof provider.id === 'string' && provider.id.length > 0)
+  const settled = await Promise.all(
+    providers.map(async (provider) => {
+      try {
+        return { kind: 'group', group: await readProviderGroup(llm, provider) }
+      } catch (error) {
+        return {
+          kind: 'failure',
+          failure: {
+            id: String(provider.id),
+            name: String(provider.name || provider.id),
+            message: String((error && error.message) || error),
+          },
+        }
+      }
+    }),
+  )
+  // A provider that advertises nothing is a failure for the Models page, not a
+  // group: an empty menu section reads as a bug, a listed failure reads as one.
+  return {
+    groups: settled.flatMap((item) => (item.kind === 'group' && item.group.models.length > 0 ? [item.group] : [])),
+    failures: settled.flatMap((item) => (item.kind === 'failure' ? [item.failure] : [])),
+    default: defaultSelectionOf(ctx),
+  }
+}
+
+/** Cached catalog read; the Models page owns invalidation, this route only polls. */
+async function llmCatalog(ctx, refresh) {
+  if (!refresh && catalogCache !== null && Date.now() - catalogCache.at < CATALOG_TTL_MS) return catalogCache.value
+  const value = await readLlmCatalog(ctx)
+  catalogCache = { at: Date.now(), value }
+  return value
+}
+
+/** Which provider advertises this model id, preferring the default selection. */
+async function providerOfModel(ctx, model) {
+  let catalog = null
+  try {
+    catalog = await llmCatalog(ctx, false)
+  } catch {
+    return ''
+  }
+  const fallback = catalog.default
+  if (fallback && fallback.model === model) {
+    const group = catalog.groups.find((entry) => entry.id === fallback.provider)
+    if (group && group.models.some((entry) => entry.id === model)) return group.id
+  }
+  const group = catalog.groups.find((entry) => entry.models.some((item) => item.id === model))
+  return group ? group.id : ''
+}
+
+/**
+ * The {provider, model} a request runs on: an explicit pair wins, a lone model id
+ * is looked up in the catalog, and a request naming neither follows the DSH
+ * default selection. Model ids differ per provider, so the pair travels together.
+ */
+async function resolveRoute(ctx, body) {
+  const requestedProvider = typeof body.provider === 'string' ? body.provider.trim() : ''
+  const requestedModel =
+    typeof body.model === 'string'
+      ? body.model.trim()
+      : typeof body.promptModel === 'string'
+        ? body.promptModel.trim()
+        : ''
+  const fallback = defaultSelectionOf(ctx)
+  let provider = requestedProvider
+  let model = requestedModel
+  if (!provider && model) provider = await providerOfModel(ctx, model)
+  if (!provider && fallback) provider = fallback.provider
+  if (!model && fallback) model = fallback.model
+  if (!provider || !model) throw new Error('没有可用的默认模型')
+  return { provider, model }
+}
+
 // ------------------------------------------------------------ prompt polish
 
 const POLISH_SKILL_PATH = join(homedir(), '.dsh', 'skills', 'moss-image-prompt-enhancer', 'SKILL.md')
@@ -530,13 +676,12 @@ async function runPolish(ctx, body, onEvent) {
   if (targets.length === 0) throw new Error('没有可润色的框')
   const llm = ctx && ctx.llm
   if (!llm || typeof llm.stream !== 'function') throw new Error('LLM 服务不可用')
-  const selection =
-    ctx.agentDefaultModel && typeof ctx.agentDefaultModel.currentSelection === 'function'
-      ? ctx.agentDefaultModel.currentSelection()
-      : null
-  const provider = selection && selection.provider
-  const model = selection && selection.model
-  if (!provider || !model) throw new Error('没有可用的默认模型')
+  const route = await resolveRoute(ctx, body)
+  const provider = route.provider
+  const model = route.model
+  // Report the route that actually ran: a request naming nothing falls back to
+  // the DSH default, and the panel cannot tell that from its own state.
+  emit({ type: 'model', provider, model })
 
   const skill = await loadPolishSkill()
   const system = [
@@ -635,15 +780,10 @@ async function runPromptWrite(ctx, body) {
   if (!current && !instruction) throw new Error('先在输入框写下要求或已有的提示词')
   const llm = ctx && ctx.llm
   if (!llm || typeof llm.stream !== 'function') throw new Error('LLM 服务不可用')
-  const selection =
-    ctx.agentDefaultModel && typeof ctx.agentDefaultModel.currentSelection === 'function'
-      ? ctx.agentDefaultModel.currentSelection()
-      : null
-  const provider = selection && selection.provider
-  const requestedModel = typeof body.promptModel === 'string' && body.promptModel.trim() ? body.promptModel.trim() : ''
-  const model = requestedModel || (selection && selection.model)
+  const route = await resolveRoute(ctx, body)
+  const provider = route.provider
+  const model = route.model
   const effort = typeof body.effort === 'string' ? body.effort.trim() : ''
-  if (!provider || !model) throw new Error('没有可用的默认模型')
   const style = body.style === 'natural' ? 'natural' : 'tags'
   const customRule = typeof body.system === 'string' && body.system.trim() ? body.system.trim() : ''
   const styleRule =
@@ -1076,6 +1216,23 @@ export function apply(ctx, config = {}) {
         res.end()
       }
       return
+    }
+
+    // Every model DSH itself can route to: the source for the polish model
+    // picker, so ids stop being typed by hand into a text box.
+    if (pathname === `${PREFIX}/models`) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return send(405, { ok: false, error: 'method not allowed' })
+      let refresh = false
+      try {
+        refresh = new URL(req.url || '/', 'http://localhost').searchParams.get('refresh') === '1'
+      } catch {
+        refresh = false
+      }
+      try {
+        return send(200, Object.assign({ ok: true }, await llmCatalog(ctx, refresh)))
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
     }
 
     return send(404, { ok: false, error: 'not found' })

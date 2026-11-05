@@ -108,7 +108,10 @@ window.__ModuleLoader__.load({
         t2iPromptStyle: 'tags',
         promptWriteSystemTags: '',
         promptWriteSystemNatural: '',
-        promptWriteModel: 'v4.1-flash',
+        // Empty provider+model means "whatever DSH has selected": a hard-coded id
+        // only resolves on the provider that happens to advertise it.
+        promptWriteProvider: '',
+        promptWriteModel: '',
         promptWriteEffort: 'high',
         promptWriteHistory: [],
         editorPositiveHeight: 96,
@@ -184,10 +187,9 @@ window.__ModuleLoader__.load({
               promptWriteSystemTags: typeof parsed.promptWriteSystemTags === 'string' ? parsed.promptWriteSystemTags : '',
               promptWriteSystemNatural:
                 typeof parsed.promptWriteSystemNatural === 'string' ? parsed.promptWriteSystemNatural : '',
-              promptWriteModel:
-                typeof parsed.promptWriteModel === 'string' && parsed.promptWriteModel.trim()
-                  ? parsed.promptWriteModel
-                  : 'v4.1-flash',
+              promptWriteProvider:
+                typeof parsed.promptWriteProvider === 'string' ? parsed.promptWriteProvider : '',
+              promptWriteModel: typeof parsed.promptWriteModel === 'string' ? parsed.promptWriteModel : '',
               promptWriteEffort: ['off', 'low', 'high', 'max'].includes(parsed.promptWriteEffort)
                 ? parsed.promptWriteEffort
                 : 'high',
@@ -944,6 +946,85 @@ window.__ModuleLoader__.load({
       const [value, setValue] = useState(pluginPrefs.get()[key])
       useEffect(() => pluginPrefs.subscribe(() => setValue(pluginPrefs.get()[key])), [])
       return [value, (next) => pluginPrefs.set(key, next)]
+    }
+
+    // ------------------------------------------------------- DSH model catalog
+
+    /** One pickable route: provider and model ids never travel alone. */
+    function routeKey(provider, model) {
+      return String(provider || '') + '\u0000' + String(model || '')
+    }
+
+    function parseRouteKey(value) {
+      const raw = String(value || '')
+      const index = raw.indexOf('\u0000')
+      if (index < 0) return { provider: '', model: raw }
+      return { provider: raw.slice(0, index), model: raw.slice(index + 1) }
+    }
+
+    /**
+     * The models DSH itself can route to, shared by every picker in this bundle.
+     * One request fills it; the host keeps its own short-lived cache behind the
+     * route, so reopening a menu costs one cached round trip at most.
+     */
+    const llmCatalogStore = (() => {
+      let state = { catalog: null, error: '', busy: false }
+      const listeners = new Set()
+      const set = (patch) => {
+        state = Object.assign({}, state, patch)
+        for (const listener of [...listeners]) listener()
+      }
+      const load = (refresh) => {
+        if (state.busy) return Promise.resolve(state.catalog)
+        set({ busy: true, error: '' })
+        return fetch('/plugin/comfy-canvas/models' + (refresh ? '?refresh=1' : ''), { cache: 'no-store' })
+          .then((res) =>
+            res.json().then((data) => {
+              if (!data || !data.ok) throw new Error((data && data.error) || 'HTTP ' + res.status)
+              return data
+            }),
+          )
+          .then((data) => {
+            const catalog = {
+              groups: Array.isArray(data.groups) ? data.groups : [],
+              failures: Array.isArray(data.failures) ? data.failures : [],
+              default: data.default && typeof data.default === 'object' ? data.default : null,
+            }
+            set({ catalog, busy: false, error: '' })
+            return catalog
+          })
+          .catch((error) => {
+            set({ busy: false, error: String((error && error.message) || error) })
+            return null
+          })
+      }
+      return {
+        get: () => state,
+        subscribe: (listener) => {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
+        load,
+        // First mount fetches; later mounts read what is already here.
+        ensure: () => (state.catalog === null && !state.busy ? load(false) : Promise.resolve(state.catalog)),
+      }
+    })()
+
+    function useLlmCatalog() {
+      const [state, setState] = useState(llmCatalogStore.get())
+      useEffect(() => llmCatalogStore.subscribe(() => setState(llmCatalogStore.get())), [])
+      return state
+    }
+
+    /** The catalog model behind one selected pair, if it is still advertised. */
+    function catalogModelOf(catalog, provider, model) {
+      if (!catalog || !model) return null
+      for (const group of catalog.groups || []) {
+        if (provider && group.id !== provider) continue
+        const hit = (group.models || []).find((entry) => entry.id === model)
+        if (hit) return hit
+      }
+      return null
     }
 
     const SNAPSHOT = '/plugin/comfy-status/snapshot'
@@ -3007,7 +3088,16 @@ window.__ModuleLoader__.load({
      * the live state instead of a silent restart.
      */
     const polishStore = (() => {
-      let state = { status: 'idle', stream: '', result: null, message: '', usage: null, history: [], skillLength: null }
+      let state = {
+        status: 'idle',
+        stream: '',
+        result: null,
+        message: '',
+        usage: null,
+        history: [],
+        skillLength: null,
+        ranAs: null,
+      }
       const listeners = new Set()
       const notify = () => {
         for (const listener of [...listeners]) listener()
@@ -3019,7 +3109,7 @@ window.__ModuleLoader__.load({
       let controller = null
 
       const start = async (options) => {
-        const { mode, instruction, targets, summary, history, effort, key } = options
+        const { mode, instruction, targets, summary, history, effort, provider, model, key } = options
         const text = String(instruction || '').trim()
         if (!text) {
           set({ message: '先写润色要求' })
@@ -3038,14 +3128,23 @@ window.__ModuleLoader__.load({
           }
           controller = null
         }
-        set({ status: 'running', stream: '', result: null, message: '润色中…', usage: null })
+        set({ status: 'running', stream: '', result: null, message: '润色中…', usage: null, ranAs: null })
         const abort = new AbortController()
         controller = abort
         try {
           const res = await fetch('/plugin/comfy-canvas/polish', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ mode, instruction: text, summary, targets, history, effort: effort || undefined }),
+            body: JSON.stringify({
+              mode,
+              instruction: text,
+              summary,
+              targets,
+              history,
+              effort: effort || undefined,
+              provider: provider || undefined,
+              model: model || undefined,
+            }),
             signal: abort.signal,
           })
           if (!res.ok || !res.body) {
@@ -3070,6 +3169,8 @@ window.__ModuleLoader__.load({
             if (event.type === 'delta' && typeof event.text === 'string') {
               streamed += event.text
               set({ stream: streamed })
+            } else if (event.type === 'model' && event.provider && event.model) {
+              set({ ranAs: String(event.provider) + ' / ' + String(event.model) })
             } else if (event.type === 'usage' && event.usage) {
               usage = event.usage
             } else if (event.type === 'done') {
@@ -7173,12 +7274,64 @@ window.__ModuleLoader__.load({
         }
       }, [open, props.menuAlign, props.menuMinWidth])
 
-      const choices = props.options || []
+      const groups = Array.isArray(props.groups) ? props.groups : null
+      const choices = groups ? groups.flatMap((group) => group.options || []) : props.options || []
       const normalized = query.trim().toLowerCase()
       const filtered = normalized
         ? choices.filter((option) => String(option.label).toLowerCase().indexOf(normalized) >= 0)
         : choices
       const current = choices.find((option) => option.value === props.value)
+      const optionRow = (option) =>
+        h(
+          'button',
+          {
+            key: option.value,
+            type: 'button',
+            className: 'dshCanvasOption',
+            'data-on': option.value === props.value ? 'true' : 'false',
+            'data-dark': dark ? 'true' : undefined,
+            title: option.title || option.label,
+            // The flex column would otherwise shrink every row and
+            // squeeze the labels together.
+            style: { flex: 'none' },
+            onClick: () => {
+              props.onPick(option.value)
+              setOpen(false)
+            },
+          },
+          option.label,
+        )
+      // Grouped menus keep provider sections readable while searching; a group
+      // whose options were all filtered out loses its header too.
+      const rows = groups
+        ? groups.flatMap((group) => {
+            const items = (group.options || []).filter((option) => filtered.indexOf(option) >= 0)
+            if (items.length === 0) return []
+            return [
+              group.label
+                ? h(
+                    'div',
+                    {
+                      key: 'group:' + group.label,
+                      style: {
+                        flex: 'none',
+                        padding: '6px 8px 3px',
+                        fontSize: 9.5,
+                        fontWeight: 600,
+                        letterSpacing: '0.02em',
+                        color: 'var(--dsw-alias-label-secondary)',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      },
+                    },
+                    group.label,
+                  )
+                : null,
+              ...items.map(optionRow),
+            ].filter(Boolean)
+          })
+        : filtered.map(optionRow)
       const menuSkin = dark
         ? {
             border: '1px solid rgba(255, 255, 255, 0.14)',
@@ -7233,27 +7386,7 @@ window.__ModuleLoader__.load({
                     flexDirection: 'column',
                   },
                 },
-                ...filtered.map((option) =>
-                  h(
-                    'button',
-                    {
-                      key: option.value,
-                      type: 'button',
-                      className: 'dshCanvasOption',
-                      'data-on': option.value === props.value ? 'true' : 'false',
-                      'data-dark': dark ? 'true' : undefined,
-                      title: option.label,
-                      // The flex column would otherwise shrink every row and
-                      // squeeze the labels together.
-                      style: { flex: 'none' },
-                      onClick: () => {
-                        props.onPick(option.value)
-                        setOpen(false)
-                      },
-                    },
-                    option.label,
-                  ),
-                ),
+                ...rows,
               ),
             )
           : null
@@ -7287,6 +7420,69 @@ window.__ModuleLoader__.load({
           ),
         ),
         menu && createPortal ? createPortal(menu, document.body) : menu,
+      )
+    }
+
+    /**
+     * Model picker over every provider DSH can route to. The value is the pair
+     * "provider\0model": the same model id can be advertised by several
+     * providers, so a bare id cannot name one route.
+     */
+    function LlmModelPicker(props) {
+      const { catalog, error } = useLlmCatalog()
+      useEffect(() => {
+        llmCatalogStore.ensure()
+      }, [])
+      const value = props.model ? routeKey(props.provider, props.model) : ''
+      const groups = []
+      const known = new Set()
+      const extra = [{ value: '', label: '跟随默认', title: '跟随 DSH 当前选中的模型' }]
+      for (const group of catalog ? catalog.groups : []) {
+        const options = group.models.map((model) => {
+          const key = routeKey(group.id, model.id)
+          known.add(key)
+          return {
+            value: key,
+            label: model.badge ? model.name + ' · ' + model.badge : model.name,
+            title: (group.name || group.id) + ' / ' + model.id + (model.description ? '\n' + model.description : ''),
+          }
+        })
+        if (options.length > 0) groups.push({ label: group.name || group.id, options })
+      }
+      // A stored id the catalog does not advertise stays selectable: routing
+      // accepts unlisted models, so the picker must not drop the stored choice.
+      if (props.model && !known.has(value)) {
+        extra.push({ value, label: props.model, title: '当前值（不在模型目录里）' })
+      }
+      groups.unshift({ label: '', options: extra })
+      return h(
+        'div',
+        { style: { minWidth: 0 } },
+        h(Dropdown, {
+          title: props.title || '润色模型（跟随默认时用 DSH 当前选中的模型）',
+          placeholder: error ? '模型：读取失败' : '跟随默认',
+          value,
+          groups,
+          menuMinWidth: props.menuMinWidth || 260,
+          dark: Boolean(props.dark),
+          onOpen: () => llmCatalogStore.load(true),
+          onPick: props.onPick,
+        }),
+        error
+          ? h(
+              'div',
+              {
+                style: {
+                  marginTop: 2,
+                  fontSize: 9.5,
+                  lineHeight: 1.4,
+                  color: 'var(--dsw-alias-state-error-primary)',
+                  wordBreak: 'break-word',
+                },
+              },
+              error,
+            )
+          : null,
       )
     }
 
@@ -9791,17 +9987,36 @@ window.__ModuleLoader__.load({
       const [tagsDraft, setTagsDraft] = useState(tagsValue || '')
       const [naturalDraft, setNaturalDraft] = useState(naturalValue || '')
       const [modelValue, setModelValue] = usePref('promptWriteModel')
+      const [providerValue, setProviderValue] = usePref('promptWriteProvider')
       const [effortValue, setEffortValue] = usePref('promptWriteEffort')
-      const [draftModel, setDraftModel] = useState(modelValue || 'v4.1-flash')
+      const [draftModel, setDraftModel] = useState(modelValue || '')
+      const [draftProvider, setDraftProvider] = useState(providerValue || '')
       const [draftEffort, setDraftEffort] = useState(effortValue || 'high')
+      const llmCatalog = useLlmCatalog()
       useEffect(() => {
         if (props.open) {
           setTagsDraft(tagsValue || '')
           setNaturalDraft(naturalValue || '')
-          setDraftModel(modelValue || 'v4.1-flash')
+          setDraftModel(modelValue || '')
+          setDraftProvider(providerValue || '')
           setDraftEffort(effortValue || 'high')
         }
       }, [props.open])
+      const hitModel = catalogModelOf(llmCatalog.catalog, draftProvider, draftModel)
+      const advertised = hitModel && Array.isArray(hitModel.efforts) ? hitModel.efforts : []
+      const effortPairs = (() => {
+        const pairs =
+          advertised.length > 0
+            ? advertised.map((entry) => [entry.id, entry.name || entry.id])
+            : [
+                ['off', '关闭'],
+                ['low', '低'],
+                ['high', '高'],
+                ['max', '最高'],
+              ]
+        // Keep a stored tier visible even when the picked model stopped listing it.
+        return pairs.some((pair) => pair[0] === draftEffort) ? pairs : [[draftEffort, draftEffort]].concat(pairs)
+      })()
       if (!props.open) return null
       const field = {
         width: '100%',
@@ -9933,11 +10148,16 @@ window.__ModuleLoader__.load({
                   },
                 },
                 '润色模型',
-                h('input', {
-                  value: draftModel,
-                  placeholder: 'v4.1-flash',
-                  style: field,
-                  onChange: (event) => setDraftModel(event.target.value),
+                h(LlmModelPicker, {
+                  provider: draftProvider,
+                  model: draftModel,
+                  title: '润色模型（跟随默认时用 DSH 当前选中的模型）',
+                  menuMinWidth: 300,
+                  onPick: (next) => {
+                    const parsed = parseRouteKey(next)
+                    setDraftProvider(parsed.provider)
+                    setDraftModel(parsed.model)
+                  },
                 }),
               ),
               h(
@@ -9955,12 +10175,7 @@ window.__ModuleLoader__.load({
                 h(
                   'select',
                   { value: draftEffort, style: field, onChange: (event) => setDraftEffort(event.target.value) },
-                  [
-                    ['off', '关闭'],
-                    ['low', '低'],
-                    ['high', '高'],
-                    ['max', '最高'],
-                  ].map(([value, text]) => h('option', { key: value, value }, text)),
+                  effortPairs.map(([value, text]) => h('option', { key: value, value }, text)),
                 ),
               ),
             ),
@@ -10004,6 +10219,7 @@ window.__ModuleLoader__.load({
                 onClick: () => {
                   setTagsValue(tagsDraft)
                   setNaturalValue(naturalDraft)
+                  setProviderValue(draftProvider)
                   setModelValue(draftModel)
                   setEffortValue(draftEffort)
                   props.onClose()
@@ -10262,6 +10478,7 @@ window.__ModuleLoader__.load({
       const [rulesOpen, setRulesOpen] = useState(false)
       const [promptWriteSystemNatural] = usePref('promptWriteSystemNatural')
       const [promptHistory, setPromptHistory] = usePref('promptWriteHistory')
+      const [promptWriteProvider] = usePref('promptWriteProvider')
       const [promptWriteModel] = usePref('promptWriteModel')
       const [promptWriteEffort] = usePref('promptWriteEffort')
       const [historyOpen, setHistoryOpen] = useState(false)
@@ -10348,7 +10565,8 @@ window.__ModuleLoader__.load({
               instruction: prompt,
               targetModel: model,
               system: promptWriteSystemNatural,
-              promptModel: promptWriteModel,
+              provider: promptWriteProvider || undefined,
+              model: promptWriteModel || undefined,
               effort: promptWriteEffort,
             }),
           })
@@ -11210,6 +11428,7 @@ window.__ModuleLoader__.load({
       const [promptWriteSystemTags] = usePref('promptWriteSystemTags')
       const [promptWriteSystemNatural] = usePref('promptWriteSystemNatural')
       const [promptHistory, setPromptHistory] = usePref('promptWriteHistory')
+      const [promptWriteProvider] = usePref('promptWriteProvider')
       const [promptWriteModel] = usePref('promptWriteModel')
       const [promptWriteEffort] = usePref('promptWriteEffort')
       const [historyOpen, setHistoryOpen] = useState(false)
@@ -11364,7 +11583,8 @@ window.__ModuleLoader__.load({
               targetModel: (models && models.unet) || '',
               style: promptStyle,
               system: promptStyle === 'tags' ? promptWriteSystemTags : promptWriteSystemNatural,
-              promptModel: promptWriteModel,
+              provider: promptWriteProvider || undefined,
+              model: promptWriteModel || undefined,
               effort: promptWriteEffort,
             }),
           })
@@ -12001,6 +12221,7 @@ window.__ModuleLoader__.load({
       const [polishInstruction, setPolishInstruction] = useState('')
       const [polishChatOpen, setPolishChatOpen] = useState(false)
       const [polishEffort, setPolishEffort] = usePref('workspacePolishEffort')
+      const [promptWriteProvider, setPromptWriteProvider] = usePref('promptWriteProvider')
       const [promptWriteModel, setPromptWriteModel] = usePref('promptWriteModel')
       const [snapshotOpen, setSnapshotOpen] = useState(false)
       const [snapshots, setSnapshots] = useState(() => loadSnapshotList())
@@ -12038,6 +12259,25 @@ window.__ModuleLoader__.load({
       const polishResult = polish.result
       const polishMsg = polish.message
       const polishHistory = polish.history
+      // Reasoning tiers are per model: offer the ones the picked route actually
+      // advertises, and the classic quartet only when the catalog knows nothing.
+      const llmCatalog = useLlmCatalog()
+      const polishEfforts = (() => {
+        const hit = catalogModelOf(llmCatalog.catalog, promptWriteProvider, promptWriteModel)
+        const efforts = hit && Array.isArray(hit.efforts) ? hit.efforts : []
+        if (efforts.length === 0) {
+          return [
+            { value: '', label: '思考：默认' },
+            { value: 'off', label: '思考：Off' },
+            { value: 'low', label: '思考：Low' },
+            { value: 'high', label: '思考：High' },
+            { value: 'max', label: '思考：Max' },
+          ]
+        }
+        return [{ value: '', label: '思考：默认' }].concat(
+          efforts.map((effort) => ({ value: effort.id, label: '思考：' + (effort.name || effort.id) })),
+        )
+      })()
       const [panelWidth, setPanelWidthPref] = usePref('workspacePanelWidth')
       const [livePanelWidth, setLivePanelWidth] = useState(null)
       const panelDragRef = useRef(null)
@@ -12629,7 +12869,8 @@ window.__ModuleLoader__.load({
           summary,
           history: polishHistory,
           effort: polishEffort,
-          promptModel: promptWriteModel,
+          provider: promptWriteProvider,
+          model: promptWriteModel,
           key: polishKey,
         })
       }
@@ -13763,39 +14004,26 @@ window.__ModuleLoader__.load({
                   h(
                     'div',
                     { style: { width: 130, flex: 'none' } },
-                    h('input', {
-                      value: promptWriteModel,
-                      placeholder: '模型',
-                      title: '润色模型（默认 v4.1-flash）',
-                      style: {
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        padding: '2px 6px',
-                        fontSize: 10,
-                        borderRadius: 6,
-                        border: '1px solid var(--dsw-alias-border-l2)',
-                        background: 'var(--dsw-alias-bg-layer-1)',
-                        color: 'var(--dsw-alias-label-primary)',
-                        fontFamily: 'inherit',
-                        outline: 'none',
+                    h(LlmModelPicker, {
+                      provider: promptWriteProvider,
+                      model: promptWriteModel,
+                      title: '润色模型（跟随默认时用 DSH 当前选中的模型）',
+                      dark: canvasNight,
+                      onPick: (next) => {
+                        const parsed = parseRouteKey(next)
+                        setPromptWriteProvider(parsed.provider)
+                        setPromptWriteModel(parsed.model)
                       },
-                      onChange: (event) => setPromptWriteModel(event.target.value),
                     }),
                   ),
                   h(
                     'div',
                     { style: { width: 96, flex: 'none' } },
                     h(Dropdown, {
-                      title: '思考模式',
+                      title: '思考模式（档位按所选模型的支持情况列出）',
                       placeholder: '思考：默认',
                       value: polishEffort || '',
-                      options: [
-                        { value: '', label: '思考：默认' },
-                        { value: 'off', label: '思考：Off' },
-                        { value: 'low', label: '思考：Low' },
-                        { value: 'high', label: '思考：High' },
-                        { value: 'max', label: '思考：Max' },
-                      ],
+                      options: polishEfforts,
                       onPick: (value) => setPolishEffort(value),
                       dark: canvasNight,
                     }),
@@ -13911,6 +14139,13 @@ window.__ModuleLoader__.load({
                       'div',
                       { style: { marginTop: 6, fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
                       polishMsg,
+                    )
+                  : null,
+                polish.ranAs
+                  ? h(
+                      'div',
+                      { style: { marginTop: 4, fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
+                      '模型：' + polish.ranAs,
                     )
                   : null,
                 polish.skillLength !== null && polish.skillLength !== undefined
