@@ -12649,7 +12649,7 @@ window.__ModuleLoader__.load({
           // queued/progress/executed events every other surface already shows.
           if (data.promptId) {
             jobStore.start(data.promptId, 't2i')
-            setStatus('已提交，等待生成…')
+            setStatus('已提交 ' + outputSize.width + ' × ' + outputSize.height + '，等待生成…')
           } else {
             // No id means nothing to track: release the button instead of leaving
             // it spinning until the watchdog gives up.
@@ -12731,6 +12731,21 @@ window.__ModuleLoader__.load({
         width: alignSize(size && size.width ? size.width : 1024),
         height: alignSize(size && size.height ? size.height : 1152),
       }
+      // 尺寸框也是「先改草稿、离焦或回车才提交」：逐字符 clamp 会让
+      // 输入 1000 时先跳到 64，看着像输入不进去。
+      const [draftSize, setDraftSize] = useState({ w: null, h: null })
+      const commitSize = (axis) => {
+        const raw = axis === 'w' ? draftSize.w : draftSize.h
+        if (raw === null || raw === '') {
+          setDraftSize((current) => Object.assign({}, current, axis === 'w' ? { w: null } : { h: null }))
+          return
+        }
+        // 按 8 对齐后再存进状态：框里显示的值和提交出去的值永远一致。
+        const next = alignSize(raw)
+        setSize(Object.assign({}, size, axis === 'w' ? { width: next } : { height: next }))
+        setDraftSize((current) => Object.assign({}, current, axis === 'w' ? { w: null } : { h: null }))
+      }
+
       // 倍率是一次性缩放：按倍数改写上面两个框，然后自己回到 1。
       // 这样「框里是多少，模型就收到多少」，倍率不会在背后继续乘。
       const applyScale = (raw) => {
@@ -13607,16 +13622,24 @@ window.__ModuleLoader__.load({
               { style: { display: 'flex', gap: 6, alignItems: 'center' } },
               h('input', {
                 type: 'number',
-                value: size && size.width ? size.width : 1024,
+                value: draftSize.w !== null ? draftSize.w : size && size.width ? size.width : 1024,
                 style: Object.assign({}, field, { width: 84 }),
-                onChange: (event) => setSize(Object.assign({}, size, { width: clampSize(event.target.value) })),
+                onChange: (event) => setDraftSize(Object.assign({}, draftSize, { w: event.target.value })),
+                onBlur: () => commitSize('w'),
+                onKeyDown: (event) => {
+                  if (event.key === 'Enter') commitSize('w')
+                },
               }),
               h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, '×'),
               h('input', {
                 type: 'number',
-                value: size && size.height ? size.height : 1024,
+                value: draftSize.h !== null ? draftSize.h : size && size.height ? size.height : 1152,
                 style: Object.assign({}, field, { width: 84 }),
-                onChange: (event) => setSize(Object.assign({}, size, { height: clampSize(event.target.value) })),
+                onChange: (event) => setDraftSize(Object.assign({}, draftSize, { h: event.target.value })),
+                onBlur: () => commitSize('h'),
+                onKeyDown: (event) => {
+                  if (event.key === 'Enter') commitSize('h')
+                },
               }),
               // The multiplier rides in the resolution row: the box on the left is
               // the framing, this number is how much of it to render.
