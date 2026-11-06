@@ -434,7 +434,10 @@ async function submitLayout(baseUrl, layout, models, width, height, negative, pl
   })
   const payload = await res.json().catch(() => null)
   if (!res.ok) {
-    const detail = payload && payload.error ? JSON.stringify(payload.error) : `HTTP ${res.status}`
+    // node_errors 才是「哪个节点的哪个输入没通过」的部分，加上它才查得动。
+    const nodeErrors = payload && payload.node_errors ? JSON.stringify(payload.node_errors) : ''
+    const detail = (payload && payload.error ? JSON.stringify(payload.error) : `HTTP ${res.status}`) +
+      (nodeErrors ? ' · node_errors: ' + nodeErrors : '')
     throw new Error('ComfyUI 拒绝了这个任务：' + detail)
   }
   return { ok: true, promptId: (payload && payload.prompt_id) || '' }
@@ -496,7 +499,10 @@ async function submitText2Img(baseUrl, body) {
   })
   const payload = await res.json().catch(() => null)
   if (!res.ok) {
-    const detail = payload && payload.error ? JSON.stringify(payload.error) : `HTTP ${res.status}`
+    // node_errors 才是「哪个节点的哪个输入没通过」的部分，加上它才查得动。
+    const nodeErrors = payload && payload.node_errors ? JSON.stringify(payload.node_errors) : ''
+    const detail = (payload && payload.error ? JSON.stringify(payload.error) : `HTTP ${res.status}`) +
+      (nodeErrors ? ' · node_errors: ' + nodeErrors : '')
     throw new Error('ComfyUI 拒绝了这个任务：' + detail)
   }
   return { ok: true, promptId: (payload && payload.prompt_id) || '' }

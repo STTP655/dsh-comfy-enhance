@@ -12598,6 +12598,20 @@ window.__ModuleLoader__.load({
           setError('先写 prompt')
           return
         }
+        // 三个模型没选全就提交，ComfyUI 只会回一句「prompt_outputs_failed_validation」，
+        // 看不出是缺模型；这里先拦下来，把缺的项直接说出来。
+        const missingModels = [
+          ['unet', 'UNET'],
+          ['clip', 'CLIP'],
+          ['vae', 'VAE'],
+        ]
+          .filter(([key]) => !(models && typeof models[key] === 'string' && models[key].trim()))
+          .map(([, label]) => label)
+        if (missingModels.length > 0) {
+          setError('先在「模型」里选择 ' + missingModels.join(' / '))
+          setModelsOpen(true)
+          return
+        }
         // Random mode: a fresh seed per submission, written back so the field
         // shows the seed that was actually used.
         let submittedSampling = sampling || {}
