@@ -2304,6 +2304,7 @@ window.__ModuleLoader__.load({
       '@media (prefers-reduced-motion:reduce){.dshComfyAlbum-theme svg{transition:none!important}}'
 
     function AlbumStyles() {
+      ensureBaseStyle()
       return h(
         'style',
         null,
@@ -6935,6 +6936,7 @@ window.__ModuleLoader__.load({
     }
 
     function Styles() {
+      ensureBaseStyle()
       return h(
         'style',
         null,
@@ -10491,7 +10493,7 @@ window.__ModuleLoader__.load({
     }
 
     /** Page-switch motion for the Image workbench views. */
-    function ensureWorkbenchStyle() {
+    function ensureBaseStyle() {
       if (typeof document === 'undefined' || document.getElementById('dsh-comfy-workbench-styles')) return
       const style = document.createElement('style')
       style.id = 'dsh-comfy-workbench-styles'
@@ -10543,6 +10545,18 @@ window.__ModuleLoader__.load({
         '@supports ((-webkit-background-clip:text) or (background-clip:text)){.dshComfyShimmerTitle{background:linear-gradient(100deg,#ff4d4d,#ff8a3d 26%,#ffe3c2 42%,#ff8a3d 58%,#ff4d4d 86%);background-size:220% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:dshComfyTitleFlow 5.5s linear infinite}}' +
         '@keyframes dshComfyTitleFlow{from{background-position:200% center}to{background-position:-120% center}}' +
         '@media (prefers-reduced-motion:reduce){.dshComfyShimmerTitle{animation:none;background-position:38% center}}' +
+        // Controls every surface shares. They live here (not in the album or
+        // canvas sheets) so a panel that mounts only this sheet still gets them.
+        '.dshCanvasBtn{appearance:none;flex:none;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10.5px;line-height:1.5;padding:4px 11px;border-radius:7px;cursor:pointer;white-space:nowrap}' +
+        '.dshCanvasBtn{transition:transform 160ms cubic-bezier(0.23,1,0.32,1)}' +
+        '.dshCanvasBtn:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}' +
+        '.dshCanvasBtn:active:not(:disabled){transform:scale(.97) translateY(1px)}' +
+        '.dshCanvasBtn:disabled{opacity:.5;cursor:default}' +
+        '.dshCanvasPicker{appearance:none;display:flex;align-items:center;width:100%;box-sizing:border-box;font:inherit;font-size:10.5px;padding:4px 7px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);cursor:pointer;text-align:left}' +
+        '.dshCanvasPicker:hover{background:var(--dsw-alias-bg-layer-2)}' +
+        '.dshCanvasOption{appearance:none;display:block;width:100%;box-sizing:border-box;text-align:left;font:inherit;font-size:10.5px;padding:5px 8px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+        '.dshCanvasOption:hover{background:var(--dsw-alias-bg-layer-2)}' +
+        '.dshCanvasOption[data-on="true"]{background:#3b82f6;color:#ffffff}' +
         // The workbench panels mount this sheet, not the album one: without the
         // surface tokens their "dark" class would resolve to the host palette.
         SURFACE_DARK_CSS +
@@ -10550,6 +10564,8 @@ window.__ModuleLoader__.load({
         THEME_ICON_CSS
       document.head.appendChild(style)
     }
+    // Old name kept as an alias: every surface calls the same injector now.
+    const ensureWorkbenchStyle = ensureBaseStyle
 
     /** Load an image URL and return a small JPEG data URL for snapshot previews. */
     function makeThumbnail(url) {
