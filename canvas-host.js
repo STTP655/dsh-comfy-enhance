@@ -290,7 +290,7 @@ function readComboList(entry) {
 async function getModelOptions(baseUrl) {
   const now = Date.now()
   if (modelOptionsCache && now - modelOptionsAt < MODEL_OPTIONS_TTL) return modelOptionsCache
-  const result = { unet: [], clip: [], vae: [], lora: [] }
+  const result = { unet: [], clip: [], vae: [], lora: [], clipTypes: [] }
   await Promise.all(
     MODEL_FIELDS.map(async ([type, field, key]) => {
       try {
@@ -303,6 +303,15 @@ async function getModelOptions(baseUrl) {
       }
     }),
   )
+  // CLIPLoader 的 type 是枚举，写死会在换模型后变成「校验失败」——直接问引擎。
+  try {
+    const info = await getJSON(`${baseUrl}/object_info/CLIPLoader`)
+    const def = info && info.CLIPLoader
+    const required = (def && def.input && def.input.required) || {}
+    result.clipTypes = readComboList(required.type)
+  } catch {
+    // 拿不到就保留客户端自带的兜底列表。
+  }
   modelOptionsCache = result
   modelOptionsAt = now
   return result
@@ -481,11 +490,11 @@ async function submitText2Img(baseUrl, body) {
   const height = Math.max(64, Math.round(Number(body.height) || 1024))
   const latentNode = findLatentNode(graph)
   if (latentNode && latentNode.inputs) {
-    // 这套模板的 latent 节点配当前 VAE 会正好缩成一半（实测 1024→512、
-    // 864×1152→432×576、1728×2304→864×1152，都是精确 1/2），所以写进
-    // 图之前先按比例补回来，保证「面板填多少、落盘就是多少」。
-    latentNode.inputs.width = width * LATENT_SCALE
-    latentNode.inputs.height = height * LATENT_SCALE
+    // 与手跑工作流对齐：模板现在用 EmptyLatentImage，1:1 落盘。
+    // 若模板还留着 EmptyFlux2LatentImage，那套节点会把出图缩成一半，这里补回来。
+    const latentScale = latentNode.class_type === 'EmptyFlux2LatentImage' ? LATENT_SCALE : 1
+    latentNode.inputs.width = width * latentScale
+    latentNode.inputs.height = height * latentScale
   }
   const samplerNode = findNodeByType(graph, 'KSampler')
   if (samplerNode && samplerNode.inputs && body.sampling && typeof body.sampling === 'object') {

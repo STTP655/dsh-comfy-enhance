@@ -2,6 +2,8 @@
 
 ## 未发布
 
+- 修复出图尺寸只有一半：模板的 latent 节点由 EmptyFlux2LatentImage 换成 EmptyLatentImage（与手跑工作流一致），实测 1024×1024 请求落盘即 1024×1024；CLIPLoader.type 改由引擎枚举提供（写死的 lux 在本机会被校验拒绝）；移除「倍率」输入
+
 - 修复：出图尺寸恒为请求的一半（EmptyFlux2LatentImage + qwen_image_vae 缩放不匹配），宿主写入 latent 前按 LATENT_SCALE = 2 补偿；output-meta 的 size 改为读 PNG 的 IHDR，不再把工作流里的请求值当结果回显
 
 - 修复：分辨率尺寸框逐字符 clamp 导致「输入不进去/像被锁死」（改为草稿 + 离焦或回车提交）；提交时按 8 对齐并写回框内，框内值恒等于发送值；提交后状态行显示「已提交 W × H」

@@ -35,7 +35,7 @@
     }
   },
   "6": {
-    "class_type": "EmptyFlux2LatentImage",
+    "class_type": "EmptyLatentImage",
     "inputs": {
       "width": 1024,
       "height": 1024,

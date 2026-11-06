@@ -12342,9 +12342,6 @@ window.__ModuleLoader__.load({
       const [models, setModels] = usePref('t2iModels')
       const [clipType, setClipType] = usePref('t2iClipType')
       const [size, setSize] = usePref('t2iSize')
-      const [scaleDraftRaw, setScaleDraft] = usePref('t2iScaleStep')
-      // 倍率现在只是一个「待应用的倍数」草稿，默认 1；换 key 是为了不继承旧版的数值。
-      const scaleDraft = scaleDraftRaw === undefined || scaleDraftRaw === '' ? '1' : scaleDraftRaw
       // What the AI is told on top of the prompt next to it; empty means "only
       // rewrite what is written there", the behaviour before this box existed.
       const [aiExtra, setAiExtra] = useState('')
@@ -12746,21 +12743,6 @@ window.__ModuleLoader__.load({
         setDraftSize((current) => Object.assign({}, current, axis === 'w' ? { w: null } : { h: null }))
       }
 
-      // 倍率是一次性缩放：按倍数改写上面两个框，然后自己回到 1。
-      // 这样「框里是多少，模型就收到多少」，倍率不会在背后继续乘。
-      const applyScale = (raw) => {
-        const factor = Number(raw)
-        if (!Number.isFinite(factor) || factor <= 0) {
-          setScaleDraft('1')
-          return
-        }
-        const next = Math.min(8, Math.max(0.1, factor))
-        setSize({
-          width: alignSize((size && size.width ? size.width : 1024) * next),
-          height: alignSize((size && size.height ? size.height : 1152) * next),
-        })
-        setScaleDraft('1')
-      }
       const current = gallery.find((file) => file.name === selected) || null
       const currentIndex = Math.max(0, gallery.findIndex((file) => file.name === selected))
 
@@ -12959,7 +12941,8 @@ window.__ModuleLoader__.load({
                   title: 'CLIP 类型',
                   placeholder: '选择类型',
                   value: clipType,
-                  options: ['flux', 'stable_diffusion', 'sd3', 'stable_cascade'].map((item) => ({ value: item, label: item })),
+                  // 引擎给了就按引擎来：写死的列表换个 CLIP 就会「校验失败」。
+                  options: ((options && options.clipTypes && options.clipTypes.length > 0) ? options.clipTypes : ['flux', 'qwen_image', 'stable_diffusion', 'sd3', 'stable_cascade']).map((item) => ({ value: item, label: item })),
                   onPick: (value) => setClipType(value),
                   menuMinWidth: 160,
                   menuAlign: 'right',
@@ -13641,29 +13624,6 @@ window.__ModuleLoader__.load({
                   if (event.key === 'Enter') commitSize('h')
                 },
               }),
-              // The multiplier rides in the resolution row: the box on the left is
-              // the framing, this number is how much of it to render.
-              h('span', { style: { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5 } },
-                h('span', { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } }, '倍率'),
-                h('input', {
-                  type: 'number',
-                  step: 0.1,
-                  // HTML 的步进网格以 min 为基准：写 0.25 会让合法值是
-                  // 0.25/0.35/…/0.95/1.05，1.0 落在网格外，箭头一次只跳 0.05。
-                  // 所以基准取 0，真正的下限仍由 applyScale 里的 clamp 保证。
-                  min: 0,
-                  max: 8,
-                  value: scaleDraft,
-                  title: '把左边的两个数字按这个倍数放大，改完框里就是实际出图尺寸',
-                  style: Object.assign({}, field, { width: 72, padding: '7px 8px', flex: 'none' }),
-                  // 只在离焦/回车时生效：边打边乘会让「1.5」里的「1」先乘一次。
-                  onChange: (event) => setScaleDraft(event.target.value),
-                  onBlur: () => applyScale(scaleDraft),
-                  onKeyDown: (event) => {
-                    if (event.key === 'Enter') applyScale(scaleDraft)
-                  },
-                }),
-              ),
             ),
             h(
               'div',
