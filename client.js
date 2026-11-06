@@ -2221,7 +2221,7 @@ window.__ModuleLoader__.load({
           // and a square icon button for the theme switch.
           '.dshComfyAlbum-head .dshComfyAlbum-btn{padding:4px 11px;border-radius:7px;border-color:var(--dsw-alias-border-l2);line-height:1.5;transition:transform 160ms cubic-bezier(0.23,1,0.32,1)}',
           '.dshComfyAlbum-head .dshComfyAlbum-btn[data-dark="true"]{border-color:rgba(255,255,255,.14)}',
-          '.dshComfyAlbum-head .dshComfyAlbum-btn[data-square="true"]{width:25px;padding:4px 0;box-sizing:border-box;justify-content:center}',
+          '.dshComfyAlbum-head .dshComfyAlbum-btn[data-square="true"]{width:25px;padding:0;align-self:stretch;box-sizing:border-box;justify-content:center}',
           // Same press feedback as the canvas bar.
           '.dshComfyAlbum-head .dshComfyAlbum-btn:active:not(:disabled){transform:scale(.97) translateY(1px)}',
           '.dshComfyAlbum-head .dshComfyAlbum-btn:hover:not(:disabled){filter:brightness(1.06)}',
@@ -3642,7 +3642,7 @@ window.__ModuleLoader__.load({
         },
         h(
           'div',
-          { style: VIEWER_PANEL_HEAD },
+          { style: VIEWER_PANEL_HEAD, className: 'dshComfyViewer-bar' },
           h('span', { style: { fontSize: 12, fontWeight: 600 } }, '生成信息'),
           h('span', { style: { flex: 1 } }),
           canEdit
@@ -6824,6 +6824,11 @@ window.__ModuleLoader__.load({
         [
           '.dshCanvasBtn{appearance:none;flex:none;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10.5px;line-height:1.5;padding:4px 11px;border-radius:7px;cursor:pointer;white-space:nowrap}',
           '.dshCanvasBtn{transition:transform 160ms cubic-bezier(0.23,1,0.32,1)}',
+          // Same-row heights: children that size themselves from their content
+          // (icon buttons, dropdown triggers) stretch to the row's tallest item
+          // instead of sitting a few pixels short of it.
+          '.dshComfyCanvasHead .dshCanvasBtn,.dshComfyCanvasHead .dshCanvasPicker{align-self:stretch}',
+          '.dshComfyWorkbenchBar .dshCanvasBtn,.dshComfyWorkbenchBar .dshCanvasPicker,.dshComfyWorkbenchBar input{align-self:stretch}',
           '.dshCanvasBtn:active:not(:disabled){transform:scale(.97) translateY(1px)}',
           '@media (prefers-reduced-motion:reduce){.dshCanvasBtn{transition:none}.dshCanvasBtn:active:not(:disabled){transform:none}}',
           '.dshCanvasBtn:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
@@ -10118,7 +10123,7 @@ window.__ModuleLoader__.load({
         h(Styles),
         h(
           'div',
-          { style: HEAD },
+          { style: HEAD, className: 'dshComfyCanvasHead' },
           h(
             'div',
             { style: { flex: '0 1 150px', minWidth: 84 } },
@@ -10211,11 +10216,9 @@ window.__ModuleLoader__.load({
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                // Same padding as the text buttons, only horizontal padding
-                // removed: the height then matches them exactly instead of
-                // riding on a smaller line box.
+                // Height comes from align-self: stretch in the header rule, so it
+                // matches the text buttons whatever their font ends up being.
                 width: 25,
-                padding: '4px 0',
                 boxSizing: 'border-box',
               },
               title: canvasNight ? '切换到日间' : '切换到夜间',
@@ -14654,7 +14657,7 @@ window.__ModuleLoader__.load({
         h(Styles),
         h(
           'div',
-          { style: WORKSPACE_TOOLBAR },
+          { style: WORKSPACE_TOOLBAR, className: 'dshComfyWorkbenchBar' },
           importOpen
             ? h(
                 'div',
@@ -14720,8 +14723,6 @@ window.__ModuleLoader__.load({
                 alignItems: 'center',
                 justifyContent: 'center',
                 width: 32,
-                height: 28,
-                padding: 0,
                 borderRadius: 8,
                 border: '1px solid var(--dsw-alias-border-l2)',
                 background: 'var(--dsw-alias-bg-layer-2)',
