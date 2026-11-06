@@ -12365,6 +12365,7 @@ window.__ModuleLoader__.load({
       const [rulesOpen, setRulesOpen] = useState(false)
       const [modelsOpen, setModelsOpen] = useState(false)
       const [loraOpen, setLoraOpen] = useState(false)
+      const [samplerOptions, setSamplerOptions] = useState(null)
       const [promptWriteSystemTags] = usePref('promptWriteSystemTags')
       const [promptWriteSystemNatural] = usePref('promptWriteSystemNatural')
       const [promptHistory, setPromptHistory] = usePref('promptWriteHistory')
@@ -12395,6 +12396,21 @@ window.__ModuleLoader__.load({
             if (alive && data && data.ok) setOptions(data)
           })
           .catch(() => {})
+        return () => {
+          alive = false
+        }
+      }, [])
+      // 采样器 / 调度器的候选值来自 ComfyUI 本身，避免手打进一个服务端不认的值。
+      useEffect(() => {
+        let alive = true
+        fetch('/plugin/comfy-status/sampler-options', { cache: 'no-store' })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (alive && data && Array.isArray(data.samplers)) setSamplerOptions(data)
+          })
+          .catch(() => {
+            // 拿不到列表时下拉仍会带上当前值（见 samplerChoices）
+          })
         return () => {
           alive = false
         }
@@ -12719,6 +12735,23 @@ window.__ModuleLoader__.load({
           count ? h('span', { className: 'dshComfyModelBar-count' }, count) : null,
           h('span', { className: 'dshComfyModelBar-chev' }, '›'),
         )
+
+      // 当前值永远在列表里：拿不到引擎列表、或列表里没有它时，控件也不会变空。
+      const choicesOf = (values, current) => {
+        const list = (Array.isArray(values) ? values : []).map((value) => ({ value, label: value }))
+        if (current && !list.some((option) => option.value === current)) {
+          list.unshift({ value: current, label: current })
+        }
+        return list
+      }
+      const samplerChoices = choicesOf(
+        samplerOptions && samplerOptions.samplers,
+        (sampling && sampling.sampler) || 'euler',
+      )
+      const schedulerChoices = choicesOf(
+        samplerOptions && samplerOptions.schedulers,
+        (sampling && sampling.scheduler) || 'simple',
+      )
 
       const modelBar = barOf(
         '模型',
@@ -13636,21 +13669,29 @@ window.__ModuleLoader__.load({
               'label',
               { style: label },
               '采样器',
-              h('input', {
+              h('div', { style: { minWidth: 0 } }, h(Dropdown, {
+                title: '采样器',
+                placeholder: (sampling && sampling.sampler) || 'euler',
                 value: (sampling && sampling.sampler) || 'euler',
-                style: field,
-                onChange: (event) => updateSampling({ sampler: event.target.value }),
-              }),
+                options: samplerChoices,
+                onPick: (value) => updateSampling({ sampler: value }),
+                menuMinWidth: 220,
+                menuAlign: 'right',
+              })),
             ),
             h(
               'label',
               { style: label },
               '调度器',
-              h('input', {
+              h('div', { style: { minWidth: 0 } }, h(Dropdown, {
+                title: '调度器',
+                placeholder: (sampling && sampling.scheduler) || 'simple',
                 value: (sampling && sampling.scheduler) || 'simple',
-                style: field,
-                onChange: (event) => updateSampling({ scheduler: event.target.value }),
-              }),
+                options: schedulerChoices,
+                onPick: (value) => updateSampling({ scheduler: value }),
+                menuMinWidth: 220,
+                menuAlign: 'right',
+              })),
             ),
           ),
           // The live count lives on the preview overlay; this line only carries the
