@@ -12342,6 +12342,7 @@ window.__ModuleLoader__.load({
       const [models, setModels] = usePref('t2iModels')
       const [clipType, setClipType] = usePref('t2iClipType')
       const [size, setSize] = usePref('t2iSize')
+      const [scale, setScale] = usePref('t2iScale')
       // What the AI is told on top of the prompt next to it; empty means "only
       // rewrite what is written there", the behaviour before this box existed.
       const [aiExtra, setAiExtra] = useState('')
@@ -12723,10 +12724,16 @@ window.__ModuleLoader__.load({
       const preset = (w, h) => setSize({ width: w, height: h })
       const clampSize = (value) => Math.max(64, Math.min(4096, Math.round(Number(value) || 1024)))
       const alignSize = (value) => Math.max(64, Math.min(4096, Math.round(value / 8) * 8))
-      // 分辨率框里的数字就是出图尺寸，提交前只做 8 的倍数对齐。
+      // 倍率：1 就是直传框里的值，不等于 1 才乘。乘完的结果显示在倍率右边，
+      // 提交用的就是那个数——三处（框、预览、请求）永远对得上。
+      const scaleFactor = (() => {
+        const next = Number(scale)
+        if (!Number.isFinite(next) || next <= 0) return 1
+        return Math.min(8, Math.max(0.1, Math.round(next * 100) / 100))
+      })()
       const outputSize = {
-        width: alignSize(size && size.width ? size.width : 1024),
-        height: alignSize(size && size.height ? size.height : 1152),
+        width: alignSize((size && size.width ? size.width : 1024) * scaleFactor),
+        height: alignSize((size && size.height ? size.height : 1152) * scaleFactor),
       }
       // 尺寸框也是「先改草稿、离焦或回车才提交」：逐字符 clamp 会让
       // 输入 1000 时先跳到 64，看着像输入不进去。
@@ -13624,6 +13631,24 @@ window.__ModuleLoader__.load({
                   if (event.key === 'Enter') commitSize('h')
                 },
               }),
+              // 倍率：1 时直传上面的值，不等于 1 时乘完再传，结果写在右边。
+              h('span', { style: { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5 } },
+                h('span', { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } }, '倍率'),
+                h('input', {
+                  type: 'number',
+                  step: 0.1,
+                  // 步进网格以 min 为基准，min 写 0 才让 1.0 落在网格上。
+                  min: 0,
+                  max: 8,
+                  value: scaleFactor,
+                  title: '1 就是直传左边的尺寸；不是 1 就按倍数放大后再提交',
+                  style: Object.assign({}, field, { width: 62, padding: '7px 8px', flex: 'none' }),
+                  onChange: (event) => {
+                    const next = Number(event.target.value)
+                    setScale(Number.isFinite(next) && next > 0 ? Math.min(8, Math.max(0.1, next)) : 1)
+                  },
+                }),
+              ),
             ),
             h(
               'div',
@@ -13658,8 +13683,21 @@ window.__ModuleLoader__.load({
                   name,
                 ),
               ),
-              // Only shown once the factor actually changes the size: the plain
-              // case keeps the row quiet.
+              // 倍率不等于 1 时把「实际会提交多大」写在行尾：框里是基准，这里是结果。
+              scaleFactor !== 1
+                ? h(
+                    'span',
+                    {
+                      style: {
+                        marginLeft: 'auto',
+                        fontSize: 9.5,
+                        color: 'var(--dsw-alias-label-primary)',
+                        fontVariantNumeric: 'tabular-nums',
+                      },
+                    },
+                    '→ ' + outputSize.width + ' × ' + outputSize.height,
+                  )
+                : null,
             ),
           ),
           h(
