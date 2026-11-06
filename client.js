@@ -11471,29 +11471,6 @@ window.__ModuleLoader__.load({
         color: 'var(--dsw-alias-label-secondary)',
       }
       const images = result ? (Array.isArray(result.b64List) ? result.b64List : result.b64 ? [result.b64] : []) : []
-      const tab = (key, text, current, onClick) =>
-        h(
-          'button',
-          {
-            key,
-            type: 'button',
-            onClick,
-            style: {
-              flex: 1,
-              padding: '7px 10px',
-              borderRadius: 8,
-              border: '1px solid ' + (current === key ? '#3b82f6' : 'transparent'),
-              background: current === key ? '#3b82f6' : 'transparent',
-              color: current === key ? '#ffffff' : 'var(--dsw-alias-label-secondary)',
-              fontSize: 11,
-              fontWeight: 600,
-              fontFamily: 'inherit',
-              cursor: 'pointer',
-              transition: 'background .16s ease, color .16s ease, border-color .16s ease',
-            },
-          },
-          text,
-        )
       const btn = {
         padding: '5px 10px',
         borderRadius: 8,
@@ -11538,36 +11515,22 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', style: btn, onClick: props.onBack }, '返回'),
             h('div', { style: { fontSize: 14, fontWeight: 600 } }, '在线 API 出图'),
           ),
-          h(
-            'div',
-            {
-              style: {
-                display: 'flex',
-                gap: 4,
-                padding: 3,
-                borderRadius: 10,
-                background: 'var(--dsw-alias-bg-layer-1)',
-                border: '1px solid var(--dsw-alias-border-l2)',
-              },
-            },
-            tab('openai', 'OpenAI 兼容', provider, () => setProvider('openai')),
-            tab('minimax', 'MiniMax', provider, () => setProvider('minimax')),
-          ),
-          h(
-            'div',
-            {
-              style: {
-                display: 'flex',
-                gap: 4,
-                padding: 3,
-                borderRadius: 10,
-                background: 'var(--dsw-alias-bg-layer-1)',
-                border: '1px solid var(--dsw-alias-border-l2)',
-              },
-            },
-            tab('t2i', '文生图', mode, () => setMode('t2i')),
-            tab('edit', '参考图编辑', mode, () => setMode('edit')),
-          ),
+          h(SegmentToggle, {
+            options: [
+              { value: 'openai', label: 'OpenAI 兼容' },
+              { value: 'minimax', label: 'MiniMax' },
+            ],
+            value: provider,
+            onChange: setProvider,
+          }),
+          h(SegmentToggle, {
+            options: [
+              { value: 't2i', label: '文生图' },
+              { value: 'edit', label: '参考图编辑' },
+            ],
+            value: mode,
+            onChange: setMode,
+          }),
           mode === 'edit'
             ? h(
                 'div',
