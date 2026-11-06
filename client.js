@@ -12739,7 +12739,9 @@ window.__ModuleLoader__.load({
           h(ImageViewer, {
             key: selected,
             embedded: true,
-            theme: 'light',
+            // Follows the workbench theme: the light skin below is hardcoded hex,
+            // so leaving it on 'light' kept this pane white in dark mode.
+            theme: props.night ? 'dark' : 'light',
             // Only this panel needs the prompt dialog: the album and the workspace
             // already show prompts in their own side panel.
             promptButton: true,
