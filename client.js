@@ -650,6 +650,7 @@ window.__ModuleLoader__.load({
               disabled: working,
               onClick: online ? stop : run,
               title: online ? '停止 ComfyUI' : '启动 ComfyUI',
+              className: 'dshComfyLift',
               style: {
                 minWidth: 190,
                 padding: '10px 30px',
@@ -662,8 +663,8 @@ window.__ModuleLoader__.load({
                 fontFamily: 'inherit',
                 cursor: working ? 'default' : 'pointer',
                 opacity: working ? 0.75 : 1,
-                boxShadow: online ? '0 4px 14px rgba(220, 38, 38, 0.32)' : '0 4px 14px rgba(59, 130, 246, 0.35)',
-                transition: 'background 160ms ease, border-color 160ms ease, box-shadow 160ms ease',
+                // The glow follows the state: red when the click would stop.
+                '--dshComfyGlow': online ? 'rgba(220, 38, 38, 0.42)' : 'rgba(59, 130, 246, 0.45)',
               },
             },
             label,
@@ -733,6 +734,7 @@ window.__ModuleLoader__.load({
               type: 'button',
               disabled: busy,
               onClick: run,
+              className: 'dshComfyLift',
               style: {
                 padding: '2px 7px',
                 borderRadius: 6,
@@ -742,6 +744,7 @@ window.__ModuleLoader__.load({
                 fontSize: 10,
                 fontFamily: 'inherit',
                 cursor: 'pointer',
+                '--dshComfyGlow': 'rgba(59, 130, 246, 0.4)',
               },
             },
             busy ? '启动中…' : '启动 ComfyUI',
@@ -790,6 +793,7 @@ window.__ModuleLoader__.load({
             type: 'button',
             disabled: busy,
             onClick: run,
+            className: 'dshComfyLift',
             style: {
               padding: '10px 30px',
               borderRadius: 10,
@@ -800,7 +804,7 @@ window.__ModuleLoader__.load({
               fontWeight: 600,
               fontFamily: 'inherit',
               cursor: 'pointer',
-              boxShadow: '0 4px 14px rgba(59, 130, 246, 0.35)',
+              '--dshComfyGlow': 'rgba(59, 130, 246, 0.45)',
             },
           },
           busy ? '正在启动…' : '启动 ComfyUI',
@@ -10375,6 +10379,14 @@ window.__ModuleLoader__.load({
         // backdrop is what smeared elsewhere in this panel).
         '.dshComfyBackChip{display:inline-flex;align-items:center;gap:3px;padding:5px 11px 5px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.22);background:rgba(14,16,20,.55);color:#fff;font-size:11.5px;font-weight:600;font-family:inherit;cursor:pointer;transition:background 160ms ease,border-color 160ms ease}' +
         '.dshComfyBackChip:hover{background:rgba(14,16,20,.72);border-color:rgba(255,255,255,.34)}' +
+        // Shared hover/press feedback: lift with a colour-matched glow, sink when
+        // pressed. The glow colour comes from --dshComfyGlow so one class serves
+        // both the blue start button and its red stop state.
+        '.dshComfyLift{box-shadow:0 4px 14px var(--dshComfyGlow,rgba(59,130,246,.35));transition:transform 160ms cubic-bezier(.23,1,.32,1),box-shadow 160ms ease,background 160ms ease,border-color 160ms ease}' +
+        '@media (hover:hover) and (pointer:fine){.dshComfyLift:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 0 22px var(--dshComfyGlow,rgba(59,130,246,.45)),0 8px 22px var(--dshComfyGlow,rgba(59,130,246,.4))}}' +
+        '.dshComfyLift:active:not(:disabled){transform:translateY(1px) scale(.985);box-shadow:0 0 10px var(--dshComfyGlow,rgba(59,130,246,.3))}' +
+        '.dshComfyLift:disabled{transform:none;box-shadow:none}' +
+        '@media (prefers-reduced-motion:reduce){.dshComfyLift{transition:none}.dshComfyLift:hover:not(:disabled),.dshComfyLift:active:not(:disabled){transform:none}}' +
         // Panel title with light running through the letters. The gradient is the
         // same warm pair as the call-to-action button; colour is a fallback for
         // engines without background-clip:text.
