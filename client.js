@@ -4284,7 +4284,9 @@ window.__ModuleLoader__.load({
         }
         node.addEventListener('wheel', onWheel, { passive: false })
         return () => node.removeEventListener('wheel', onWheel)
-      }, [])
+        // Re-attach per image: the animated stage is keyed on the picture, so a
+        // page switch replaces the node and the old listener goes with it.
+      }, [current.url])
 
       // Panning only exists once the image is zoomed in; at 1x the pointer goes
       // through untouched so a plain click still closes the viewer.
