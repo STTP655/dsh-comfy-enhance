@@ -10220,9 +10220,12 @@ window.__ModuleLoader__.load({
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                // Height comes from align-self: stretch in the header rule, so it
-                // matches the text buttons whatever their font ends up being.
+                // Height comes from align-self: stretch in the header rule. padding
+                // must be cleared here: the class supplies 4px 11px, which would
+                // leave a 1px content box inside a 25px button and push the icon
+                // out of centre.
                 width: 25,
+                padding: 0,
                 boxSizing: 'border-box',
               },
               title: canvasNight ? '切换到日间' : '切换到夜间',
