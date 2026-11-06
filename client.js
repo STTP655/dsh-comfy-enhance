@@ -2241,12 +2241,13 @@ window.__ModuleLoader__.load({
       const night = Boolean(props.night)
       const mode = props.mode || 'auto'
       const label = mode === 'auto' ? '跟随 DSH 主题' : night ? '深色' : '浅色'
+      // Drawn and styled inline: this button also renders on the panels that never
+      // mount the album/canvas stylesheets, where a class-based icon came out as
+      // an empty grey box.
       return h(
         'button',
         {
           type: 'button',
-          className: 'dshCanvasBtn',
-          'data-square': 'true',
           title: mode === 'auto' ? '当前跟随 DSH 主题（点击改为手动）' : '当前手动：' + label + '（点击继续切换）',
           'aria-label': '切换深浅主题',
           onClick: props.onClick,
@@ -2259,9 +2260,29 @@ window.__ModuleLoader__.load({
             width: 25,
             padding: 0,
             boxSizing: 'border-box',
+            borderRadius: 7,
+            border: '1px solid var(--dsw-alias-border-l2)',
+            background: 'var(--dsw-alias-bg-layer-1)',
+            color: 'var(--dsw-alias-label-secondary)',
+            cursor: 'pointer',
           },
         },
-        h(ThemeIcon, { night }),
+        h(
+          'svg',
+          {
+            width: 13,
+            height: 13,
+            viewBox: '0 0 24 24',
+            fill: 'none',
+            stroke: 'currentColor',
+            strokeWidth: 2,
+            strokeLinecap: 'round',
+            strokeLinejoin: 'round',
+            'aria-hidden': true,
+            style: { display: 'block' },
+          },
+          ...lucideParts(night ? 'moon' : 'sun'),
+        ),
       )
     }
 
@@ -10521,7 +10542,12 @@ window.__ModuleLoader__.load({
         '.dshComfyShimmerTitle{font-size:21px;font-weight:800;line-height:1.15;letter-spacing:.01em;color:#ff6a3d}' +
         '@supports ((-webkit-background-clip:text) or (background-clip:text)){.dshComfyShimmerTitle{background:linear-gradient(100deg,#ff4d4d,#ff8a3d 26%,#ffe3c2 42%,#ff8a3d 58%,#ff4d4d 86%);background-size:220% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:dshComfyTitleFlow 5.5s linear infinite}}' +
         '@keyframes dshComfyTitleFlow{from{background-position:200% center}to{background-position:-120% center}}' +
-        '@media (prefers-reduced-motion:reduce){.dshComfyShimmerTitle{animation:none;background-position:38% center}}'
+        '@media (prefers-reduced-motion:reduce){.dshComfyShimmerTitle{animation:none;background-position:38% center}}' +
+        // The workbench panels mount this sheet, not the album one: without the
+        // surface tokens their "dark" class would resolve to the host palette.
+        SURFACE_DARK_CSS +
+        SURFACE_LIGHT_CSS +
+        THEME_ICON_CSS
       document.head.appendChild(style)
     }
 
@@ -13610,6 +13636,8 @@ window.__ModuleLoader__.load({
     }
 
     function CanvasWorkspace() {
+      // Surface tokens live in this sheet, and the panel views mount nothing else.
+      ensureWorkbenchStyle()
       const [view, setView] = usePref('workspaceView')
       const [viewFading, setViewFading] = useState(false)
       const changeView = (next) => {
