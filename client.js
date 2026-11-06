@@ -2237,6 +2237,11 @@ window.__ModuleLoader__.load({
           '.dshComfyViewer-generate:disabled{opacity:.5;cursor:default;box-shadow:0 0 12px rgba(255,92,122,.15)}',
           '@media (prefers-reduced-motion:reduce){.dshComfyViewer-generate:hover:not(:disabled){transform:none}}',
           '.dshComfyViewer-icon{display:inline-flex;align-items:center;justify-content:center;height:22px;padding:0 7px;text-decoration:none}',
+          // One box for the whole viewer bar: icon buttons were pinned to 22px
+          // while the text buttons next to them were sized by line-height (~20.7),
+          // so the row sat 1.3px out of true. Both get the same fixed height now.
+          '.dshComfyViewer-bar .dshComfyAlbum-btn{display:inline-flex;align-items:center;justify-content:center;height:22px;padding:0 9px;box-sizing:border-box}',
+          '.dshComfyViewer-bar .dshComfyAlbum-btn.dshComfyViewer-icon{width:22px;padding:0}',
           '.dshComfyViewer-resize:hover{background:rgba(255,255,255,.1)}',
           // The self-drawn dropdown lives in the canvas styles too; the album
           // viewer uses it as well, so its rules have to be present here.
@@ -4324,7 +4329,7 @@ window.__ModuleLoader__.load({
             { style: Object.assign({}, VIEWER_BAR, skin && skin.bar), onClick: (event) => event.stopPropagation() },
             h(
               'div',
-              { style: VIEWER_BAR_GROUP },
+              { style: VIEWER_BAR_GROUP, className: 'dshComfyViewer-bar' },
               resolution
                 ? h(
                     'span',
@@ -4399,7 +4404,7 @@ window.__ModuleLoader__.load({
               : null,
             h(
               'div',
-              { style: VIEWER_BAR_GROUP },
+              { style: VIEWER_BAR_GROUP, className: 'dshComfyViewer-bar' },
               h('button', { className: 'dshComfyAlbum-btn', 'data-dark': light ? undefined : 'true', onClick: resetView }, '还原'),
               props.promptButton
                 ? h(
