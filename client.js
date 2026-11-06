@@ -2215,6 +2215,15 @@ window.__ModuleLoader__.load({
           '@media (prefers-reduced-motion:reduce){.dshComfySurface-dark,.dshComfySurface-light,.dshComfySurface-dark *,.dshComfySurface-light *{transition:none!important}}',
           THEME_ICON_CSS,
           '.dshComfyAlbum-btn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
+          // The album header follows the canvas tab's bar: same box, same radius,
+          // and a square icon button for the theme switch.
+          '.dshComfyAlbum-head .dshComfyAlbum-btn{padding:4px 11px;border-radius:7px;border-color:var(--dsw-alias-border-l2);line-height:1.5;transition:transform 160ms cubic-bezier(0.23,1,0.32,1)}',
+          '.dshComfyAlbum-head .dshComfyAlbum-btn[data-dark="true"]{border-color:rgba(255,255,255,.14)}',
+          '.dshComfyAlbum-head .dshComfyAlbum-btn[data-square="true"]{width:25px;height:25px;padding:0;box-sizing:border-box;justify-content:center}',
+          // Same press feedback as the canvas bar.
+          '.dshComfyAlbum-head .dshComfyAlbum-btn:active:not(:disabled){transform:scale(.97) translateY(1px)}',
+          '.dshComfyAlbum-head .dshComfyAlbum-btn:hover:not(:disabled){filter:brightness(1.06)}',
+          '@media (prefers-reduced-motion:reduce){.dshComfyAlbum-head .dshComfyAlbum-btn{transition:none}.dshComfyAlbum-head .dshComfyAlbum-btn:active:not(:disabled){transform:none}}',
           '.dshComfyAlbum-btn[data-dark="true"]{border-color:rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:rgba(255,255,255,.72)}',
           '.dshComfyAlbum-btn[data-dark="true"]:hover{background:rgba(255,255,255,.13);color:#fff}',
           '.dshComfyAlbum-btn[data-dark="true"][data-on="true"]{background:rgba(255,255,255,.18);color:#fff}',
@@ -5217,7 +5226,7 @@ window.__ModuleLoader__.load({
         h(PulseKeyframes),
         h(
           'div',
-          { style: ALBUM_HEAD },
+          { style: ALBUM_HEAD, className: 'dshComfyAlbum-head' },
           h('span', { style: { fontWeight: 600, fontSize: 12.5 } }, '相册'),
           h('span', { style: Object.assign({}, SUB, NUM, { fontSize: 11 }) }, visible.length + ' 张'),
           comparing
@@ -5251,6 +5260,7 @@ window.__ModuleLoader__.load({
             'button',
             {
               className: 'dshComfyAlbum-btn',
+              'data-square': 'true',
               style: {
                 display: 'inline-flex',
                 alignItems: 'center',
