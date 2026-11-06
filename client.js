@@ -6671,24 +6671,40 @@ window.__ModuleLoader__.load({
       cursor: 'default',
       boxShadow: '0 1px 3px rgba(59, 130, 246, 0.35)',
     })
+    // Compact variant for rows that also hold buttons: same 25.75px height, less
+    // inset, so it can sit beside them without pushing the row taller.
+    const SEGMENT_WRAP_SM = Object.assign({}, SEGMENT_WRAP, { padding: 2, borderRadius: 7 })
+    const SEGMENT_SM = Object.assign({}, SEGMENT, {
+      padding: '3px 8px',
+      fontSize: 11,
+      lineHeight: 1.25,
+      borderRadius: 5,
+      // The niche labels here are Chinese and short: wrapping them would grow the
+      // row taller than the buttons beside it.
+      whiteSpace: 'nowrap',
+    })
 
     /** Segmented control whose blue thumb slides between the options. */
     function SegmentToggle(props) {
       const options = props.options || []
+      const compact = Boolean(props.compact)
+      const wrap = compact ? SEGMENT_WRAP_SM : SEGMENT_WRAP
+      const seg = compact ? SEGMENT_SM : SEGMENT
+      const inset = compact ? 2 : 3
       const found = options.findIndex((option) => option.value === props.value)
       const index = found >= 0 ? found : 0
-      const width = 'calc((100% - 6px) / ' + Math.max(1, options.length) + ')'
+      const width = 'calc((100% - ' + inset * 2 + 'px) / ' + Math.max(1, options.length) + ')'
       return h(
         'div',
-        { style: Object.assign({}, SEGMENT_WRAP, { position: 'relative' }) },
+        { style: Object.assign({}, wrap, { position: 'relative' }, props.style || null) },
         h('div', {
           style: {
             position: 'absolute',
-            top: 3,
-            bottom: 3,
-            left: 3,
+            top: inset,
+            bottom: inset,
+            left: inset,
             width,
-            borderRadius: 6,
+            borderRadius: compact ? 5 : 6,
             background: '#3b82f6',
             boxShadow: '0 1px 3px rgba(59, 130, 246, 0.35)',
             transform: 'translateX(' + index * 100 + '%)',
@@ -6702,7 +6718,7 @@ window.__ModuleLoader__.load({
             {
               key: option.value,
               type: 'button',
-              style: Object.assign({}, SEGMENT, {
+              style: Object.assign({}, seg, {
                 position: 'relative',
                 zIndex: 1,
                 background: 'transparent',
@@ -12903,47 +12919,18 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { style: { display: 'flex', alignItems: 'stretch', gap: 4, width: '100%' } },
-              h(
-                'div',
-                {
-                  style: {
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: 3,
-                    borderRadius: 8,
-                    flex: 'none',
-                    background: 'var(--dsw-alias-bg-layer-1)',
-                    border: '1px solid var(--dsw-alias-border-l2)',
-                  },
-                },
-                [
-                  ['tags', 'SD 标签'],
-                  ['natural', '自然语言'],
-                ].map(([value, text]) =>
-                  h(
-                    'button',
-                    {
-                      key: value,
-                      type: 'button',
-                      onClick: () => setPromptStyle(value),
-                      style: {
-                        padding: '4px 8px',
-                        borderRadius: 6,
-                        border: 0,
-                        background: promptStyle === value ? '#3b82f6' : 'transparent',
-                        color: promptStyle === value ? '#ffffff' : 'var(--dsw-alias-label-secondary)',
-                        fontSize: 11,
-                        fontWeight: 600,
-                        fontFamily: 'inherit',
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                      },
-                    },
-                    text,
-                  ),
-                ),
-              ),
+              // Compact variant: this row already holds buttons, so the switch
+              // keeps their height instead of growing the row.
+              h(SegmentToggle, {
+                compact: true,
+                style: { flex: 'none' },
+                options: [
+                  { value: 'tags', label: 'SD 标签' },
+                  { value: 'natural', label: '自然语言' },
+                ],
+                value: promptStyle,
+                onChange: setPromptStyle,
+              }),
               h(
                 'button',
                 {
