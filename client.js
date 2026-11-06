@@ -10564,6 +10564,13 @@ window.__ModuleLoader__.load({
         '.dshCanvasOption{appearance:none;display:block;width:100%;box-sizing:border-box;text-align:left;font:inherit;font-size:10.5px;padding:5px 8px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
         '.dshCanvasOption:hover{background:var(--dsw-alias-bg-layer-2)}' +
         '.dshCanvasOption[data-on="true"]{background:#3b82f6;color:#ffffff}' +
+        // Collapsed setting rows: one dashed line that opens a dialog.
+        '.dshComfyModelBar{display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;min-height:28px;padding:4px 9px;border-radius:8px;border:1px dashed var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer;text-align:left;transition:background .16s ease,border-color .16s ease,color .16s ease}' +
+        '.dshComfyModelBar:hover{background:var(--dsw-alias-bg-layer-1);border-color:#3b82f6;color:var(--dsw-alias-label-primary)}' +
+        '.dshComfyModelBar-key{flex:none;font-weight:600;color:var(--dsw-alias-label-primary)}' +
+        '.dshComfyModelBar-value{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+        '.dshComfyModelBar-count{flex:none;font-size:9.5px;opacity:.8}' +
+        '.dshComfyModelBar-chev{flex:none;opacity:.7}' +
         // Theme switches cross-fade instead of hard-cutting. The child rule is
         // written with :where so it carries zero specificity: anything that ships
         // its own transition (the lift buttons, the slider thumb) keeps working.
@@ -12225,7 +12232,7 @@ window.__ModuleLoader__.load({
             },
             onClose: () => setPickerOpen(false),
           }),
-          h(PromptRulesDialog, { open: rulesOpen, onClose: () => setRulesOpen(false) }),
+        h(PromptRulesDialog, { open: rulesOpen, onClose: () => setRulesOpen(false) }),
           h(PromptHistoryDialog, { open: historyOpen, onClose: () => setHistoryOpen(false) }),
           viewerOpen && savedFiles.length > 0
             ? h(ImageViewer, {
@@ -12356,6 +12363,8 @@ window.__ModuleLoader__.load({
       const [aiBusy, setAiBusy] = useState(false)
       const [aiError, setAiError] = useState('')
       const [rulesOpen, setRulesOpen] = useState(false)
+      const [modelsOpen, setModelsOpen] = useState(false)
+      const [loraOpen, setLoraOpen] = useState(false)
       const [promptWriteSystemTags] = usePref('promptWriteSystemTags')
       const [promptWriteSystemNatural] = usePref('promptWriteSystemNatural')
       const [promptHistory, setPromptHistory] = usePref('promptWriteHistory')
@@ -12698,6 +12707,328 @@ window.__ModuleLoader__.load({
       }
       const current = gallery.find((file) => file.name === selected) || null
       const currentIndex = Math.max(0, gallery.findIndex((file) => file.name === selected))
+
+      // 模型与 LoRA 各收成一行摘要，点开是弹窗：四格表单原来占掉 94px，LoRA 列表
+      // 更多，收起后右栏不再需要滚动。
+      const barOf = (key, value, count, onOpen, title) =>
+        h(
+          'button',
+          { type: 'button', className: 'dshComfyModelBar', onClick: onOpen, title },
+          h('span', { className: 'dshComfyModelBar-key' }, key),
+          h('span', { className: 'dshComfyModelBar-value' }, value),
+          count ? h('span', { className: 'dshComfyModelBar-count' }, count) : null,
+          h('span', { className: 'dshComfyModelBar-chev' }, '›'),
+        )
+
+      const modelBar = barOf(
+        '模型',
+        (models && models.unet) || '选择 UNET / CLIP / VAE',
+        '4 项',
+        () => setModelsOpen(true),
+        'UNET · CLIP · VAE · CLIP 类型',
+      )
+
+      const loraBar = barOf(
+        'LoRA',
+        loraList.length > 0 ? loraList[0].name : '还没有添加',
+        loraList.length + ' / 4',
+        () => setLoraOpen(true),
+        loraList.length > 0 ? '拖动可调整顺序' : '添加 LoRA 并按顺序串联',
+      )
+
+      const dialogShell = (title, body, onClose) =>
+        h(
+          'div',
+          {
+            style: {
+              position: 'fixed',
+              inset: 0,
+              zIndex: 1300,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'rgba(0, 0, 0, 0.55)',
+              backdropFilter: 'blur(2px)',
+              animation: 'dshComfyOverlayIn 160ms ease-out both',
+            },
+            onClick: (event) => {
+              if (event.target === event.currentTarget) onClose()
+            },
+          },
+          h(
+            'div',
+            {
+              style: {
+                width: 420,
+                maxWidth: 'calc(100vw - 40px)',
+                display: 'flex',
+                flexDirection: 'column',
+                borderRadius: 14,
+                border: '1px solid var(--dsw-alias-border-l2)',
+                background: 'var(--dsw-alias-bg-base)',
+                color: 'var(--dsw-alias-label-primary)',
+                boxShadow: '0 24px 70px rgba(0, 0, 0, 0.42)',
+                overflow: 'hidden',
+                animation: 'dshComfyPanelIn 180ms cubic-bezier(.23, 1, .32, 1) both',
+              },
+            },
+            h(
+              'div',
+              {
+                style: {
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '10px 14px',
+                  borderBottom: '1px solid var(--dsw-alias-border-l2)',
+                },
+              },
+              h('span', { style: { fontSize: 12.5, fontWeight: 600 } }, title),
+              h('span', { style: { flex: 1 } }),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  onClick: onClose,
+                  style: {
+                    padding: '4px 10px',
+                    borderRadius: 7,
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                    background: 'transparent',
+                    color: 'var(--dsw-alias-label-secondary)',
+                    fontSize: 10.5,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                  },
+                },
+                '完成',
+              ),
+            ),
+            h(
+              'div',
+              { style: { display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 14px' } },
+              ...body,
+            ),
+          ),
+        )
+
+      const fieldRow = (text, control) =>
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
+          h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, text),
+          h('div', { style: { minWidth: 0 } }, control),
+        )
+
+      const modelDialog = modelsOpen
+        ? dialogShell(
+            '生成设置 · 模型',
+            [
+              fieldRow(
+                'UNET',
+                h(Dropdown, {
+                  title: 'UNET',
+                  placeholder: '选择 UNET',
+                  value: (models && models.unet) || '',
+                  options: ((options && options.unet) || []).map((item) => ({ value: item, label: item })),
+                  onPick: (value) => pickModel('unet', value),
+                  menuMinWidth: 240,
+                  menuAlign: 'right',
+                }),
+              ),
+              fieldRow(
+                'CLIP',
+                h(Dropdown, {
+                  title: 'CLIP',
+                  placeholder: '选择 CLIP',
+                  value: (models && models.clip) || '',
+                  options: ((options && options.clip) || []).map((item) => ({ value: item, label: item })),
+                  onPick: (value) => pickModel('clip', value),
+                  menuMinWidth: 240,
+                  menuAlign: 'right',
+                }),
+              ),
+              fieldRow(
+                'VAE',
+                h(Dropdown, {
+                  title: 'VAE',
+                  placeholder: '选择 VAE',
+                  value: (models && models.vae) || '',
+                  options: ((options && options.vae) || []).map((item) => ({ value: item, label: item })),
+                  onPick: (value) => pickModel('vae', value),
+                  menuMinWidth: 200,
+                  menuAlign: 'right',
+                }),
+              ),
+              fieldRow(
+                'CLIP 类型',
+                h(Dropdown, {
+                  title: 'CLIP 类型',
+                  placeholder: '选择类型',
+                  value: clipType,
+                  options: ['flux', 'stable_diffusion', 'sd3', 'stable_cascade'].map((item) => ({ value: item, label: item })),
+                  onPick: (value) => setClipType(value),
+                  menuMinWidth: 160,
+                  menuAlign: 'right',
+                }),
+              ),
+            ],
+            () => setModelsOpen(false),
+          )
+        : null
+
+      const loraRow = (entry, index) =>
+        h(
+          'div',
+          {
+            key: entry.name,
+            onDragOver: (event) => {
+              event.preventDefault()
+              if (dragLora !== null) setDropLora(index)
+            },
+            onDragLeave: () => setDropLora((current) => (current === index ? null : current)),
+            onDrop: (event) => {
+              event.preventDefault()
+              moveLora(dragLora, index)
+            },
+            style: {
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '3px 6px',
+              borderRadius: 7,
+              borderWidth: 1,
+              borderStyle: 'solid',
+              borderColor: dropLora === index && dragLora !== null ? '#3b82f6' : 'var(--dsw-alias-border-l2)',
+              background: 'var(--dsw-alias-bg-layer-1)',
+              opacity: dragLora === index ? 0.45 : 1,
+            },
+          },
+          h(
+            'span',
+            {
+              draggable: true,
+              title: '拖动调整顺序',
+              onDragStart: (event) => {
+                setDragLora(index)
+                const transfer = event.dataTransfer
+                if (transfer) {
+                  transfer.effectAllowed = 'move'
+                  try {
+                    transfer.setData('text/plain', String(index))
+                  } catch {
+                    // 状态里已经有 index 了
+                  }
+                }
+              },
+              onDragEnd: () => {
+                setDragLora(null)
+                setDropLora(null)
+              },
+              style: {
+                flex: 'none',
+                cursor: 'grab',
+                fontSize: 12,
+                lineHeight: 1,
+                color: 'var(--dsw-alias-label-secondary)',
+                userSelect: 'none',
+              },
+            },
+            '⠿',
+          ),
+          h(
+            'span',
+            {
+              title: entry.name,
+              style: {
+                flex: 1,
+                minWidth: 0,
+                fontSize: 10.5,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              },
+            },
+            entry.name,
+          ),
+          h('input', {
+            type: 'number',
+            step: 0.1,
+            min: -2,
+            max: 2,
+            value: entry.strength,
+            title: '权重（strength_model）',
+            style: Object.assign({}, field, { width: 56, flex: 'none', padding: '3px 6px', fontSize: 10.5 }),
+            onChange: (event) => setLoraStrength(index, event.target.value),
+          }),
+          h(
+            'button',
+            {
+              type: 'button',
+              title: '移除',
+              onClick: () => removeLora(index),
+              style: {
+                flex: 'none',
+                width: 20,
+                height: 20,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0,
+                borderRadius: 5,
+                border: 0,
+                background: 'transparent',
+                color: 'var(--dsw-alias-label-secondary)',
+                fontSize: 12,
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+              },
+            },
+            '×',
+          ),
+        )
+
+      const loraDialog = loraOpen
+        ? dialogShell(
+            '生成设置 · LoRA',
+            [
+              h(
+                'div',
+                { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.5 } },
+                '按列表顺序依次串联在 UNET 之后，顺序会影响出图；拖动 ⠿ 调整。',
+              ),
+              ...(loraList.length > 0
+                ? loraList.map(loraRow)
+                : [
+                    h(
+                      'div',
+                      { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)', opacity: 0.8 } },
+                      '还没有添加 LoRA',
+                    ),
+                  ]),
+              h(
+                'div',
+                { style: { minWidth: 0 } },
+                h(Dropdown, {
+                  title: '从 models/loras 里选一个加进链条',
+                  placeholder: loraOptions.length > 0 ? '+ 添加 LoRA' : '（没有发现 LoRA 文件）',
+                  value: '',
+                  options: loraOptions.map((name) => ({ value: name, label: name })),
+                  onPick: (name) => addLora(name),
+                  menuMinWidth: 300,
+                  menuAlign: 'right',
+                }),
+              ),
+              h(
+                'div',
+                { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)', opacity: 0.8 } },
+                '最多 4 个 · 权重范围 -2 ~ 2，步进 0.1',
+              ),
+            ],
+            () => setLoraOpen(false),
+          )
+        : null
+
       return h(
         'div',
         {
@@ -13055,6 +13386,18 @@ window.__ModuleLoader__.load({
               style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.55 }),
               onChange: (event) => setPrompt(event.target.value),
             }),
+          h(
+            'label',
+            { style: label },
+            'Negative',
+            h('textarea', {
+              value: negative,
+              rows: 2,
+              placeholder: '负面提示词（可选）',
+              style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.5 }),
+              onChange: (event) => setNegative(event.target.value),
+            }),
+          ),
             // The AI trio acts on the prompt above it, so it sits under the box.
             // The row spans the full column width: the style switch keeps its
             // natural size and the AI button absorbs the slack, so the row lines
@@ -13159,94 +13502,8 @@ window.__ModuleLoader__.load({
               ? h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-state-error-primary)' } }, aiError)
               : null,
           ),
-          h(
-            'label',
-            { style: label },
-            'Negative',
-            h('textarea', {
-              value: negative,
-              rows: 2,
-              placeholder: '负面提示词（可选）',
-              style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.5 }),
-              onChange: (event) => setNegative(event.target.value),
-            }),
-          ),
-          h(
-            'div',
-            { style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 } },
-            h(
-              'div',
-              { style: label },
-              h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, 'UNET'),
-              h(
-                'div',
-                { style: { minWidth: 0 } },
-                h(Dropdown, {
-                  title: 'UNET',
-                  placeholder: '选择 UNET',
-                  value: (models && models.unet) || '',
-                  options: ((options && options.unet) || []).map((item) => ({ value: item, label: item })),
-                  onPick: (value) => pickModel('unet', value),
-                  menuMinWidth: 240,
-                  menuAlign: 'right',
-                }),
-              ),
-            ),
-            h(
-              'div',
-              { style: label },
-              h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, 'CLIP'),
-              h(
-                'div',
-                { style: { minWidth: 0 } },
-                h(Dropdown, {
-                  title: 'CLIP',
-                  placeholder: '选择 CLIP',
-                  value: (models && models.clip) || '',
-                  options: ((options && options.clip) || []).map((item) => ({ value: item, label: item })),
-                  onPick: (value) => pickModel('clip', value),
-                  menuMinWidth: 240,
-                  menuAlign: 'right',
-                }),
-              ),
-            ),
-            h(
-              'div',
-              { style: label },
-              h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, 'VAE'),
-              h(
-                'div',
-                { style: { minWidth: 0 } },
-                h(Dropdown, {
-                  title: 'VAE',
-                  placeholder: '选择 VAE',
-                  value: (models && models.vae) || '',
-                  options: ((options && options.vae) || []).map((item) => ({ value: item, label: item })),
-                  onPick: (value) => pickModel('vae', value),
-                  menuMinWidth: 200,
-                  menuAlign: 'right',
-                }),
-              ),
-            ),
-            h(
-              'div',
-              { style: label },
-              h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, 'CLIP 类型'),
-              h(
-                'div',
-                { style: { minWidth: 0 } },
-                h(Dropdown, {
-                  title: 'CLIP 类型',
-                  placeholder: '选择类型',
-                  value: clipType,
-                  options: ['flux', 'stable_diffusion', 'sd3', 'stable_cascade'].map((item) => ({ value: item, label: item })),
-                  onPick: (value) => setClipType(value),
-                  menuMinWidth: 160,
-                  menuAlign: 'right',
-                }),
-              ),
-            ),
-          ),
+          modelBar,
+          loraBar,
           h(
             'div',
             { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
@@ -13389,166 +13646,6 @@ window.__ModuleLoader__.load({
               }),
             ),
           ),
-          // LoRA chain: order here is the order they are applied, so the rows are
-          // reorderable. The host rebuilds UNET → lora… → sampler from this list.
-          h(
-            'div',
-            { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
-            h(
-              'div',
-              { style: { display: 'flex', alignItems: 'center', gap: 6 } },
-              h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, 'LoRA'),
-              h('span', { style: { flex: 1 } }),
-              h(
-                'span',
-                { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } },
-                loraList.length + ' / 4' + (loraList.length > 0 ? ' · 拖动调整顺序' : ''),
-              ),
-            ),
-            loraList.length > 0
-              ? h(
-                  'div',
-                  { style: { display: 'flex', flexDirection: 'column', gap: 4 } },
-                  ...loraList.map((entry, index) =>
-                    h(
-                      'div',
-                      {
-                        key: entry.name,
-                        onDragOver: (event) => {
-                          event.preventDefault()
-                          if (dragLora !== null) setDropLora(index)
-                        },
-                        onDragLeave: () => setDropLora((current) => (current === index ? null : current)),
-                        onDrop: (event) => {
-                          event.preventDefault()
-                          moveLora(dragLora, index)
-                        },
-                        style: {
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          padding: '3px 6px',
-                          borderRadius: 7,
-                          borderWidth: 1,
-                          borderStyle: 'solid',
-                          borderColor:
-                            dropLora === index && dragLora !== null
-                              ? '#3b82f6'
-                              : 'var(--dsw-alias-border-l2)',
-                          background: 'var(--dsw-alias-bg-layer-1)',
-                          opacity: dragLora === index ? 0.45 : 1,
-                        },
-                      },
-                      h(
-                        'span',
-                        {
-                          draggable: true,
-                          title: '拖动调整顺序',
-                          onDragStart: (event) => {
-                            setDragLora(index)
-                            // jsdom and some drag sources hand over no transfer.
-                            const transfer = event.dataTransfer
-                            if (transfer) {
-                              transfer.effectAllowed = 'move'
-                              try {
-                                transfer.setData('text/plain', String(index))
-                              } catch {
-                                // The state already carries the index.
-                              }
-                            }
-                          },
-                          onDragEnd: () => {
-                            setDragLora(null)
-                            setDropLora(null)
-                          },
-                          style: {
-                            flex: 'none',
-                            cursor: 'grab',
-                            fontSize: 12,
-                            lineHeight: 1,
-                            color: 'var(--dsw-alias-label-secondary)',
-                            userSelect: 'none',
-                          },
-                        },
-                        '⠿',
-                      ),
-                      h(
-                        'span',
-                        {
-                          title: entry.name,
-                          style: {
-                            flex: 1,
-                            minWidth: 0,
-                            fontSize: 10.5,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          },
-                        },
-                        entry.name,
-                      ),
-                      h('input', {
-                        type: 'number',
-                        step: 0.1,
-                        min: -2,
-                        max: 2,
-                        value: entry.strength,
-                        title: '权重（strength_model）',
-                        style: Object.assign({}, field, {
-                          width: 56,
-                          flex: 'none',
-                          padding: '3px 6px',
-                          fontSize: 10.5,
-                        }),
-                        onChange: (event) => setLoraStrength(index, event.target.value),
-                      }),
-                      h(
-                        'button',
-                        {
-                          type: 'button',
-                          title: '移除',
-                          onClick: () => removeLora(index),
-                          style: {
-                            flex: 'none',
-                            width: 20,
-                            height: 20,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            padding: 0,
-                            borderRadius: 5,
-                            border: 0,
-                            background: 'transparent',
-                            color: 'var(--dsw-alias-label-secondary)',
-                            fontSize: 12,
-                            fontFamily: 'inherit',
-                            cursor: 'pointer',
-                          },
-                        },
-                        '×',
-                      ),
-                    ),
-                  ),
-                )
-              : h(
-                  'div',
-                  { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)', opacity: 0.8 } },
-                  '还没添加；选的 LoRA 会按上面的顺序串在 UNET 之后',
-                ),
-            h(
-              'div',
-              { style: { minWidth: 0 } },
-              h(Dropdown, {
-                title: '从 models/loras 里选一个加进链条',
-                placeholder: loraOptions.length > 0 ? '+ 添加 LoRA' : '（没有发现 LoRA 文件）',
-                value: '',
-                options: loraOptions.map((name) => ({ value: name, label: name })),
-                onPick: (name) => addLora(name),
-                menuMinWidth: 300,
-                menuAlign: 'right',
-              }),
-            ),
-          ),
           // The live count lives on the preview overlay; this line only carries the
           // plain result text (submitted / finished / failed).
           status ? h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, status) : null,
@@ -13640,6 +13737,8 @@ window.__ModuleLoader__.load({
             busy ? '生成中…' : '生成',
           ),
         ),
+        modelDialog,
+        loraDialog,
         h(PromptRulesDialog, { open: rulesOpen, onClose: () => setRulesOpen(false) }),
           h(PromptHistoryDialog, { open: historyOpen, onClose: () => setHistoryOpen(false) }),
         h(PinnedPromptDialog, {
