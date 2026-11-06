@@ -6825,10 +6825,14 @@ window.__ModuleLoader__.load({
           '.dshCanvasBtn{appearance:none;flex:none;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10.5px;line-height:1.5;padding:4px 11px;border-radius:7px;cursor:pointer;white-space:nowrap}',
           '.dshCanvasBtn{transition:transform 160ms cubic-bezier(0.23,1,0.32,1)}',
           // Same-row heights: children that size themselves from their content
-          // (icon buttons, dropdown triggers) stretch to the row's tallest item
-          // instead of sitting a few pixels short of it.
-          '.dshComfyCanvasHead .dshCanvasBtn,.dshComfyCanvasHead .dshCanvasPicker{align-self:stretch}',
-          '.dshComfyWorkbenchBar .dshCanvasBtn,.dshComfyWorkbenchBar .dshCanvasPicker,.dshComfyWorkbenchBar input{align-self:stretch}',
+          // (icon buttons, dropdown triggers, the back arrow) stretch to the row's
+          // tallest item instead of sitting a few pixels short of it. Text spans
+          // are left alone so their baselines keep sitting where they were.
+          '.dshComfyCanvasHead>button,.dshComfyCanvasHead>a,.dshComfyCanvasHead>div,.dshComfyCanvasHead>input,.dshComfyWorkbenchBar>button,.dshComfyWorkbenchBar>a,.dshComfyWorkbenchBar>div,.dshComfyWorkbenchBar>input{align-self:stretch}',
+          // Dropdown triggers live inside the dropdown's own positioning wrapper, so
+          // they cannot stretch with the row on their own. 25.75px is what a
+          // .dshCanvasBtn measures (10.5 × 1.5 + 4/4 padding + 1/1 border).
+          '.dshComfyCanvasHead .dshCanvasPicker,.dshComfyWorkbenchBar .dshCanvasPicker{height:25.75px;box-sizing:border-box}',
           '.dshCanvasBtn:active:not(:disabled){transform:scale(.97) translateY(1px)}',
           '@media (prefers-reduced-motion:reduce){.dshCanvasBtn{transition:none}.dshCanvasBtn:active:not(:disabled){transform:none}}',
           '.dshCanvasBtn:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
