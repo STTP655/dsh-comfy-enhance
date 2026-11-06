@@ -1930,8 +1930,10 @@ window.__ModuleLoader__.load({
       flex: 'none',
       display: 'flex',
       alignItems: 'center',
-      gap: 8,
-      padding: '9px 12px',
+      // Same box as the canvas tab's header, so the two panes line up when the
+      // user switches between them.
+      gap: 10,
+      padding: '12px 14px',
       borderBottom: '1px solid var(--dsw-alias-border-l2)',
     }
     const ALBUM_GRID = {
