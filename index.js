@@ -259,10 +259,18 @@ function readPngText(buffer) {
   return result
 }
 
+/** 像素尺寸直接读 IHDR：工作流里的 width/height 是「请求值」，不等于落盘尺寸。 */
+function readPngSize(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 24) return null
+  if (buffer.readUInt32BE(0) !== 0x89504e47) return null
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) }
+}
+
 /** Summarized generation parameters of one output file, when it carries them. */
 async function readOutputMetaFile(filePath) {
   const buffer = await readFile(filePath)
   const text = readPngText(buffer)
+  const pixelSize = readPngSize(buffer)
   let prompt = null
   if (typeof text.prompt === 'string') {
     try {
@@ -271,8 +279,11 @@ async function readOutputMetaFile(filePath) {
       prompt = null
     }
   }
-  if (!prompt) return null
-  return summarizeWorkflow(prompt)
+  if (!prompt) return pixelSize ? { size: pixelSize } : null
+  const summary = summarizeWorkflow(prompt)
+  // 真实尺寸以 PNG 头为准；工作流里的 latent 尺寸只是请求值。
+  if (pixelSize) summary.size = pixelSize
+  return summary
 }
 
 async function readOutputMeta(dir, filename) {

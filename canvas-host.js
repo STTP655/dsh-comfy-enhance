@@ -448,6 +448,10 @@ async function submitLayout(baseUrl, layout, models, width, height, negative, pl
 const TEXT2IMG_TEMPLATE_URL = new URL('./templates/moss-text2img-api.json', import.meta.url)
 
 /** One plain text-to-image generation for non-MOSS DiT models. */
+// 实测：EmptyFlux2LatentImage 配 qwen_image_vae 时，落盘尺寸正好是图里尺寸的一半。
+// 这个常数就是那个补偿倍数，换模板/换 VAE 后如果比例变了，只改这里。
+const LATENT_SCALE = 2
+
 async function submitText2Img(baseUrl, body) {
   const template = JSON.parse(await readFile(fileURLToPath(TEXT2IMG_TEMPLATE_URL), 'utf8'))
   const graph = JSON.parse(JSON.stringify(template))
@@ -477,8 +481,11 @@ async function submitText2Img(baseUrl, body) {
   const height = Math.max(64, Math.round(Number(body.height) || 1024))
   const latentNode = findLatentNode(graph)
   if (latentNode && latentNode.inputs) {
-    latentNode.inputs.width = width
-    latentNode.inputs.height = height
+    // 这套模板的 latent 节点配当前 VAE 会正好缩成一半（实测 1024→512、
+    // 864×1152→432×576、1728×2304→864×1152，都是精确 1/2），所以写进
+    // 图之前先按比例补回来，保证「面板填多少、落盘就是多少」。
+    latentNode.inputs.width = width * LATENT_SCALE
+    latentNode.inputs.height = height * LATENT_SCALE
   }
   const samplerNode = findNodeByType(graph, 'KSampler')
   if (samplerNode && samplerNode.inputs && body.sampling && typeof body.sampling === 'object') {
