@@ -767,25 +767,6 @@ window.__ModuleLoader__.load({
             },
             h(Icon, { name: 'settings', size: 11 }),
           ),
-          h(
-            'button',
-            {
-              type: 'button',
-              disabled: stopping,
-              onClick: stop,
-              title: '停止 ComfyUI',
-              style: {
-                padding: '2px 6px',
-                borderRadius: 6,
-                border: '1px solid rgba(255, 90, 90, 0.5)',
-                background: 'transparent',
-                color: '#ff5a5a',
-                fontSize: 10,
-                cursor: 'pointer',
-              },
-            },
-            stopping ? '停止中…' : '停止',
-          ),
           message ? h('span', { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } }, message) : null,
           h(DirectoryPicker, {
             open: pickerOpen,
@@ -850,25 +831,6 @@ window.__ModuleLoader__.load({
             },
             h(Icon, { name: 'settings', size: 13 }),
             '选择目录',
-          ),
-          h(
-            'button',
-            {
-              type: 'button',
-              disabled: stopping,
-              onClick: stop,
-              style: {
-                padding: '4px 12px',
-                borderRadius: 7,
-                border: '1px solid rgba(255, 90, 90, 0.5)',
-                background: 'transparent',
-                color: '#ff5a5a',
-                fontSize: 11,
-                fontFamily: 'inherit',
-                cursor: 'pointer',
-              },
-            },
-            stopping ? '停止中…' : '停止 ComfyUI',
           ),
           message
             ? h(
