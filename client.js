@@ -2185,6 +2185,86 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /** Is the host app itself dark right now? Read, don't guess. */
+    function readDshNight() {
+      try {
+        const cs = getComputedStyle(document.body)
+        if (cs.colorScheme) return /dark/i.test(cs.colorScheme)
+        const hit = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(cs.backgroundColor || '')
+        if (hit) return (Number(hit[1]) + Number(hit[2]) + Number(hit[3])) / 3 < 110
+      } catch {
+        // Fall through to the system preference.
+      }
+      return Boolean(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    }
+
+    /** Live view of the host theme, so 'auto' follows it instead of freezing. */
+    function useDshNight() {
+      const [night, setNight] = useState(readDshNight)
+      useEffect(() => {
+        const sync = () => setNight(readDshNight())
+        const timer = setInterval(sync, 1200)
+        const media = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)')
+        if (media && media.addEventListener) media.addEventListener('change', sync)
+        const observer = new MutationObserver(sync)
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] })
+        if (document.body) observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'style'] })
+        return () => {
+          clearInterval(timer)
+          if (media && media.removeEventListener) media.removeEventListener('change', sync)
+          observer.disconnect()
+        }
+      }, [])
+      return night
+    }
+
+    /**
+     * Surface theme preference: 'auto' follows the host, 'dark'/'light' override it.
+     * A click walks auto → the opposite of what is showing → the other → auto, so
+     * following the host again stays reachable.
+     */
+    function useSurfaceTheme(prefKey) {
+      const [stored, setStored] = usePref(prefKey)
+      const dshNight = useDshNight()
+      const mode = stored === 'dark' || stored === 'light' ? stored : 'auto'
+      const night = mode === 'auto' ? dshNight : mode === 'dark'
+      const cycle = () => {
+        if (mode === 'auto') setStored(dshNight ? 'light' : 'dark')
+        else if (mode === 'dark') setStored('light')
+        else setStored('auto')
+      }
+      return { night, mode, cycle }
+    }
+
+    /** Icon-only theme switch, same box as the other square header buttons. */
+    function SurfaceThemeButton(props) {
+      const night = Boolean(props.night)
+      const mode = props.mode || 'auto'
+      const label = mode === 'auto' ? '跟随 DSH 主题' : night ? '深色' : '浅色'
+      return h(
+        'button',
+        {
+          type: 'button',
+          className: 'dshCanvasBtn',
+          'data-square': 'true',
+          title: mode === 'auto' ? '当前跟随 DSH 主题（点击改为手动）' : '当前手动：' + label + '（点击继续切换）',
+          'aria-label': '切换深浅主题',
+          onClick: props.onClick,
+          style: {
+            flexShrink: 0,
+            alignSelf: 'stretch',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 25,
+            padding: 0,
+            boxSizing: 'border-box',
+          },
+        },
+        h(ThemeIcon, { night }),
+      )
+    }
+
     /**
      * Theme surfaces shared by the album page and the canvas page. Only the token
      * values are redefined here; every inner style keeps reading the same names.
@@ -11501,6 +11581,7 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         {
+          className: props.night ? 'dshComfySurface-dark' : 'dshComfySurface-light',
           style: {
             display: 'flex',
             gap: 16,
@@ -11530,6 +11611,8 @@ window.__ModuleLoader__.load({
             { style: { display: 'flex', alignItems: 'center', gap: 8 } },
             h('button', { type: 'button', style: btn, onClick: props.onBack }, '返回'),
             h('div', { style: { fontSize: 14, fontWeight: 600 } }, '在线 API 出图'),
+            h('span', { style: { flex: 1 } }),
+            h(SurfaceThemeButton, { night: props.night, mode: props.themeMode, onClick: props.onTheme }),
           ),
           h(SegmentToggle, {
             options: [
@@ -12563,6 +12646,7 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         {
+          className: props.night ? 'dshComfySurface-dark' : 'dshComfySurface-light',
           style: {
             display: 'flex',
             gap: 16,
@@ -12843,6 +12927,8 @@ window.__ModuleLoader__.load({
             'div',
             { style: { display: 'flex', alignItems: 'center', gap: 8, minHeight: 30 } },
             h('div', { className: 'dshComfyShimmerTitle' }, '本地文生图'),
+            h('span', { style: { flex: 1 } }),
+            h(SurfaceThemeButton, { night: props.night, mode: props.themeMode, onClick: props.onTheme }),
           ),
           h(
             'div',
@@ -13535,8 +13621,9 @@ window.__ModuleLoader__.load({
         }, 150)
       }
       const [enabled] = usePref('canvasWorkspace')
-      const [canvasTheme, setCanvasTheme] = usePref('workspaceTheme')
-      const canvasNight = canvasTheme !== 'light'
+      // 'auto' (default) follows the host theme; clicking overrides it manually.
+      const surfaceTheme = useSurfaceTheme('workspaceTheme')
+      const canvasNight = surfaceTheme.night
       const [canvasModels, setCanvasModels] = usePref('workspaceCanvasModels')
       const canvasModelsRef = useRef(canvasModels)
       canvasModelsRef.current = canvasModels
@@ -14594,11 +14681,21 @@ window.__ModuleLoader__.load({
           view === 'chooser'
             ? h(WorkbenchChooser, { onPick: changeView })
             : view === 'online'
-              ? h(OnlineImagePanel, { onBack: () => changeView('chooser') })
+              ? h(OnlineImagePanel, {
+                  onBack: () => changeView('chooser'),
+                  night: canvasNight,
+                  themeMode: surfaceTheme.mode,
+                  onTheme: surfaceTheme.cycle,
+                })
               : h(
                   WorkbenchBoundary,
                   null,
-                  h(LocalText2ImgPanel, { onBack: () => changeView('chooser') }),
+                  h(LocalText2ImgPanel, {
+                    onBack: () => changeView('chooser'),
+                    night: canvasNight,
+                    themeMode: surfaceTheme.mode,
+                    onTheme: surfaceTheme.cycle,
+                  }),
                 ),
         )
       }
@@ -14980,16 +15077,6 @@ window.__ModuleLoader__.load({
             h(Icon, { name: 'sliders-horizontal', size: 12 }),
             h('span', null, '模型'),
           ),
-          h(
-            'button',
-            {
-              className: 'dshCanvasBtn',
-              style: { flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4 },
-              title: '切换深浅主题',
-              onClick: () => setCanvasTheme(canvasNight ? 'light' : 'dark'),
-            },
-            canvasNight ? '浅色' : '深色',
-          ),
           h('button', { className: 'dshCanvasBtn', style: { flexShrink: 0 }, onClick: addBox }, '加框'),
           h(
             'button',
@@ -15006,6 +15093,12 @@ window.__ModuleLoader__.load({
             },
             '快速生成',
           ),
+          // Theme switch closes the row, like every other header in this plugin.
+          h(SurfaceThemeButton, {
+            night: canvasNight,
+            mode: surfaceTheme.mode,
+            onClick: surfaceTheme.cycle,
+          }),
         ),
         h(
           'div',
