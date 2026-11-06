@@ -2221,7 +2221,7 @@ window.__ModuleLoader__.load({
           // and a square icon button for the theme switch.
           '.dshComfyAlbum-head .dshComfyAlbum-btn{padding:4px 11px;border-radius:7px;border-color:var(--dsw-alias-border-l2);line-height:1.5;transition:transform 160ms cubic-bezier(0.23,1,0.32,1)}',
           '.dshComfyAlbum-head .dshComfyAlbum-btn[data-dark="true"]{border-color:rgba(255,255,255,.14)}',
-          '.dshComfyAlbum-head .dshComfyAlbum-btn[data-square="true"]{width:25px;height:25px;padding:0;box-sizing:border-box;justify-content:center}',
+          '.dshComfyAlbum-head .dshComfyAlbum-btn[data-square="true"]{width:25px;padding:4px 0;box-sizing:border-box;justify-content:center}',
           // Same press feedback as the canvas bar.
           '.dshComfyAlbum-head .dshComfyAlbum-btn:active:not(:disabled){transform:scale(.97) translateY(1px)}',
           '.dshComfyAlbum-head .dshComfyAlbum-btn:hover:not(:disabled){filter:brightness(1.06)}',
@@ -5262,23 +5262,6 @@ window.__ModuleLoader__.load({
             'button',
             {
               className: 'dshComfyAlbum-btn',
-              'data-square': 'true',
-              style: {
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                lineHeight: 1,
-              },
-              title: nightTheme ? '切换到日间' : '切换到夜间',
-              'aria-label': nightTheme ? '切换到日间' : '切换到夜间',
-              onClick: () => setAlbumTheme(nightTheme ? 'light' : 'dark'),
-            },
-            h(ThemeIcon, { night: nightTheme }),
-          ),
-          h(
-            'button',
-            {
-              className: 'dshComfyAlbum-btn',
               style:
                 source === 'album'
                   ? { background: 'var(--dsw-alias-brand-primary)', color: '#ffffff', borderColor: 'var(--dsw-alias-brand-primary)' }
@@ -5316,6 +5299,23 @@ window.__ModuleLoader__.load({
               onClick: source === 'dir' ? () => setDirNonce((value) => value + 1) : reload,
             },
             '刷新',
+          ),
+          // Theme switch sits last, matching the canvas tab's header.
+          h(
+            'button',
+            {
+              className: 'dshComfyAlbum-btn',
+              'data-square': 'true',
+              style: {
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              },
+              title: nightTheme ? '切换到日间' : '切换到夜间',
+              'aria-label': nightTheme ? '切换到日间' : '切换到夜间',
+              onClick: () => setAlbumTheme(nightTheme ? 'light' : 'dark'),
+            },
+            h(ThemeIcon, { night: nightTheme }),
           ),
         ),
         source === 'dir' && dirPath
@@ -10206,7 +10206,12 @@ window.__ModuleLoader__.load({
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                lineHeight: 1,
+                // Same padding as the text buttons, only horizontal padding
+                // removed: the height then matches them exactly instead of
+                // riding on a smaller line box.
+                width: 25,
+                padding: '4px 0',
+                boxSizing: 'border-box',
               },
               title: canvasNight ? '切换到日间' : '切换到夜间',
               'aria-label': canvasNight ? '切换到日间' : '切换到夜间',
