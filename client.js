@@ -15238,102 +15238,22 @@ window.__ModuleLoader__.load({
             h(Icon, { name: 'shuffle', size: 12 }),
             h('span', null, '随机'),
           ),
-          jobActive
+          status
             ? h(
-                'div',
-                { style: { display: 'flex', alignItems: 'center', gap: 6, flex: 'none' } },
-                h('span', {
+                'span',
+                {
                   style: {
-                    width: 7,
-                    height: 7,
-                    borderRadius: '50%',
-                    flex: 'none',
-                    background: '#ff5a5a',
-                    animation: 'dshComfyJobPulse 1.1s ease-in-out infinite',
+                    fontSize: 10.5,
+                    color: 'var(--dsw-alias-label-secondary)',
+                    maxWidth: 200,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
                   },
-                }),
-                h(
-                  'span',
-                  { style: { fontSize: 10.5, fontWeight: 600, color: '#ff6b6b', whiteSpace: 'nowrap' } },
-                  job.status === 'running' ? '正在生成' : '排队中',
-                ),
-                job.progress
-                  ? h(
-                      'span',
-                      {
-                        style: {
-                          fontSize: 10,
-                          color: 'rgba(255, 107, 107, 0.85)',
-                          fontVariantNumeric: 'tabular-nums',
-                        },
-                      },
-                      job.progress.value + '/' + job.progress.max,
-                    )
-                  : null,
-                h(
-                  'span',
-                  {
-                    style: {
-                      fontSize: 10,
-                      color: 'rgba(255, 107, 107, 0.85)',
-                      fontVariantNumeric: 'tabular-nums',
-                    },
-                  },
-                  jobElapsed + 's',
-                ),
-                h(
-                  'div',
-                  {
-                    style: {
-                      width: 64,
-                      height: 3,
-                      borderRadius: 99,
-                      background: 'var(--dsw-alias-bg-layer-2)',
-                      overflow: 'hidden',
-                      flex: 'none',
-                    },
-                  },
-                  h('div', {
-                    style: {
-                      width: '40%',
-                      height: '100%',
-                      borderRadius: 99,
-                      background: 'linear-gradient(90deg, #ff4d4d, #ff9a4a)',
-                      animation: 'dshComfyJobSlide 1.15s ease-in-out infinite',
-                    },
-                  }),
-                ),
-                h(
-                  'button',
-                  {
-                    className: 'dshCanvasBtn',
-                    style: {
-                      flexShrink: 0,
-                      padding: '2px 8px',
-                      color: '#ff6b6b',
-                      borderColor: 'rgba(255, 90, 90, 0.5)',
-                    },
-                    onClick: cancelTrackedJob,
-                  },
-                  '停止',
-                ),
+                },
+                status,
               )
-            : status
-              ? h(
-                  'span',
-                  {
-                    style: {
-                      fontSize: 10.5,
-                      color: 'var(--dsw-alias-label-secondary)',
-                      maxWidth: 200,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    },
-                  },
-                  status,
-                )
-              : null,
+            : null,
           h('span', { style: { flex: 1 } }),
           h(
             'span',
@@ -15422,6 +15342,109 @@ window.__ModuleLoader__.load({
               },
             },
             stageContent,
+            // 生成进度做成卡片浮在画框右上角：顶栏只留按钮，进度跟着画面走。
+            jobActive
+              ? h(
+                  'div',
+                  {
+                    style: {
+                      position: 'absolute',
+                      top: 10,
+                      right: 12,
+                      zIndex: 21,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 7,
+                      padding: '5px 8px 5px 9px',
+                      borderRadius: 10,
+                      border: '1px solid var(--dsw-alias-border-l2)',
+                      background: 'var(--dsw-alias-bg-base)',
+                      boxShadow: '0 10px 26px rgba(0, 0, 0, 0.32)',
+                      animation: 'dshComfyPanelIn 180ms cubic-bezier(.23, 1, .32, 1) both',
+                    },
+                  },
+                  h('span', {
+                    style: {
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      flex: 'none',
+                      background: '#ff5a5a',
+                      animation: 'dshComfyJobPulse 1.1s ease-in-out infinite',
+                    },
+                  }),
+                  h(
+                    'span',
+                    { style: { fontSize: 10.5, fontWeight: 600, color: '#ff6b6b', whiteSpace: 'nowrap' } },
+                    job.status === 'running' ? '正在生成' : '排队中',
+                  ),
+                  job.progress
+                    ? h(
+                        'span',
+                        {
+                          style: {
+                            fontSize: 10,
+                            color: 'var(--dsw-alias-label-secondary)',
+                            fontVariantNumeric: 'tabular-nums',
+                          },
+                        },
+                        job.progress.value + '/' + job.progress.max,
+                      )
+                    : null,
+                  h(
+                    'span',
+                    {
+                      style: {
+                        fontSize: 10,
+                        color: 'var(--dsw-alias-label-secondary)',
+                        fontVariantNumeric: 'tabular-nums',
+                      },
+                    },
+                    jobElapsed + 's',
+                  ),
+                  h(
+                    'div',
+                    {
+                      style: {
+                        width: 72,
+                        height: 3,
+                        borderRadius: 99,
+                        background: 'var(--dsw-alias-bg-layer-2)',
+                        overflow: 'hidden',
+                        flex: 'none',
+                      },
+                    },
+                    h('div', {
+                      style: Object.assign(
+                        {
+                          width: job.progress
+                            ? Math.max(4, Math.min(100, (job.progress.value / job.progress.max) * 100)) + '%'
+                            : '38%',
+                          height: '100%',
+                          borderRadius: 99,
+                          background: 'linear-gradient(90deg, #ff4d4d, #ff9a4a)',
+                          transition: 'width 200ms ease',
+                        },
+                        job.progress ? null : { animation: 'dshComfyJobSlide 1.15s ease-in-out infinite' },
+                      ),
+                    }),
+                  ),
+                  h(
+                    'button',
+                    {
+                      className: 'dshCanvasBtn',
+                      style: {
+                        flexShrink: 0,
+                        padding: '2px 8px',
+                        color: '#ff6b6b',
+                        borderColor: 'rgba(255, 90, 90, 0.5)',
+                      },
+                      onClick: cancelTrackedJob,
+                    },
+                    '停止',
+                  ),
+                )
+              : null,
             h(
               'div',
               {
