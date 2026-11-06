@@ -2313,10 +2313,9 @@ window.__ModuleLoader__.load({
           SURFACE_LIGHT_CSS,
           SURFACE_DARK_CSS,
           // Switching themes cross-fades the token-driven colors instead of
-          // hard-cutting the whole page.
-          '.dshComfySurface-dark,.dshComfySurface-light{transition:background-color .3s ease,color .3s ease}',
-          '.dshComfySurface-dark *,.dshComfySurface-light *{transition:background-color .26s ease,color .26s ease,border-color .26s ease}',
-          '@media (prefers-reduced-motion:reduce){.dshComfySurface-dark,.dshComfySurface-light,.dshComfySurface-dark *,.dshComfySurface-light *{transition:none!important}}',
+          // hard-cutting the whole page. The rules live in ensureBaseStyle() now;
+          // keeping a copy here gave them class-level specificity, which outranked
+          // component transitions (the AI button's lift) whenever this sheet was up.
           THEME_ICON_CSS,
           '.dshComfyAlbum-btn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
           // The album header follows the canvas tab's bar: same box, same radius,
@@ -6997,9 +6996,8 @@ window.__ModuleLoader__.load({
           SURFACE_DARK_CSS,
           THEME_ICON_CSS,
           '.dshComfyZoom-resize:hover{background:rgba(128,128,128,.18)}',
-          '.dshComfySurface-dark,.dshComfySurface-light{transition:background-color .3s ease,color .3s ease}',
-          '.dshComfySurface-dark *,.dshComfySurface-light *{transition:background-color .26s ease,color .26s ease,border-color .26s ease}',
-          '@media (prefers-reduced-motion:reduce){.dshComfySurface-dark,.dshComfySurface-light,.dshComfySurface-dark *,.dshComfySurface-light *{transition:none!important}}',
+          // Surface cross-fade rules live in ensureBaseStyle() (zero-specificity
+          // :where form) so they cannot outrank component transitions.
         ].join(''),
       )
     }
@@ -10557,6 +10555,12 @@ window.__ModuleLoader__.load({
         '.dshCanvasOption{appearance:none;display:block;width:100%;box-sizing:border-box;text-align:left;font:inherit;font-size:10.5px;padding:5px 8px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
         '.dshCanvasOption:hover{background:var(--dsw-alias-bg-layer-2)}' +
         '.dshCanvasOption[data-on="true"]{background:#3b82f6;color:#ffffff}' +
+        // Theme switches cross-fade instead of hard-cutting. The child rule is
+        // written with :where so it carries zero specificity: anything that ships
+        // its own transition (the lift buttons, the slider thumb) keeps working.
+        '.dshComfySurface-dark,.dshComfySurface-light{transition:background-color .3s ease,color .3s ease}' +
+        ':where(.dshComfySurface-dark) *,:where(.dshComfySurface-light) *{transition:background-color .26s ease,color .26s ease,border-color .26s ease}' +
+        '@media (prefers-reduced-motion:reduce){.dshComfySurface-dark,.dshComfySurface-light{transition:none}:where(.dshComfySurface-dark) *,:where(.dshComfySurface-light) *{transition:none!important}}' +
         // The workbench panels mount this sheet, not the album one: without the
         // surface tokens their "dark" class would resolve to the host palette.
         SURFACE_DARK_CSS +
