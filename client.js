@@ -12342,7 +12342,9 @@ window.__ModuleLoader__.load({
       const [models, setModels] = usePref('t2iModels')
       const [clipType, setClipType] = usePref('t2iClipType')
       const [size, setSize] = usePref('t2iSize')
-      const [scale, setScale] = usePref('t2iScale')
+      const [scaleDraftRaw, setScaleDraft] = usePref('t2iScaleStep')
+      // 倍率现在只是一个「待应用的倍数」草稿，默认 1；换 key 是为了不继承旧版的数值。
+      const scaleDraft = scaleDraftRaw === undefined || scaleDraftRaw === '' ? '1' : scaleDraftRaw
       // What the AI is told on top of the prompt next to it; empty means "only
       // rewrite what is written there", the behaviour before this box existed.
       const [aiExtra, setAiExtra] = useState('')
@@ -12723,17 +12725,26 @@ window.__ModuleLoader__.load({
       const updateSampling = (patch) => setSampling(Object.assign({}, sampling || {}, patch))
       const preset = (w, h) => setSize({ width: w, height: h })
       const clampSize = (value) => Math.max(64, Math.min(4096, Math.round(Number(value) || 1024)))
-      // The scale multiplies the base box at submit time. Latents need multiples
-      // of 8, so the product is aligned and capped instead of sent raw.
-      const scaleFactor = (() => {
-        const next = Number(scale)
-        if (!Number.isFinite(next) || next <= 0) return 1
-        return Math.min(4, Math.max(0.25, next))
-      })()
       const alignSize = (value) => Math.max(64, Math.min(4096, Math.round(value / 8) * 8))
+      // 分辨率框里的数字就是出图尺寸，提交前只做 8 的倍数对齐。
       const outputSize = {
-        width: alignSize((size && size.width ? size.width : 1024) * scaleFactor),
-        height: alignSize((size && size.height ? size.height : 1024) * scaleFactor),
+        width: alignSize(size && size.width ? size.width : 1024),
+        height: alignSize(size && size.height ? size.height : 1152),
+      }
+      // 倍率是一次性缩放：按倍数改写上面两个框，然后自己回到 1。
+      // 这样「框里是多少，模型就收到多少」，倍率不会在背后继续乘。
+      const applyScale = (raw) => {
+        const factor = Number(raw)
+        if (!Number.isFinite(factor) || factor <= 0) {
+          setScaleDraft('1')
+          return
+        }
+        const next = Math.min(8, Math.max(0.1, factor))
+        setSize({
+          width: alignSize((size && size.width ? size.width : 1024) * next),
+          height: alignSize((size && size.height ? size.height : 1152) * next),
+        })
+        setScaleDraft('1')
       }
       const current = gallery.find((file) => file.name === selected) || null
       const currentIndex = Math.max(0, gallery.findIndex((file) => file.name === selected))
@@ -13616,24 +13627,17 @@ window.__ModuleLoader__.load({
                   step: 0.1,
                   // HTML 的步进网格以 min 为基准：写 0.25 会让合法值是
                   // 0.25/0.35/…/0.95/1.05，1.0 落在网格外，箭头一次只跳 0.05。
-                  // 所以基准取 0，真正的下限仍由下面的 clamp 保证（0.25）。
+                  // 所以基准取 0，真正的下限仍由 applyScale 里的 clamp 保证。
                   min: 0,
-                  max: 4,
-                  value: scaleFactor,
-                  title:
-                    '出图 ' +
-                    outputSize.width +
-                    ' × ' +
-                    outputSize.height +
-                    '（基准尺寸 × 倍率，按 8 对齐）',
+                  max: 8,
+                  value: scaleDraft,
+                  title: '把左边的两个数字按这个倍数放大，改完框里就是实际出图尺寸',
                   style: Object.assign({}, field, { width: 72, padding: '7px 8px', flex: 'none' }),
-                  onChange: (event) => {
-                    const next = Number(event.target.value)
-                    setScale(
-                      Number.isFinite(next) && next > 0
-                        ? Math.min(4, Math.max(0.25, Math.round(next * 100) / 100))
-                        : 1,
-                    )
+                  // 只在离焦/回车时生效：边打边乘会让「1.5」里的「1」先乘一次。
+                  onChange: (event) => setScaleDraft(event.target.value),
+                  onBlur: () => applyScale(scaleDraft),
+                  onKeyDown: (event) => {
+                    if (event.key === 'Enter') applyScale(scaleDraft)
                   },
                 }),
               ),
@@ -13673,20 +13677,6 @@ window.__ModuleLoader__.load({
               ),
               // Only shown once the factor actually changes the size: the plain
               // case keeps the row quiet.
-              scaleFactor !== 1
-                ? h(
-                    'span',
-                    {
-                      style: {
-                        marginLeft: 'auto',
-                        fontSize: 9.5,
-                        color: 'var(--dsw-alias-label-secondary)',
-                        fontVariantNumeric: 'tabular-nums',
-                      },
-                    },
-                    '→ ' + outputSize.width + ' × ' + outputSize.height,
-                  )
-                : null,
             ),
           ),
           h(
@@ -13825,39 +13815,6 @@ window.__ModuleLoader__.load({
                 paddingTop: 4,
               },
             },
-            // 提交前把「实际会请求多大」写在按钮上方：基准、倍率、对齐之后的值
-            // 一次看全，出图对不上时不用猜是哪里被改了。
-            h(
-              'div',
-              {
-                style: {
-                  display: 'flex',
-                  alignItems: 'baseline',
-                  gap: 5,
-                  padding: '0 2px 4px',
-                  fontSize: 9.5,
-                  color: 'var(--dsw-alias-label-secondary)',
-                },
-              },
-              h('span', null, '出图'),
-              h(
-                'span',
-                { style: { fontVariantNumeric: 'tabular-nums', color: 'var(--dsw-alias-label-primary)' } },
-                outputSize.width + ' × ' + outputSize.height,
-              ),
-              scaleFactor !== 1
-                ? h(
-                    'span',
-                    { style: { fontVariantNumeric: 'tabular-nums' } },
-                    '基准 ' +
-                      (size && size.width ? size.width : 1024) +
-                      ' × ' +
-                      (size && size.height ? size.height : 1024) +
-                      ' · 倍率 ' +
-                      scaleFactor,
-                  )
-                : null,
-            ),
             h(
               'button',
               {
