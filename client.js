@@ -4388,7 +4388,14 @@ window.__ModuleLoader__.load({
             : null,
           h(
             'div',
-            { style: Object.assign({}, VIEWER_ANIM, { animation: stageAnimation }) },
+            // Keyed on the picture: the entrance animation is a CSS one-shot, and
+            // without a remount only some paging paths appeared to animate. Tying
+            // the key to the image makes every switch — arrow key, nav button,
+            // thumbnail — run the same one.
+            {
+              key: current.url,
+              style: Object.assign({}, VIEWER_ANIM, { animation: stageAnimation }),
+            },
             h(
               'div',
               { ref: stageRef, style: VIEWER_STAGE },
