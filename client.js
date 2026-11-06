@@ -13825,6 +13825,39 @@ window.__ModuleLoader__.load({
                 paddingTop: 4,
               },
             },
+            // 提交前把「实际会请求多大」写在按钮上方：基准、倍率、对齐之后的值
+            // 一次看全，出图对不上时不用猜是哪里被改了。
+            h(
+              'div',
+              {
+                style: {
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: 5,
+                  padding: '0 2px 4px',
+                  fontSize: 9.5,
+                  color: 'var(--dsw-alias-label-secondary)',
+                },
+              },
+              h('span', null, '出图'),
+              h(
+                'span',
+                { style: { fontVariantNumeric: 'tabular-nums', color: 'var(--dsw-alias-label-primary)' } },
+                outputSize.width + ' × ' + outputSize.height,
+              ),
+              scaleFactor !== 1
+                ? h(
+                    'span',
+                    { style: { fontVariantNumeric: 'tabular-nums' } },
+                    '基准 ' +
+                      (size && size.width ? size.width : 1024) +
+                      ' × ' +
+                      (size && size.height ? size.height : 1024) +
+                      ' · 倍率 ' +
+                      scaleFactor,
+                  )
+                : null,
+            ),
             h(
               'button',
               {
