@@ -13531,7 +13531,10 @@ window.__ModuleLoader__.load({
                 h('input', {
                   type: 'number',
                   step: 0.1,
-                  min: 0.25,
+                  // HTML 的步进网格以 min 为基准：写 0.25 会让合法值是
+                  // 0.25/0.35/…/0.95/1.05，1.0 落在网格外，箭头一次只跳 0.05。
+                  // 所以基准取 0，真正的下限仍由下面的 clamp 保证（0.25）。
+                  min: 0,
                   max: 4,
                   value: scaleFactor,
                   title:
