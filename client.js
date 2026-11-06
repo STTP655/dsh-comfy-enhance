@@ -12736,6 +12736,20 @@ window.__ModuleLoader__.load({
           h('span', { className: 'dshComfyModelBar-chev' }, '›'),
         )
 
+      // 下拉触发器要和同排的输入框一个盒子：field 是 7/10 内边距 + 11.5 字号，
+      // .dshCanvasPicker 的默认值（4/7 + 10.5）矮 7px，一排摆开就是参差不齐。
+      const pickerField = {
+        minHeight: 0,
+        boxSizing: 'border-box',
+        padding: '7px 10px',
+        borderRadius: 9,
+        fontSize: 11.5,
+        fontFamily: 'inherit',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        border: '1px solid var(--dsw-alias-border-l2)',
+      }
+
       // 当前值永远在列表里：拿不到引擎列表、或列表里没有它时，控件也不会变空。
       const choicesOf = (values, current) => {
         const list = (Array.isArray(values) ? values : []).map((value) => ({ value, label: value }))
@@ -12867,6 +12881,8 @@ window.__ModuleLoader__.load({
                   onPick: (value) => pickModel('unet', value),
                   menuMinWidth: 240,
                   menuAlign: 'right',
+                  triggerStyle: pickerField,
+                  dark: props.night,
                 }),
               ),
               fieldRow(
@@ -12879,6 +12895,8 @@ window.__ModuleLoader__.load({
                   onPick: (value) => pickModel('clip', value),
                   menuMinWidth: 240,
                   menuAlign: 'right',
+                  triggerStyle: pickerField,
+                  dark: props.night,
                 }),
               ),
               fieldRow(
@@ -12891,6 +12909,8 @@ window.__ModuleLoader__.load({
                   onPick: (value) => pickModel('vae', value),
                   menuMinWidth: 200,
                   menuAlign: 'right',
+                  triggerStyle: pickerField,
+                  dark: props.night,
                 }),
               ),
               fieldRow(
@@ -12903,6 +12923,8 @@ window.__ModuleLoader__.load({
                   onPick: (value) => setClipType(value),
                   menuMinWidth: 160,
                   menuAlign: 'right',
+                  triggerStyle: pickerField,
+                  dark: props.night,
                 }),
               ),
             ],
@@ -13050,6 +13072,8 @@ window.__ModuleLoader__.load({
                   onPick: (name) => addLora(name),
                   menuMinWidth: 300,
                   menuAlign: 'right',
+                  triggerStyle: pickerField,
+                  dark: props.night,
                 }),
               ),
               h(
@@ -13677,6 +13701,8 @@ window.__ModuleLoader__.load({
                 onPick: (value) => updateSampling({ sampler: value }),
                 menuMinWidth: 220,
                 menuAlign: 'right',
+                triggerStyle: pickerField,
+                dark: props.night,
               })),
             ),
             h(
@@ -13691,6 +13717,8 @@ window.__ModuleLoader__.load({
                 onPick: (value) => updateSampling({ scheduler: value }),
                 menuMinWidth: 220,
                 menuAlign: 'right',
+                triggerStyle: pickerField,
+                dark: props.night,
               })),
             ),
           ),
