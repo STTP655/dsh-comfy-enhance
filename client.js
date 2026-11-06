@@ -13363,11 +13363,23 @@ window.__ModuleLoader__.load({
               flex: 'none',
               display: 'flex',
               flexDirection: 'column',
-              gap: 12,
-              overflowY: 'auto',
-              paddingRight: 2,
+              minHeight: 0,
+              gap: 8,
             },
           },
+          h(
+            'div',
+            {
+              style: {
+                flex: '1 1 auto',
+                minHeight: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+                overflowY: 'auto',
+                paddingRight: 2,
+              },
+            },
           h(
             'div',
             { style: { display: 'flex', alignItems: 'center', gap: 8, minHeight: 30 } },
@@ -13789,17 +13801,14 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
-          // 生成固定在列底：内容再长也够得着，滚上去时它压在最上面。
+          ),
+          // 页脚在滚动区之外：光晕能往面板留白里散开，不会被滚动的横向裁剪切平。
           h(
             'div',
             {
               style: {
-                position: 'sticky',
-                bottom: 0,
-                zIndex: 2,
-                marginTop: 'auto',
-                paddingTop: 8,
-                background: 'var(--dsw-alias-bg-base)',
+                flex: 'none',
+                paddingTop: 4,
               },
             },
             h(
