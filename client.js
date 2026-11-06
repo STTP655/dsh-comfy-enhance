@@ -13549,33 +13549,12 @@ window.__ModuleLoader__.load({
               }),
             ),
           ),
-          h(
-            'button',
-            {
-              type: 'button',
-              disabled: busy,
-              onClick: generate,
-              style: {
-                padding: '10px 14px',
-                borderRadius: 10,
-                border: '1px solid #3b82f6',
-                background: '#3b82f6',
-                color: '#ffffff',
-                fontSize: 12,
-                fontWeight: 600,
-                fontFamily: 'inherit',
-                cursor: busy ? 'default' : 'pointer',
-                opacity: busy ? 0.7 : 1,
-              },
-            },
-            busy ? '生成中…' : '生成',
-          ),
           // The live count lives on the preview overlay; this line only carries the
           // plain result text (submitted / finished / failed).
           status ? h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, status) : null,
           error ? h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
-          // Seed sits at the bottom of the column: it is the setting changed least
-          // often, and the LoRA chain took its old place above.
+          // Seed sits above the action: it is read as a parameter of the run the
+          // button below is about to start.
           h(
             'div',
             { style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 } },
@@ -13636,6 +13615,29 @@ window.__ModuleLoader__.load({
                 '随机',
               ),
             ),
+          ),
+          // The action closes the column, so it is always the last thing under the
+          // list of settings it applies.
+          h(
+            'button',
+            {
+              type: 'button',
+              disabled: busy,
+              onClick: generate,
+              style: {
+                padding: '10px 14px',
+                borderRadius: 10,
+                border: '1px solid #3b82f6',
+                background: '#3b82f6',
+                color: '#ffffff',
+                fontSize: 12,
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                cursor: busy ? 'default' : 'pointer',
+                opacity: busy ? 0.7 : 1,
+              },
+            },
+            busy ? '生成中…' : '生成',
           ),
         ),
         h(PromptRulesDialog, { open: rulesOpen, onClose: () => setRulesOpen(false) }),
