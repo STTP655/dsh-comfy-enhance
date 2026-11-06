@@ -6529,7 +6529,7 @@ window.__ModuleLoader__.load({
               ),
               h('input', {
                 type: 'number',
-                step: 0.05,
+                step: 0.1,
                 value: entry.strength,
                 title: 'LoRA 强度',
                 style: {
@@ -13489,7 +13489,7 @@ window.__ModuleLoader__.load({
                       ),
                       h('input', {
                         type: 'number',
-                        step: 0.05,
+                        step: 0.1,
                         min: -2,
                         max: 2,
                         value: entry.strength,
