@@ -15759,15 +15759,6 @@ window.__ModuleLoader__.load({
                       dark: canvasNight,
                     }),
                   ),
-                  h(
-                    'button',
-                    {
-                      className: 'dshCanvasBtn',
-                      style: { padding: '2px 8px', fontSize: 10 },
-                      onClick: clearPolishChat,
-                    },
-                    '清除对话',
-                  ),
                 ),
                 h(
                   'div',
@@ -15824,8 +15815,24 @@ window.__ModuleLoader__.load({
                   h(
                     'button',
                     {
-                      className: 'dshCanvasBtn',
-                      style: { flex: 1 },
+                      // 和文生图的「AI 写/润色」同一套渐变橙红 + 光晕（.dshComfyAiBtn），
+                      // 这里只留盒模型，颜色与动效交给基础表。
+                      className: 'dshComfyAiBtn',
+                      style: {
+                        flex: 1,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 5,
+                        padding: '7px 9px',
+                        borderRadius: 8,
+                        border: '1px solid transparent',
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        fontFamily: 'inherit',
+                        whiteSpace: 'nowrap',
+                        cursor: polishBusy ? 'default' : 'pointer',
+                      },
                       disabled: polishBusy,
                       onClick: runPolishNow,
                     },
@@ -16041,6 +16048,17 @@ window.__ModuleLoader__.load({
                     'span',
                     { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } },
                     '累计 token：输入 ' + polishTotals.input + ' / 输出 ' + polishTotals.output,
+                  ),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'dshCanvasBtn',
+                      style: { padding: '2px 8px', fontSize: 10 },
+                      title: '清空本轮的润色对话（不影响画板内容）',
+                      onClick: clearPolishChat,
+                    },
+                    '清除对话',
                   ),
                   h(
                     'button',
