@@ -1,0 +1,182 @@
+# 漫画模式的 agent 组合。
+#
+# 相对「写作模式」的差异：
+#   1. persona 换成漫画分镜师／画板操作者。
+#   2. 新增 ./comic-tools.mjs：注册 comic_status / comic_fill / comic_import，
+#      只在本 preset 的 scope 可见；其它会话不注册。
+#   3. 去掉写作模式的三套写作方法（writing-rules）。
+# 其余（shell、文件、检索、后台任务、子代理、技能、goal、压缩、提问、todo、
+# web、present）与写作模式保持一致。
+#
+# 一行服务必须坐在带 `isolate` realm 的组里；本文件不发布任何服务，
+# 所以所有行平铺即可。
+
+# ── identity ────────────────────────────────────────────────────────────────
+
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    suffix: ''
+    prefix: |-
+      你是「漫画模式」下的漫画分镜师与画板操作者，由 {{model}} 驱动，工作目录是 {{cwd}}。
+
+      你的工作对象是一块漫画画板：分格、每格的画面描述、气泡里的台词。用户已经在工作台里摆好了分格，你负责往里填内容，或者按剧本重排。
+
+      工作规范：
+      - 动手前先 comic_status 看现状：几页、几格、每格现在写的是什么、画布多大。
+      - 只想填内容时用 comic_fill，**不要动几何**（poly 一律不改）；要整体替换分镜才用 comic_import。
+      - 画面描述用英文写：景别 + 主体 + 动作 + 表情 + 光线 + 材质；不要把台词写进 prompt。
+      - 台词只放 balloons，type 取 speech / thought / shout / whisper / box / caption / sfx / free；单句尽量不超过 6 个汉字，MOSS 画长句容易缺笔画。
+      - 整页画风用 summary 统一描述（光照、色调、材质），每格只写这一格的内容。
+      - 出图由用户点「整页出图」触发；你负责把内容写对，不要替他提交。
+      - 描述要具体到能画：避免"很酷""有气氛"这类空词，给出可执行的视觉信息。
+
+- id: comic-tools
+  name: ./comic-tools.mjs
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+# ── shell ───────────────────────────────────────────────────────────────────
+
+# `shell-env` 留在 HOST 组合：apps/cli/src/web.ts 注入它以发布
+# DSH_WEB_URL/DSH_WEB_MODE，而"host 行注入服务"正是 host 平面归属的判据——
+# 注入在任何会话存在之前就解析，没有 agent 可供键控。两个 shell 工具在这里
+# 消费 host 注册表；它们的执行器（bash-sandbox/pwsh-sandbox）同样属于 host。
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+
+# ── filesystem ──────────────────────────────────────────────────────────────
+
+# 两行都注册进 host `tools` 注册表、不发布服务，因此不需要 realm。
+# `fs` 服务及其策略留在 host。
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+# ── background jobs ────────────────────────────────────────────────────────
+
+# 只有面向模型的控制项。任务注册表留在 host 平面：它的生产者坐在本文件能
+# 圈出的任何 realm 之外（上面的 tool-pwsh 用 ctx.get 解析它），而 entry-local
+# realm 对每个兄弟行都不可见，`run_in_background` 会答"后台任务不可用"，控制项
+# 却还留在目录里。注册表本来就按所属 agent 键控，一个 host 实例服务所有会话。
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+
+# ── skills ──────────────────────────────────────────────────────────────────
+
+# skill 注册表在 host 组合里并按 scope 分层：这两行注册进本 preset 的那一层，
+# 因此不需要 realm。
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
+# ── goals ───────────────────────────────────────────────────────────────────
+
+# goal 服务与会话驱动留在 host 平面（Gateway 要能解析它们），人类命令与
+# 面向模型的工具注册进本 preset 的 scoped 层。长篇写作跨轮推进时用得上。
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
+
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+
+# ── compaction ──────────────────────────────────────────────────────────────
+
+# `compaction-basic` 通过 ctx.get 读取 `toolResultPrune`，所以剪枝器必须与它
+# 共用 realm，而不是坐在外面。
+#
+# `tokenMeter` 刻意不放进这个 realm：计量表留在 HOST 平面，这里的行解析那一个
+# 实例。它不取配置、按 Session 键控每次折叠，并拥有浏览器为每个会话读取的
+# context-meter 投影单元——放进 realm 后，这些单元会随"恰好挂载了哪些
+# preset"出现和消失。preset 能选的是它的 agent 是否压缩，即下面的行。
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    # 长稿的工具结果（整章读取）很容易超阈值，保留头尾以便继续施工。
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+
+# ── delegation（子代理）─────────────────────────────────────────────────────
+
+# `subagents` 注册表与它的 spawn/fork 后端留在 HOST 组合：注册表是进程单例，
+# 浏览器经 api-proxy 读它的跨会话查询，而一个 provider 名只能注册一次。本
+# preset 只贡献面向模型的委派工具，它们解析那个 host 注册表。
+#
+# 这四行都注册进 host `tools` 注册表、不发布服务，所以平铺即可，不需要
+# isolate realm（standard 把它们包在组里，是因为同组还有发布 workflowEngine
+# 的 workflow-ptc 行；这里不装 workflow，也就没有要隔离的服务）。
+#
+# 用法边界：外派可分离的独立工作——查证一处引文、核对年代与专名、按既定风格
+# 试写一个片段、按规范批量改名。主线叙事、人物判断与校订决策留在自己的上下文
+# 里。subagent 是全新上下文（要写完整的自足指令），subagent_fork 继承本次
+# 对话（适合"基于已有稿子继续"）。
+- id: tool-subagent-control
+  name: '@deepseek-ai/dsh-tool-subagent-control'
+
+- id: tool-subagent-list-agents
+  name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
+- id: tool-subagent
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: spawn
+    toolName: subagent
+    backgroundMode: continuable
+
+# fork 不做模型选择，好让继承来的历史继续命中 KV Cache。这里与 standard 一致
+# 取 continuable：写完一节可以 send_message 让同一个子代理接着改。
+- id: tool-subagent-fork
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: fork
+    toolName: subagent_fork
+    backgroundMode: continuable
+
+# ── remaining model-facing rows ─────────────────────────────────────────────
+
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+# `web` 服务及其搜索提供方留在 host 组合；只有面向模型的工具是 per-session。
+# 考据、引文核对、专名译法确认都要联网，因此 fetch 打开。
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: true
+    searchTimeoutMs: 60000
+
+- id: present
+  name: '@deepseek-ai/dsh-tool-present'

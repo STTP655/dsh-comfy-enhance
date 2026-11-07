@@ -8,7 +8,7 @@
  */
 
 import { isAbsolute, dirname, join, extname, resolve } from 'node:path'
-import { readFile, writeFile, readdir, stat, copyFile } from 'node:fs/promises'
+import { readFile, writeFile, readdir, stat, copyFile, mkdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
 
@@ -1026,6 +1026,60 @@ export function apply(ctx, config = {}) {
       return send(405, { ok: false, error: 'method not allowed' })
     }
 
+    // 漫画实时状态：客户端推送当前文档，comic_status 优先读它
+    if (pathname === `${PREFIX}/comic-state`) {
+      const dir = join(homedir(), '.dsh', 'comic')
+      const target = join(dir, 'state.json')
+      if (req.method === 'GET' || req.method === 'HEAD') {
+        try {
+          const info = await stat(target)
+          const text = await readFile(target, 'utf8')
+          return send(200, { ok: true, exists: true, mtimeMs: info.mtimeMs, text })
+        } catch (error) {
+          return send(200, { ok: true, exists: false, mtimeMs: 0, text: '' })
+        }
+      }
+      if (req.method === 'POST') {
+        try {
+          const body = await readBody(req)
+          JSON.parse(body)
+          await mkdir(dir, { recursive: true })
+          await writeFile(target, body, 'utf8')
+          const info = await stat(target)
+          return send(200, { ok: true, mtimeMs: info.mtimeMs })
+        } catch (error) {
+          return send(400, { ok: false, error: String((error && error.message) || error) })
+        }
+      }
+      return send(405, { ok: false, error: 'method not allowed' })
+    }
+    // 漫画草稿：agent 直接写这个文件，工作台轮询它实现「自动导入」
+    if (pathname === `${PREFIX}/comic-draft`) {
+      const dir = join(homedir(), '.dsh', 'comic')
+      const target = join(dir, 'draft.json')
+      if (req.method === 'GET' || req.method === 'HEAD') {
+        try {
+          const info = await stat(target)
+          const text = await readFile(target, 'utf8')
+          return send(200, { ok: true, exists: true, mtimeMs: info.mtimeMs, text })
+        } catch (error) {
+          return send(200, { ok: true, exists: false, mtimeMs: 0, text: '' })
+        }
+      }
+      if (req.method === 'POST') {
+        try {
+          const body = await readBody(req)
+          JSON.parse(body)
+          await mkdir(dir, { recursive: true })
+          await writeFile(target, body, 'utf8')
+          const info = await stat(target)
+          return send(200, { ok: true, path: target, mtimeMs: info.mtimeMs })
+        } catch (error) {
+          return send(400, { ok: false, error: String((error && error.message) || error) })
+        }
+      }
+      return send(405, { ok: false, error: 'method not allowed' })
+    }
     // Persist one remote result into the user-chosen gallery folder.
     if (pathname === `${PREFIX}/save-image`) {
       if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })

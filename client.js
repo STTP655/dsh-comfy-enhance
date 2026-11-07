@@ -174,7 +174,7 @@ window.__ModuleLoader__.load({
               remoteCount: typeof parsed.remoteCount === 'number' ? parsed.remoteCount : 1,
               remoteAspect: typeof parsed.remoteAspect === 'string' ? parsed.remoteAspect : '1:1',
               remoteOptimizer: Boolean(parsed.remoteOptimizer),
-              workspaceView: ['chooser', 'local', 'online', 'text2img'].includes(parsed.workspaceView)
+              workspaceView: ['chooser', 'local', 'online', 'text2img', 'comic'].includes(parsed.workspaceView)
                 ? parsed.workspaceView
                 : 'chooser',
               t2iPrompt: typeof parsed.t2iPrompt === 'string' ? parsed.t2iPrompt : '',
@@ -11378,11 +11378,2530 @@ window.__ModuleLoader__.load({
         h('div', { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)' } }, '选择出图方式'),
         h(
           'div',
-          { style: { display: 'flex', gap: 12, width: '78%', margin: '0 auto' } },
+          { style: { display: 'flex', gap: 12, width: '92%', margin: '0 auto', flexWrap: 'wrap' } },
           card('local', 'ComfyUI · MOSS 画板模式', 'MOSS 模型 / 画框版式 / 快速生成'),
           card('online', '在线 API', '远程出图（gpt-image / MiniMax）'),
           card('text2img', '本地文生图', '非 MOSS 模型 / DiT 直出'),
+          card('comic', '漫画工作台', '分格 / 逐格出图 / 页合成'),
         ),
+      )
+    }
+
+    // --------------------------------------------------------------- 漫画工作台
+    /**
+     * 漫画工作台（Image 工作台第 4 个模式）。
+     *
+     * 独立于 React 的渲染：画布是 SVG，交互是 pointer 事件，状态放在一个可变
+     * 对象里，所有 UI 都是命令式 DOM。这样和宿主的三套面板互不干扰，也方便把
+     * 原型里的代码整段搬过来。
+     *
+     * 出图完全复用现有链路：/plugin/comfy-canvas/text2img + jobStore。
+     */
+    function createComicApp(root, opts) {
+      const NS = 'http://www.w3.org/2000/svg'
+      const api = opts || {}
+      const jobStore = api.jobStore
+      const getModels = api.getModels || function () { return {} }
+      const onBack = api.onBack || function () {}
+
+      const S = {
+        mode: 'page',
+        order: 'rtl',
+        pages: [{ id: 'pg1', panels: [], image: '' }],
+        pageIdx: 0,
+        panels: [],
+        sel: [],
+        selPanel: null,
+        selBubble: null,
+        zoom: 4,
+        seq: 1,
+        grid: { on: true, size: 5 },
+        snap: { on: true, tol: 0.6 },
+        tool: 'select',
+        knife: null,
+        guides: null,
+        running: false,
+        pageImage: '',
+        pageMp: 1,
+        textInImage: true,
+        summary: '',
+        pageSeed: 0,
+        pageRandom: true,
+        models: null,
+        options: { unet: [], clip: [], vae: [] },
+        status: '',
+      }
+
+      // ---- 单位：1 = 1mm，B5 176×250mm，导出口径 300dpi
+      function PW() { return S.mode === 'page' ? 176 : 105 }
+      function MG() { return S.mode === 'page' ? 10 : 6 }
+      function GT() { return S.mode === 'page' ? 5 : 4 }
+      function PH() {
+        if (S.mode === 'page') return 250
+        let bottom = 200
+        S.panels.forEach(function (p) { const b = bbox(p.poly); bottom = Math.max(bottom, b.y + b.h) })
+        return Math.round(bottom + MG())
+      }
+      function mmToPx(mm) { return (mm * 300) / 25.4 }
+      function r2(v) { return Math.round(v * 100) / 100 }
+      function clamp(v, a, b) { return Math.max(a, Math.min(b, v)) }
+
+      // ---- 几何
+      function bbox(poly) {
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+        poly.forEach(function (p) {
+          x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y)
+          x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y)
+        })
+        return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+      }
+      function area(poly) {
+        let a = 0
+        for (let i = 0; i < poly.length; i++) {
+          const p = poly[i], q = poly[(i + 1) % poly.length]
+          a += p.x * q.y - q.x * p.y
+        }
+        return Math.abs(a) / 2
+      }
+      function pts(poly) { return poly.map(function (p) { return r2(p.x) + ',' + r2(p.y) }).join(' ') }
+      function rectPoly(x, y, w, h) {
+        return [{ x: x, y: y }, { x: x + w, y: y }, { x: x + w, y: y + h }, { x: x, y: y + h }]
+      }
+      function clipHalf(poly, a, b, sign) {
+        const nx = -(b.y - a.y), ny = b.x - a.x
+        const f = function (q) { return (q.x - a.x) * nx + (q.y - a.y) * ny }
+        const inside = function (q) { return f(q) * sign >= 0 }
+        const out = []
+        for (let i = 0; i < poly.length; i++) {
+          const cur = poly[i], nxt = poly[(i + 1) % poly.length]
+          const ci = inside(cur), ni = inside(nxt)
+          if (ci) out.push({ x: cur.x, y: cur.y })
+          if (ci !== ni) {
+            const d1 = f(cur), d2 = f(nxt)
+            const t = d1 / (d1 - d2)
+            out.push({ x: cur.x + (nxt.x - cur.x) * t, y: cur.y + (nxt.y - cur.y) * t })
+          }
+        }
+        return out
+      }
+      function splitByLine(poly, a, b) {
+        const L = clipHalf(poly, a, b, 1)
+        const R = clipHalf(poly, a, b, -1)
+        if (L.length < 3 || R.length < 3) return null
+        const total = area(poly)
+        const minSide = Math.max(12, total * 0.1)
+        if (area(L) < minSide || area(R) < minSide) return null
+        return [L, R]
+      }
+      function segCross(p1, p2, p3, p4) {
+        const d = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x)
+        if (Math.abs(d) < 1e-9) return false
+        const t = ((p3.x - p1.x) * (p4.y - p3.y) - (p3.y - p1.y) * (p4.x - p3.x)) / d
+        const u = ((p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x)) / d
+        return t >= 0 && t <= 1 && u >= 0 && u <= 1
+      }
+      function hitPoly(a, b, poly) {
+        for (let i = 0; i < poly.length; i++) {
+          if (segCross(a, b, poly[i], poly[(i + 1) % poly.length])) return true
+        }
+        return false
+      }
+      function snapVal(v, alt) {
+        if (alt || !S.snap.on) return Math.round(v * 100) / 100
+        const g = S.grid.size
+        const near = Math.round(v / g) * g
+        return Math.abs(near - v) <= S.snap.tol ? near : Math.round(v * 100) / 100
+      }
+
+      // ---- 模型
+      function uid() { return 'p' + (S.seq++) }
+      function makePanel(poly, prompt) {
+        return {
+          id: uid(),
+          poly: poly.map(function (p) { return { x: r2(p.x), y: r2(p.y) } }),
+          prompt: prompt || '',
+          neg: '',
+          seed: 0,
+          status: 'idle',
+          img: '',
+          err: '',
+          balloons: [],
+        }
+      }
+      function getPanel(id) { return S.panels.find(function (p) { return p.id === id }) || null }
+      function setPanels(list) { S.panels.splice(0, S.panels.length); Array.prototype.push.apply(S.panels, list) }
+      function ordered() {
+        const arr = S.panels.slice()
+        arr.sort(function (a, b) {
+          const A = bbox(a.poly), B = bbox(b.poly)
+          const rowA = Math.round((A.y + A.h / 2) / 12), rowB = Math.round((B.y + B.h / 2) / 12)
+          if (rowA !== rowB) return rowA - rowB
+          if (S.mode === 'strip') return A.y - B.y
+          return S.order === 'rtl' ? (B.x - A.x) : (A.x - B.x)
+        })
+        return arr
+      }
+      function isSel(id) { return S.sel.indexOf(id) >= 0 }
+      function setSel(ids, primary) {
+        S.sel = ids.slice()
+        S.selPanel = primary || (ids.length ? ids[ids.length - 1] : null)
+        if (!isSel(S.selPanel)) S.selPanel = S.sel[0] || null
+      }
+
+
+      // ---- 本地持久化（localStorage）与 agent 草稿轮询
+      const DOC_KEY = 'dsh.comfy.comicDoc.v1'
+      const DRAFT_REV_KEY = 'dsh.comfy.comicDraftRev'
+      let saveTimer = 0
+      let draftTimer = 0
+      let bootSavedAt = 0
+
+      function serializeDoc() {
+        return {
+          v: 1,
+          mode: S.mode,
+          order: S.order,
+          summary: S.summary,
+          textInImage: S.textInImage,
+          pageSeed: S.pageSeed,
+          pageRandom: S.pageRandom,
+          pageIdx: S.pageIdx,
+          pages: S.pages.map(function (pg) {
+            return {
+              id: pg.id,
+              image: pg.image || '',
+              panels: pg.panels.map(function (p) {
+                return {
+                  id: p.id,
+                  poly: p.poly,
+                  prompt: p.prompt,
+                  neg: p.neg,
+                  seed: p.seed,
+                  imgAt: p.img ? (p.imgAt || (p.imgAt = Date.now())) : 0,
+                  status: p.status,
+                  img: p.img,
+                  err: p.err,
+                  balloons: p.balloons,
+                }
+              }),
+            }
+          }),
+        }
+      }
+
+
+      let pushTimer = 0
+      /** 把当前文档推给 host，让 comic_status 能读到「用户手上的排版」 */
+      function pushState() {
+        clearTimeout(pushTimer)
+        pushTimer = setTimeout(function () {
+          try {
+            fetch('/plugin/comfy-canvas/comic-state', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(serializeDoc()),
+            }).catch(function () { /* host 不可用时静默 */ })
+          } catch (e) { /* ignore */ }
+        }, 1200)
+      }
+
+      function saveDoc() {
+        clearTimeout(saveTimer)
+        saveTimer = setTimeout(function () {
+          try {
+            localStorage.setItem(DOC_KEY, JSON.stringify(serializeDoc()))
+            localStorage.setItem('dsh.comfy.comicSavedAt', String(Date.now()))
+            pushState()
+          } catch (e) {
+            /* 配额满或隐私模式：放弃持久化，不影响使用 */
+          }
+        }, 500)
+      }
+
+      function revivePanel(raw) {
+        return {
+          id: raw.id || 'p' + (S.seq++),
+          poly: (raw.poly || []).map(function (v) { return { x: Number(v.x) || 0, y: Number(v.y) || 0 } }),
+          prompt: raw.prompt || '',
+          neg: raw.neg || '',
+          seed: Number(raw.seed) || 0,
+          status: raw.status === 'busy' ? 'idle' : (raw.status || 'idle'),
+          img: raw.img || '',
+          err: raw.err || '',
+          balloons: Array.isArray(raw.balloons) ? raw.balloons : [],
+        }
+      }
+
+      function loadDoc() {
+        try {
+          const raw = localStorage.getItem(DOC_KEY)
+          if (!raw) return false
+          const doc = JSON.parse(raw)
+          if (!doc || !Array.isArray(doc.pages) || !doc.pages.length) return false
+          S.pages = doc.pages.map(function (pg) {
+            const panels = (pg.panels || []).map(revivePanel).filter(function (p) { return p.poly.length >= 3 })
+            return { id: pg.id || 'pg' + (S.seq++), image: pg.image || '', panels: panels }
+          })
+          if (doc.mode === 'strip' || doc.mode === 'page') S.mode = doc.mode
+          if (doc.order === 'rtl' || doc.order === 'ltr') S.order = doc.order
+          if (typeof doc.summary === 'string') S.summary = doc.summary
+          if (typeof doc.textInImage === 'boolean') S.textInImage = doc.textInImage
+          if (Number.isFinite(doc.pageSeed)) S.pageSeed = doc.pageSeed
+          if (typeof doc.pageRandom === 'boolean') S.pageRandom = doc.pageRandom
+          S.pageIdx = clamp(Number(doc.pageIdx) || 0, 0, S.pages.length - 1)
+          return true
+        } catch (e) {
+          return false
+        }
+      }
+
+      /** agent 把 JSON 写到 ~/.dsh/comic/draft.json，这里轮询 mtime 变化后自动导入 */
+      async function pollDraft() {
+        try {
+          const res = await fetch('/plugin/comfy-canvas/comic-draft', { cache: 'no-store' })
+          const data = await res.json()
+          if (!data || !data.ok || !data.exists) return
+          let seen = null
+          try {
+            const raw = localStorage.getItem(DRAFT_REV_KEY)
+            seen = raw === null ? null : Number(raw)
+          } catch (e) { seen = null }
+          // 第一次看到草稿：只有它比本地最近一次保存更新时才导入，
+          // 避免旧草稿覆盖用户手上刚编辑过的内容
+          if (seen === null) {
+            // 用挂载前的快照比：挂载后的 commit 会把 savedAt 刷成当前时间，
+            // 拿它去比会让 agent 刚写的草稿永远显得"更旧"
+            const savedAt = bootSavedAt
+            if (!(data.mtimeMs > savedAt)) {
+              try { localStorage.setItem(DRAFT_REV_KEY, String(data.mtimeMs)) } catch (e) { /* ignore */ }
+              return
+            }
+          }
+          if (!(data.mtimeMs > seen)) return
+          try {
+            importData(JSON.parse(data.text))
+          } catch (e) {
+            toast('自动导入失败：' + String((e && e.message) || e))
+            return
+          }
+          try { localStorage.setItem(DRAFT_REV_KEY, String(data.mtimeMs)) } catch (e) { /* ignore */ }
+          toast('已载入 agent 的新稿')
+        } catch (e) {
+          /* 路由不可用就静默跳过 */
+        }
+      }
+
+      // ---- 撤销 / 重做（跨页快照；图片是字符串，按引用共享不复制）
+      const HIST_MAX = 30
+      let hist = []
+      let hIdx = -1
+      let btnUndo = null
+      let btnRedo = null
+
+      function clonePanels(list) {
+        return (list || S.panels).map(function (p) {
+          return {
+            id: p.id,
+            poly: p.poly.map(function (v) { return { x: v.x, y: v.y } }),
+            prompt: p.prompt, neg: p.neg, seed: p.seed, status: p.status, img: p.img, err: p.err,
+            balloons: p.balloons.map(function (b) { return Object.assign({}, b) }),
+          }
+        })
+      }
+      function commit() {
+        hist = hist.slice(0, hIdx + 1)
+        hist.push({
+          pages: S.pages.map(function (pg) { return { id: pg.id, panels: clonePanels(pg.panels), image: pg.image || '' } }),
+          pageIdx: S.pageIdx,
+          sel: S.sel.slice(), selPanel: S.selPanel, selBubble: S.selBubble,
+          mode: S.mode, order: S.order,
+        })
+        if (hist.length > HIST_MAX) hist.shift()
+        hIdx = hist.length - 1
+        updateUndoBtns()
+        saveDoc()
+      }
+      function applySnapshot(sn) {
+        S.pages = sn.pages.map(function (pg) { return { id: pg.id, panels: clonePanels(pg.panels), image: pg.image || '' } })
+        S.pageIdx = clamp(sn.pageIdx || 0, 0, S.pages.length - 1)
+        S.panels = S.pages[S.pageIdx].panels
+        S.pageImage = S.pages[S.pageIdx].image || ''
+        S.sel = (sn.sel || []).slice()
+        S.selPanel = sn.selPanel
+        S.selBubble = sn.selBubble
+        S.mode = sn.mode || S.mode
+        S.order = sn.order || S.order
+        fitZoom()
+        refresh()
+      }
+      function undo() {
+        if (hIdx <= 0) { toast('没有可撤销的操作'); return }
+        hIdx--
+        applySnapshot(hist[hIdx])
+        updateUndoBtns()
+      }
+      function redo() {
+        if (hIdx >= hist.length - 1) { toast('没有可重做的操作'); return }
+        hIdx++
+        applySnapshot(hist[hIdx])
+        updateUndoBtns()
+      }
+      function updateUndoBtns() {
+        if (btnUndo) btnUndo.disabled = hIdx <= 0
+        if (btnRedo) btnRedo.disabled = hIdx >= hist.length - 1
+      }
+
+      // ---- 模板
+      function tpl(name) {
+        const m = MG(), g = GT(), W = PW(), H = PH()
+        const box = { x: m, y: m, w: W - 2 * m, h: H - 2 * m }
+        if (name === 'two') {
+          const hh2 = (box.h - g) / 2
+          return [rectPoly(box.x, box.y, box.w, hh2), rectPoly(box.x, box.y + hh2 + g, box.w, hh2)]
+        }
+        if (name === 'slant') {
+          const mid = box.x + box.w / 2, off = box.w * 0.09
+          return [
+            [{ x: box.x, y: box.y }, { x: mid + off, y: box.y }, { x: mid - off, y: box.y + box.h }, { x: box.x, y: box.y + box.h }],
+            [{ x: mid + off, y: box.y }, { x: box.x + box.w, y: box.y }, { x: box.x + box.w, y: box.y + box.h }, { x: mid - off, y: box.y + box.h }],
+          ]
+        }
+        if (name === 'grid6') {
+          const w = (box.w - g * 2) / 3, hh2 = (box.h - g) / 2, out = []
+          for (let r = 0; r < 2; r++) {
+            for (let c = 0; c < 3; c++) out.push(rectPoly(box.x + c * (w + g), box.y + r * (hh2 + g), w, hh2))
+          }
+          return out
+        }
+        if (name === 'random') {
+          let cells = [box]
+          const target = 3 + Math.floor(Math.random() * 3)
+          let guard = 0
+          while (cells.length < target && guard++ < 40) {
+            let idx = 0
+            cells.forEach(function (c, i) { if (c.w * c.h > cells[idx].w * cells[idx].h) idx = i })
+            const c = cells[idx]
+            const horiz = c.w > c.h ? Math.random() < 0.72 : Math.random() < 0.3
+            const t = 0.35 + Math.random() * 0.3
+            let a, b
+            if (horiz) {
+              const w1 = Math.max(24, (c.w - g) * t), w2 = c.w - g - w1
+              if (w2 < 24) { guard++; continue }
+              a = rectPoly(c.x, c.y, w1, c.h); b = rectPoly(c.x + w1 + g, c.y, w2, c.h)
+            } else {
+              const h1 = Math.max(24, (c.h - g) * t), h2 = c.h - g - h1
+              if (h2 < 24) { guard++; continue }
+              a = rectPoly(c.x, c.y, c.w, h1); b = rectPoly(c.x, c.y + h1 + g, c.w, h2)
+            }
+            cells.splice(idx, 1, a, b)
+          }
+          return cells
+        }
+        // four（默认）
+        const w = (box.w - g) / 2, hTop = box.h * 0.55, hBot = box.h - hTop - g
+        return [
+          rectPoly(box.x, box.y, w, hTop), rectPoly(box.x + w + g, box.y, w, hTop),
+          rectPoly(box.x, box.y + hTop + g, w, hBot), rectPoly(box.x + w + g, box.y + hTop + g, w, hBot),
+        ]
+      }
+
+      function readingOrderBoxes(boxes) {
+        const arr = boxes.map(function (b) { return { b: b, bb: bbox(b) } })
+        arr.sort(function (A, B) {
+          const rowA = Math.round((A.bb.y + A.bb.h / 2) / 12), rowB = Math.round((B.bb.y + B.bb.h / 2) / 12)
+          if (rowA !== rowB) return rowA - rowB
+          return S.order === 'rtl' ? (B.bb.x - A.bb.x) : (A.bb.x - B.bb.x)
+        })
+        return arr.map(function (x) { return x.b })
+      }
+
+      // 智能对齐：边/中线（1.1mm）+ 三分线（0.8mm），命中就吸并给出参考线
+      function smartSnap(bb, dx, dy, exclude) {
+        const m = MG()
+        const candX = [], candY = []
+        S.panels.forEach(function (p) {
+          if (exclude[p.id]) return
+          const b = bbox(p.poly)
+          candX.push({ v: b.x, t: 0 }, { v: b.x + b.w / 2, t: 0 }, { v: b.x + b.w, t: 0 })
+          candX.push({ v: b.x + b.w / 3, t: 1 }, { v: b.x + (b.w * 2) / 3, t: 1 })
+          candY.push({ v: b.y, t: 0 }, { v: b.y + b.h / 2, t: 0 }, { v: b.y + b.h, t: 0 })
+          candY.push({ v: b.y + b.h / 3, t: 1 }, { v: b.y + (b.h * 2) / 3, t: 1 })
+        })
+        candX.push({ v: m, t: 0 }, { v: PW() / 2, t: 0 }, { v: PW() - m, t: 0 })
+        candY.push({ v: m, t: 0 }, { v: PH() / 2, t: 0 }, { v: PH() - m, t: 0 })
+
+        const x0 = bb.x + dx, y0 = bb.y + dy
+        const myX = [
+          { v: x0, t: 0 }, { v: x0 + bb.w / 2, t: 0 }, { v: x0 + bb.w, t: 0 },
+          { v: x0 + bb.w / 3, t: 1 }, { v: x0 + (bb.w * 2) / 3, t: 1 },
+        ]
+        const myY = [
+          { v: y0, t: 0 }, { v: y0 + bb.h / 2, t: 0 }, { v: y0 + bb.h, t: 0 },
+          { v: y0 + bb.h / 3, t: 1 }, { v: y0 + (bb.h * 2) / 3, t: 1 },
+        ]
+
+        let hx = null, hy = null
+        function probe(best, c, mm) {
+          const d = c.v - mm.v
+          const tol = (c.t || mm.t) ? 0.8 : 1.1
+          if (Math.abs(d) > tol) return best
+          const score = Math.abs(d) + ((c.t || mm.t) ? 0.6 : 0)
+          if (!best || score < best.score) return { d: d, v: c.v, t: (c.t || mm.t) ? 1 : 0, score: score }
+          return best
+        }
+        candX.forEach(function (c) { myX.forEach(function (mm) { hx = probe(hx, c, mm) }) })
+        candY.forEach(function (c) { myY.forEach(function (mm) { hy = probe(hy, c, mm) }) })
+
+        return {
+          dx: hx ? dx + hx.d : snapVal(bb.x + dx, false) - bb.x,
+          dy: hy ? dy + hy.d : snapVal(bb.y + dy, false) - bb.y,
+          guides: (hx || hy)
+            ? { xs: hx ? [{ v: hx.v, third: !!hx.t }] : [], ys: hy ? [{ v: hy.v, third: !!hy.t }] : [] }
+            : null,
+        }
+      }
+
+      // ---- 气泡
+      const BUBBLES = [
+        { id: 'speech', name: '对白' }, { id: 'thought', name: '心声' }, { id: 'shout', name: '喊叫' },
+        { id: 'whisper', name: '低语' }, { id: 'box', name: '方框' }, { id: 'caption', name: '旁白' },
+        { id: 'sfx', name: '拟声' }, { id: 'free', name: '自由' },
+      ]
+      const measureCtx = document.createElement('canvas').getContext('2d')
+      function wrapLines(text, maxW, font) {
+        measureCtx.font = font
+        const lines = []
+        String(text).split('\n').forEach(function (para) {
+          let cur = ''
+          Array.from(para).forEach(function (ch) {
+            const test = cur + ch
+            if (cur && measureCtx.measureText(test).width > maxW) { lines.push(cur); cur = ch } else cur = test
+          })
+          lines.push(cur)
+        })
+        return lines
+      }
+      function textBox(b) {
+        const KW = { speech: 0.74, thought: 0.62, shout: 0.6, whisper: 0.74, box: 0.84, caption: 0.84, sfx: 0.94, free: 0.94 }
+        const KH = { speech: 0.72, thought: 0.56, shout: 0.56, whisper: 0.72, box: 0.82, caption: 0.82, sfx: 0.94, free: 0.94 }
+        return { w: b.w * (KW[b.type] || 0.74), h: b.h * (KH[b.type] || 0.72) }
+      }
+      function fitFont(b) {
+        let fs = b.fontSize || 4.2
+        const box = textBox(b)
+        for (let k = 0; k < 18; k++) {
+          if (b.vertical) {
+            if (Array.from(String(b.text)).length * fs * 1.08 <= box.h || fs <= 1.6) break
+          } else {
+            const font = fs + 'px "Microsoft YaHei","PingFang SC",sans-serif'
+            const lines = wrapLines(b.text, box.w, font)
+            if (lines.length * fs * 1.28 <= box.h || fs <= 1.6) break
+          }
+          fs = Math.max(1.6, Math.round(fs * 0.9 * 100) / 100)
+        }
+        return fs
+      }
+      function cloudPath(cx, cy, rx, ry, n) {
+        const k = n || 11
+        let d = ''
+        for (let i = 0; i < k; i++) {
+          const a0 = (i / k) * Math.PI * 2, a1 = ((i + 1) / k) * Math.PI * 2
+          const x0 = cx + Math.cos(a0) * rx, y0 = cy + Math.sin(a0) * ry
+          const x1 = cx + Math.cos(a1) * rx, y1 = cy + Math.sin(a1) * ry
+          const mx = (x0 + x1) / 2, my = (y0 + y1) / 2
+          const ox = cx + (mx - cx) * 1.45, oy = cy + (my - cy) * 1.45
+          d += (i === 0 ? 'M' + r2(x0) + ',' + r2(y0) : '') + ' Q' + r2(ox) + ',' + r2(oy) + ' ' + r2(x1) + ',' + r2(y1)
+        }
+        return d + ' Z'
+      }
+      function starPath(cx, cy, rx, ry, spikes, inner) {
+        let d = ''
+        for (let i = 0; i < spikes * 2; i++) {
+          const a = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2
+          const f = i % 2 === 0 ? 1 : inner
+          const x = cx + Math.cos(a) * rx * f, y = cy + Math.sin(a) * ry * f
+          d += (i === 0 ? 'M' : 'L') + r2(x) + ',' + r2(y)
+        }
+        return d + ' Z'
+      }
+
+      // ---- DOM 骨架
+      const shell = el('div', {
+        display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0,
+        background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-primary)',
+      })
+      const bar = el('div', {
+        display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap',
+        padding: '8px 12px', borderBottom: '1px solid var(--dsw-alias-border-l2)',
+      })
+      const body = el('div', { display: 'flex', flex: '1 1 auto', minHeight: 0 })
+      const left = el('div', {
+        width: '184px', flex: '0 0 auto', overflow: 'auto',
+        borderRight: '1px solid var(--dsw-alias-border-l2)', padding: '8px',
+      })
+      const stage = el('div', {
+        flex: '1 1 auto', minWidth: 0, overflow: 'auto', display: 'flex',
+        alignItems: 'flex-start', justifyContent: 'center', padding: '18px',
+        background: 'var(--dsw-alias-bg-layer-1)',
+      })
+      const right = el('div', {
+        width: '268px', flex: '0 0 auto', overflow: 'auto',
+        borderLeft: '1px solid var(--dsw-alias-border-l2)', padding: '10px',
+      })
+      const svg = document.createElementNS(NS, 'svg')
+      svg.setAttribute('style', 'background:#fff;box-shadow:0 8px 36px rgba(0,0,0,.35);border-radius:2px;user-select:none;touch-action:none;display:block')
+      stage.append(svg)
+      body.append(left, stage, right)
+      shell.append(bar, body)
+      root.append(shell)
+
+      function el(tag, css, text) {
+        const n = document.createElement(tag)
+        if (css) Object.assign(n.style, css)
+        if (text !== undefined && text !== null) n.textContent = String(text)
+        return n
+      }
+      function svgEl(tag, attrs) {
+        const n = document.createElementNS(NS, tag)
+        if (attrs) {
+          Object.keys(attrs).forEach(function (k) {
+            const v = attrs[k]
+            if (v === undefined || v === null || v === false) return
+            n.setAttribute(k, String(v))
+          })
+        }
+        return n
+      }
+      function btn(label, onclick, css) {
+        const b = el('button', Object.assign({
+          font: 'inherit', fontSize: '12px', color: 'var(--dsw-alias-label-primary)',
+          background: 'var(--dsw-alias-bg-layer-1)', border: '1px solid var(--dsw-alias-border-l2)',
+          borderRadius: '7px', padding: '4px 10px', cursor: 'pointer', whiteSpace: 'nowrap',
+        }, css || {}), label)
+        b.onclick = onclick
+        return b
+      }
+      function toast(msg) {
+        S.status = msg
+        statusEl.textContent = msg
+        clearTimeout(toast._t)
+        toast._t = setTimeout(function () { statusEl.textContent = '' }, 4000)
+      }
+
+      // ---- 顶栏
+      const btnBack = btn('← 模式', onBack)
+      const btnPage = btn('页漫', function () { setMode('page') })
+      const btnStrip = btn('条漫', function () { setMode('strip') })
+      const btnRtl = btn('右→左', function () { S.order = 'rtl'; refresh() })
+      const btnLtr = btn('左→右', function () { S.order = 'ltr'; refresh() })
+      btnUndo = btn('↶', function () { undo() })
+      btnRedo = btn('↷', function () { redo() })
+      btnUndo.title = '撤销 Ctrl+Z'
+      btnRedo.title = '重做 Ctrl+Shift+Z'
+      const btnSelect = btn('选择', function () { setTool('select') })
+      const btnKnife = btn('刀切', function () { setTool('knife') })
+      btnKnife.title = '刀切：在页面上拖一条线，切开的格子各成一块'
+      function setTool(tool) {
+        S.tool = tool
+        btnSelect.style.borderColor = tool === 'select' ? '#4d7fff' : ''
+        btnKnife.style.borderColor = tool === 'knife' ? '#ff5f5f' : ''
+        svg.style.cursor = tool === 'knife' ? 'crosshair' : 'default'
+        if (tool !== 'knife') { S.knife = null; render() }
+      }
+      const tplSel = el('select', {
+        font: 'inherit', fontSize: '12px', color: 'var(--dsw-alias-label-primary)',
+        background: 'var(--dsw-alias-bg-layer-1)', border: '1px solid var(--dsw-alias-border-l2)',
+        borderRadius: '7px', padding: '4px 6px', cursor: 'pointer',
+      })
+      ;[['four', '四格'], ['two', '上下二段'], ['slant', '斜切两分'], ['grid6', '2×3 网格'], ['random', '随机分格']].forEach(function (it) {
+        const o = document.createElement('option')
+        o.value = it[0]; o.textContent = it[1]
+        tplSel.append(o)
+      })
+      tplSel.onchange = function () { applyTemplate(tplSel.value) }
+      const gridChk = el('input')
+      gridChk.type = 'checkbox'; gridChk.checked = S.grid.on
+      gridChk.onchange = function () { S.grid.on = gridChk.checked; render() }
+      const gridLbl = el('label', { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' })
+      gridLbl.append(gridChk, el('span', null, '网格'))
+
+      const txtChk = el('input')
+      txtChk.type = 'checkbox'
+      txtChk.checked = S.textInImage
+      txtChk.onchange = function () { S.textInImage = txtChk.checked; render() }
+      const txtLbl = el('label', { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' })
+      txtLbl.title = '勾上：台词由 MOSS 直接画进图里（气泡只作排版参考）；不勾：用矢量气泡叠加'
+      txtLbl.append(txtChk, el('span', null, '台词入图'))
+      const btnFit = btn('适应', function () { fitAndSave() })
+      btnFit.title = '按舞台大小铺满页面（并记住这个比例）'
+
+      const btnGenPage = btn('整页出图', function () { generatePage() }, { borderColor: '#4d7fff', background: 'rgba(77,127,255,.24)' })
+      const btnGenAll = btn('批量生成', function () { generateAll() }, { borderColor: '#4d7fff', background: 'rgba(77,127,255,.14)' })
+      const btnImp = btn('导入 JSON', function () { openImport() })
+      const btnExp = btn('导出 PNG', function () { exportPng() })
+      const btnJson = btn('导出 JSON', function () { exportJson() })
+      const btnLayout = btn('复制分格', function () { copyText(layoutSummary()) })
+      const btnLayoutFile = btn('导出 layout', function () { exportLayout() })
+      btnLayoutFile.title = '导出实际提交给 MOSS 的 layout（含画布尺寸、abs_centralized/yxyx 坐标）'
+      btnLayout.title = '把当前格局写成一段清单，贴给对话模型让它按格写描述'
+      const statusEl = el('span', { fontSize: '11.5px', color: 'var(--dsw-alias-label-secondary)' })
+
+      bar.append(btnBack, sep(), btnPage, btnStrip, sep(), btnRtl, btnLtr, sep(), btnSelect, btnKnife, sep(), btnUndo, btnRedo, sep(), el('span', { fontSize: '11.5px', color: 'var(--dsw-alias-label-secondary)' }, '模板'), tplSel, gridLbl, txtLbl, btnFit)
+      const spacer = el('div', { flex: '1 1 auto' })
+      bar.append(spacer, statusEl, btnLayout, btnLayoutFile, btnGenPage, btnGenAll, btnImp, btnExp, btnJson)
+      ;(function ensureComicBarStyle() {
+        if (document.getElementById('dsh-comic-bar-css')) return
+        const styleEl = document.createElement('style')
+        styleEl.id = 'dsh-comic-bar-css'
+        styleEl.textContent = [
+          '.dsh-comic-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;}',
+          '.dsh-comic-bar button{transition:background-color 140ms ease,border-color 140ms ease,color 140ms ease,transform 90ms ease,box-shadow 140ms ease;}',
+          '.dsh-comic-bar button:hover{background:var(--dsw-alias-interactive-bg-hover);}',
+          '.dsh-comic-bar button:active{transform:scale(.97);}',
+          '.dsh-comic-bar .dsh-comic-toggle{border-color:transparent;background:transparent;color:var(--dsw-alias-label-secondary);}',
+          '.dsh-comic-bar .dsh-comic-toggle[data-on="true"]{background:color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);color:var(--dsw-alias-label-primary);font-weight:500;box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, transparent);}',
+          '.dsh-comic-bar .dsh-comic-action{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);}',
+          '.dsh-comic-bar .dsh-comic-action:hover{border-color:var(--dsw-alias-state-business-primary);}',
+          '.dsh-comic-bar .dsh-comic-switch{cursor:pointer;}',
+          '.dsh-comic-bar .dsh-comic-cta{box-shadow:0 1px 2px rgb(0 0 0 / 12%);}',
+          '.dsh-comic-bar .dsh-comic-cta:hover{filter:brightness(1.06);box-shadow:0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-business-primary) 30%, transparent),0 2px 8px color-mix(in srgb, var(--dsw-alias-state-business-primary) 35%, transparent);}',
+          '.dsh-comic-bar .dsh-comic-dark:hover{filter:brightness(1.15);}',
+          '@media (prefers-reduced-motion: reduce){.dsh-comic-bar button{transition:none;}.dsh-comic-bar button:active{transform:none;}}',
+        ].join('\n')
+        document.head.appendChild(styleEl)
+      })()
+      // ---- 工具条：状态由 S 推导，外观分开关型 / 功能型 ----
+      ;(function setupComicBar() {
+        bar.classList.add('dsh-comic-bar')
+
+        const TOGGLES = [
+          [btnPage, function () { return S.mode === 'page' }],
+          [btnStrip, function () { return S.mode === 'strip' }],
+          [btnRtl, function () { return S.order === 'rtl' }],
+          [btnLtr, function () { return S.order === 'ltr' }],
+          [btnSelect, function () { return S.tool === 'select' }],
+          [btnKnife, function () { return S.tool === 'knife' }],
+        ]
+        const switchLabels = [gridLbl, txtLbl]
+
+        const toggleSet = new Set()
+        TOGGLES.forEach(function (pair) {
+          pair[0].classList.add('dsh-comic-toggle')
+          toggleSet.add(pair[0])
+        })
+        bar.querySelectorAll('button').forEach(function (node) {
+          if (toggleSet.has(node)) return
+          node.classList.add('dsh-comic-action')
+        })
+        switchLabels.forEach(function (label) {
+          if (!label) return
+          label.classList.add('dsh-comic-switch')
+        })
+
+        // 主操作（出图）与右上角小按钮：实色填充，强化层级
+        let pushedRight = false
+        bar.querySelectorAll('button').forEach(function (node) {
+          const text = String(node.textContent || '').trim()
+          if (text === '整页出图' || text === '批量生成') {
+            node.classList.add('dsh-comic-cta')
+            node.classList.remove('dsh-comic-action')
+            node.style.background = 'var(--dsw-alias-state-business-primary)'
+            node.style.color = '#ffffff'
+            node.style.borderColor = 'transparent'
+            node.style.fontWeight = '500'
+          }
+          if (text === '切换' || text === '收起') {
+            node.classList.add('dsh-comic-dark')
+            node.classList.remove('dsh-comic-action')
+            node.style.background = '#3d4048'
+            node.style.color = '#ffffff'
+            node.style.borderColor = 'transparent'
+            if (!pushedRight) {
+              node.style.marginLeft = 'auto'
+              pushedRight = true
+            }
+          }
+        })
+
+        const paint = function (node, on) {
+          node.dataset.on = on ? 'true' : 'false'
+          // 内联优先级最高，且不再靠边框色表达状态
+          node.style.borderColor = 'transparent'
+          // 选中 = 实色填充 + 反白文字（分段控件观感，区分度最大）
+          node.style.background = on ? 'var(--dsw-alias-state-business-primary)' : 'transparent'
+          node.style.color = on ? '#ffffff' : 'var(--dsw-alias-label-secondary)'
+          node.style.fontWeight = on ? '600' : ''
+          node.style.boxShadow = on
+            ? '0 1px 2px color-mix(in srgb, var(--dsw-alias-state-business-primary) 40%, transparent)'
+            : ''
+        }
+
+        const sync = function () {
+          TOGGLES.forEach(function (pair) {
+            let on = false
+            try { on = Boolean(pair[1]()) } catch (error) { on = false }
+            paint(pair[0], on)
+          })
+        }
+
+        sync()
+        bar.addEventListener('click', function () { setTimeout(sync, 0) }, true)
+        bar.addEventListener('keydown', function () { setTimeout(sync, 0) }, true)
+        try {
+          new MutationObserver(function () { setTimeout(sync, 0) }).observe(bar, {
+            attributes: true, subtree: true, attributeFilter: ['style', 'class'],
+          })
+        } catch (error) { /* ignore */ }
+        setInterval(sync, 1200)
+      })()
+      // 角落按钮：深灰实底 + 白字，整组推到工具条右端（换行后也靠右）
+      const cornerWrap = el('div', { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px', flexShrink: '0' })
+      const cornerBtn = function (label, onClick) {
+        return btn(label, onClick, {
+          padding: '2px 8px',
+          fontSize: '11px',
+          background: '#3d4048',
+          color: '#ffffff',
+          borderColor: 'transparent',
+        })
+      }
+      if (typeof api.onToggleCompact === 'function') {
+        cornerWrap.append(cornerBtn('切换', function () { api.onToggleCompact() }))
+      }
+      if (typeof api.onCollapse === 'function') {
+        cornerWrap.append(cornerBtn('收起', function () { api.onCollapse() }))
+      }
+      if (cornerWrap.childNodes.length > 0) bar.append(cornerWrap)
+      function sep() { return el('div', { width: '1px', height: '18px', background: 'var(--dsw-alias-border-l2)' }) }
+
+      // ---- 渲染
+      let defs = null
+      function render() {
+        const W = PW(), H = PH()
+        svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H)
+        svg.style.width = Math.round(W * S.zoom) + 'px'
+        svg.style.height = Math.round(H * S.zoom) + 'px'
+        while (svg.firstChild) svg.removeChild(svg.firstChild)
+
+        defs = svgEl('defs')
+        const pat = svgEl('pattern', { id: 'cmHatch', width: 4, height: 4, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' })
+        pat.append(svgEl('rect', { width: 4, height: 4, fill: '#f4f6f9' }))
+        pat.append(svgEl('rect', { width: 1.4, height: 4, fill: '#e8ecf2' }))
+        defs.append(pat)
+        svg.append(defs)
+
+        svg.append(svgEl('rect', { x: 0, y: 0, width: W, height: H, fill: '#fff' }))
+        if (S.grid.on) {
+          const g = svgEl('g', { stroke: '#e2e8f1', 'stroke-width': 0.16, class: 'noexport' })
+          for (let x = 0; x <= W; x += S.grid.size) g.append(svgEl('path', { d: 'M' + r2(x) + ' 0V' + H }))
+          for (let y = 0; y <= H; y += S.grid.size) g.append(svgEl('path', { d: 'M0 ' + r2(y) + 'H' + W }))
+          svg.append(g)
+        }
+        svg.append(svgEl('rect', {
+          x: MG(), y: MG(), width: W - 2 * MG(), height: H - 2 * MG(),
+          fill: 'none', stroke: '#c8d3e2', 'stroke-width': 0.2, 'stroke-dasharray': '1.2 1.4', class: 'noexport',
+        }))
+
+        if (S.pageImage) {
+          svg.append(svgEl('image', {
+            href: S.pageImage, x: 0, y: 0, width: W, height: H,
+            preserveAspectRatio: 'none', style: 'pointer-events:none',
+          }))
+        }
+
+        const list = ordered()
+        list.forEach(function (p, i) { svg.append(panelGroup(p, i + 1)) })
+        list.forEach(function (p) { p.balloons.forEach(function (b) { svg.append(bubbleGroup(b, p)) }) })
+
+        if (S.guides) {
+          (S.guides.xs || []).forEach(function (g) {
+            const v = typeof g === 'number' ? g : g.v
+            const col = (g && g.third) ? '#22c1a8' : '#ff4d8d'
+            svg.append(svgEl('line', {
+              x1: r2(v), y1: 0, x2: r2(v), y2: H,
+              stroke: col, 'stroke-width': 0.22, 'stroke-dasharray': '2 1.6', class: 'noexport',
+            }))
+          })
+          (S.guides.ys || []).forEach(function (g) {
+            const v = typeof g === 'number' ? g : g.v
+            const col = (g && g.third) ? '#22c1a8' : '#ff4d8d'
+            svg.append(svgEl('line', {
+              x1: 0, y1: r2(v), x2: W, y2: r2(v),
+              stroke: col, 'stroke-width': 0.22, 'stroke-dasharray': '2 1.6', class: 'noexport',
+            }))
+          })
+        }
+
+        if (S.knife) {
+          svg.append(svgEl('line', {
+            x1: r2(S.knife.a.x), y1: r2(S.knife.a.y), x2: r2(S.knife.b.x), y2: r2(S.knife.b.y),
+            stroke: '#ff5f5f', 'stroke-width': 0.5, 'stroke-dasharray': '2 1.4', class: 'noexport',
+          }))
+        }
+      }
+
+      function panelGroup(p, num) {
+        const g = svgEl('g', { 'data-panel': p.id })
+        const b = bbox(p.poly)
+        if (!S.pageImage) g.append(svgEl('polygon', { points: pts(p.poly), fill: '#fff' }))
+
+        if (!S.pageImage && p.img) {
+          const cid = 'cmClip-' + p.id
+          const clip = svgEl('clipPath', { id: cid })
+          clip.append(svgEl('polygon', { points: pts(p.poly) }))
+          defs.append(clip)
+          g.append(svgEl('image', {
+            href: p.img, x: r2(b.x), y: r2(b.y), width: r2(b.w), height: r2(b.h),
+            preserveAspectRatio: 'xMidYMid slice', 'clip-path': 'url(#' + cid + ')',
+            style: 'pointer-events:none',
+          }))
+        } else if (!S.pageImage) {
+          g.append(svgEl('polygon', { points: pts(p.poly), fill: 'url(#cmHatch)' }))
+          const t = svgEl('text', {
+            x: r2(b.x + b.w / 2), y: r2(b.y + b.h / 2), 'text-anchor': 'middle',
+            'font-size': r2(clamp(Math.min(b.w, b.h) / 9, 2.4, 4.4)),
+            fill: p.status === 'error' ? '#d9534f' : '#9aa7b8', style: 'pointer-events:none',
+          })
+          t.textContent = p.status === 'busy' ? '生成中…' : p.status === 'error' ? '失败：' + (p.err || '') : '未生成'
+          g.append(t)
+        }
+
+        g.append(svgEl('polygon', {
+          points: pts(p.poly), fill: 'none',
+          stroke: isSel(p.id) ? '#4c8dff' : '#1b2431',
+          'stroke-width': S.selPanel === p.id ? 0.7 : (isSel(p.id) ? 0.55 : 0.35),
+          'stroke-linejoin': 'round',
+        }))
+
+        const bx = b.x + 4, by = b.y + 4
+        g.append(svgEl('circle', { cx: r2(bx), cy: r2(by), r: 3, fill: 'rgba(15,20,28,.82)', class: 'noexport' }))
+        const nt = svgEl('text', { x: r2(bx), y: r2(by + 1.1), 'text-anchor': 'middle', 'font-size': 3.2, fill: '#fff', 'font-weight': 600, class: 'noexport' })
+        nt.textContent = String(num)
+        g.append(nt)
+
+        if (S.selPanel === p.id) {
+          p.poly.forEach(function (v, i) {
+            g.append(svgEl('circle', {
+              cx: r2(v.x), cy: r2(v.y), r: 1.6, fill: '#fff', stroke: '#4c8dff', 'stroke-width': 0.55,
+              class: 'handle', 'data-panel': p.id, 'data-vertex': i, style: 'cursor:pointer',
+            }))
+          })
+        }
+        return g
+      }
+
+      /**
+       * 台词入图时的气泡：不是画上去的气泡，而是"给 MOSS 的取词框"。
+       * 画成虚线灰框 + 灰字，一眼能看出是占位；导出时整组剔除。
+       */
+      function textPlaceholder(b, p) {
+        const g = svgEl('g', { 'data-bubble': b.id, 'data-panel': p.id, style: 'cursor:move', class: 'noexport' })
+        g.append(svgEl('rect', {
+          x: r2(b.x), y: r2(b.y), width: r2(b.w), height: r2(b.h), rx: 1.2,
+          fill: 'rgba(140,160,190,.10)', stroke: '#8aa0bb', 'stroke-width': 0.22,
+          'stroke-dasharray': '1.4 1.2',
+        }))
+        const fs = Math.min(3.2, Math.max(1.6, b.h / 6))
+        if (b.vertical) {
+          const t = svgEl('text', {
+            x: r2(b.x + b.w / 2 + fs * 0.36), y: r2(b.y + 2),
+            'font-size': fs, fill: '#6b7c92', style: 'writing-mode:vertical-rl;pointer-events:none',
+          })
+          t.textContent = String(b.text || '')
+          g.append(t)
+        } else {
+          const box = textBox(b)
+          const font = fs + 'px "Microsoft YaHei","PingFang SC",sans-serif'
+          const lines = wrapLines(b.text, box.w, font)
+          const lh = fs * 1.3
+          const startY = b.y + b.h / 2 - ((lines.length - 1) * lh) / 2 + fs * 0.34
+          const t = svgEl('text', { x: r2(b.x + b.w / 2), y: r2(startY), 'text-anchor': 'middle', 'font-size': fs, fill: '#6b7c92', style: 'pointer-events:none' })
+          lines.forEach(function (line, i) {
+            const ts = svgEl('tspan', { x: r2(b.x + b.w / 2), dy: i === 0 ? 0 : r2(lh) })
+            ts.textContent = line
+            t.append(ts)
+          })
+          g.append(t)
+        }
+        return g
+      }
+
+      function bubbleGroup(b, p) {
+        if (S.textInImage) return textPlaceholder(b, p)
+        {
+        const g = svgEl('g', { 'data-bubble': b.id, 'data-panel': p.id, style: 'cursor:move', class: 'bubble' })
+        const cx = b.x + b.w / 2, cy = b.y + b.h / 2
+        const fill = b.type === 'caption' ? '#f4f1e6' : b.type === 'sfx' || b.type === 'free' ? 'none' : '#fff'
+        const stroke = { fill: fill, stroke: '#141a22', 'stroke-width': 0.5, 'stroke-linejoin': 'round' }
+        if (b.type === 'thought') g.append(svgEl('path', Object.assign({ d: cloudPath(cx, cy, b.w / 2, b.h / 2, 11) }, stroke)))
+        else if (b.type === 'shout') g.append(svgEl('path', Object.assign({ d: starPath(cx, cy, b.w / 2 * 1.06, b.h / 2 * 1.1, 13, 0.7) }, stroke)))
+        else if (b.type === 'box' || b.type === 'caption') g.append(svgEl('rect', Object.assign({ x: r2(b.x), y: r2(b.y), width: r2(b.w), height: r2(b.h), rx: 1 }, stroke)))
+        else if (b.type === 'whisper') g.append(svgEl('ellipse', Object.assign({ cx: r2(cx), cy: r2(cy), rx: r2(b.w / 2), ry: r2(b.h / 2) }, stroke, { 'stroke-dasharray': '1.6 1.2', 'stroke-width': 0.42 })))
+        else if (b.type === 'speech') g.append(svgEl('ellipse', Object.assign({ cx: r2(cx), cy: r2(cy), rx: r2(b.w / 2), ry: r2(b.h / 2) }, stroke)))
+
+        if (b.type === 'speech' || b.type === 'whisper' || b.type === 'box') {
+          const tipX = b.x + b.w * (b.tailX === undefined ? 0.72 : b.tailX)
+          const tipY = b.y + b.h + (b.tailY === undefined ? 10 : b.tailY)
+          g.append(svgEl('polygon', {
+            points: pts([{ x: b.x + b.w * 0.34, y: b.y + b.h - 1.2 }, { x: b.x + b.w * 0.52, y: b.y + b.h - 1.2 }, { x: tipX, y: tipY }]),
+            fill: fill, stroke: '#141a22', 'stroke-width': 0.5,
+          }))
+        }
+
+        const fs = fitFont(b)
+        if (b.type === 'sfx') {
+          const t = svgEl('text', {
+            x: r2(cx), y: r2(cy), 'text-anchor': 'middle', 'dominant-baseline': 'middle',
+            'font-size': fs, 'font-weight': 800, 'font-style': 'italic', fill: '#fff',
+            stroke: '#111820', 'stroke-width': Math.max(0.5, fs * 0.14), 'paint-order': 'stroke',
+            style: 'pointer-events:none',
+          })
+          t.textContent = b.text
+          g.append(t)
+        } else if (b.type === 'free') {
+          const t = svgEl('text', { x: r2(cx), y: r2(cy), 'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-size': fs, fill: '#111820', style: 'pointer-events:none' })
+          t.textContent = b.text
+          g.append(t)
+        } else if (b.vertical) {
+          const chars = Array.from(String(b.text))
+          const total = chars.length * fs * 1.08
+          const t = svgEl('text', {
+            x: r2(cx + fs * 0.36), y: r2(b.y + Math.max(1.5, (b.h - total) / 2 + fs * 0.9)),
+            'font-size': fs, fill: '#0d1117',
+            style: 'writing-mode:vertical-rl;letter-spacing:.2mm;pointer-events:none',
+          })
+          t.textContent = b.text
+          g.append(t)
+        } else {
+          const box = textBox(b)
+          const font = fs + 'px "Microsoft YaHei","PingFang SC",sans-serif'
+          const lines = wrapLines(b.text, box.w, font)
+          const lh = fs * 1.28
+          const startY = b.y + b.h / 2 - ((lines.length - 1) * lh) / 2 + fs * 0.34
+          const t = svgEl('text', { x: r2(cx), y: r2(startY), 'text-anchor': 'middle', 'font-size': fs, fill: '#0d1117', style: 'pointer-events:none' })
+          lines.forEach(function (line, i) {
+            const ts = svgEl('tspan', { x: r2(cx), dy: i === 0 ? 0 : r2(lh) })
+            ts.textContent = line
+            t.append(ts)
+          })
+          g.append(t)
+        }
+        return g
+        }
+      }
+
+      // ---- 左侧：页 + 格
+      function renderLeft() {
+        left.innerHTML = ''
+        const nav = el('div', { display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '8px' })
+        const prev = btn('◀', function () { gotoPage(S.pageIdx - 1) }, { flex: '0 0 auto', padding: '2px 6px' })
+        prev.disabled = S.pageIdx <= 0
+        const next = btn('▶', function () { gotoPage(S.pageIdx + 1) }, { flex: '0 0 auto', padding: '2px 6px' })
+        next.disabled = S.pageIdx >= S.pages.length - 1
+        const label = el('div', { flex: '1 1 auto', textAlign: 'center', fontSize: '11.5px', color: 'var(--dsw-alias-label-secondary)' }, (S.pageIdx + 1) + ' / ' + S.pages.length)
+        const add = btn('＋', function () { addPage() }, { padding: '2px 6px' })
+        const del = btn('－', function () { delPage() }, { padding: '2px 6px' })
+        nav.append(prev, label, next, add, del)
+        left.append(nav)
+        const allBtn = btn('整本导出 ZIP', function () { exportAll() }, { width: '100%', marginBottom: '8px', padding: '3px', fontSize: '11px' })
+        left.append(allBtn)
+
+        const list = ordered()
+        if (!list.length) {
+          left.append(el('div', { fontSize: '11.5px', color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.6, padding: '6px 2px' }, '这一页还没有格子。双击画布空白处加一格，或从顶部选模板。'))
+          return
+        }
+        list.forEach(function (p, i) {
+          const row = el('div', {
+            display: 'flex', gap: '6px', alignItems: 'center', padding: '5px 6px',
+            borderRadius: '6px', cursor: 'pointer', marginBottom: '2px',
+            background: isSel(p.id) ? 'rgba(77,127,255,.16)' : 'transparent',
+            border: '1px solid ' + (isSel(p.id) ? '#4d7fff' : 'transparent'),
+          })
+          row.append(el('div', {
+            flex: '0 0 auto', width: '18px', height: '18px', borderRadius: '5px',
+            background: isSel(p.id) ? '#4d7fff' : 'var(--dsw-alias-bg-layer-2, #232c3b)',
+            color: isSel(p.id) ? '#fff' : 'var(--dsw-alias-label-secondary)',
+            fontSize: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }, String(i + 1)))
+          const meta = el('div', { minWidth: 0, flex: '1 1 auto' })
+          meta.append(el('div', { fontSize: '11.5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, (p.prompt || '（空提示词）').slice(0, 22)))
+          meta.append(el('div', { fontSize: '10px', color: 'var(--dsw-alias-label-secondary)' },
+            (p.status === 'done' ? '已出图' : p.status === 'busy' ? '生成中' : p.status === 'error' ? '失败' : '未生成') + (p.balloons.length ? ' · ' + p.balloons.length + ' 气泡' : '')))
+          row.append(meta)
+          row.onclick = function (ev) {
+            if (ev.shiftKey) {
+              if (isSel(p.id)) setSel(S.sel.filter(function (x) { return x !== p.id }), S.sel[0])
+              else setSel(S.sel.concat(p.id), p.id)
+            } else setSel([p.id], p.id)
+            S.selBubble = null
+            refresh()
+          }
+          left.append(row)
+        })
+      }
+
+      // ---- 右侧：检查器
+      function fieldWrap(label, node) {
+        const w = el('div', { marginBottom: '9px' })
+        w.append(el('label', { display: 'block', fontSize: '11px', color: 'var(--dsw-alias-label-secondary)', marginBottom: '3px' }, label))
+        w.append(node)
+        return w
+      }
+      function textInput(value, oninput, minH) {
+        const t = el('textarea', {
+          width: '100%', boxSizing: 'border-box', font: 'inherit', fontSize: '12px',
+          color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-base)',
+          border: '1px solid var(--dsw-alias-border-l2)', borderRadius: '7px',
+          padding: '6px 8px', outline: 'none', resize: 'vertical', minHeight: (minH || 64) + 'px',
+        })
+        t.value = value || ''
+        t.oninput = function () { oninput(t.value) }
+        return t
+      }
+
+      // 模型设置：直接复用画板那个 ModelSettingsDialog（由 React 外壳渲染），
+      // 这里只放一个入口 + 当前 UNET 摘要。
+      function modelSection() {
+        const sec = el('div', { marginBottom: '10px' })
+        const row = el('div', { display: 'flex', alignItems: 'center', gap: '6px' })
+        const models = S.models || {}
+        const name = String(models.unet || '').trim()
+        row.append(el('div', {
+          flex: '1 1 auto', minWidth: 0, fontSize: '10.5px',
+          color: 'var(--dsw-alias-label-secondary)',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }, name || '未选择模型'))
+        row.append(btn('模型设置', function () { if (api.openSettings) api.openSettings() }, { padding: '3px 9px', fontSize: '11px' }))
+        sec.append(row)
+        return sec
+      }
+
+      function shiftPoly(p, dx, dy) {
+        p.poly.forEach(function (v) { v.x = r2(v.x + dx); v.y = r2(v.y + dy) })
+      }
+
+      function alignSel(kind) {
+        const ps = S.sel.map(getPanel).filter(Boolean)
+        if (ps.length < 2) { toast('至少选两格'); return }
+        const items = ps.map(function (p) { return { p: p, b: bbox(p.poly) } })
+        const minX = Math.min.apply(null, items.map(function (i) { return i.b.x }))
+        const maxX = Math.max.apply(null, items.map(function (i) { return i.b.x + i.b.w }))
+        const minY = Math.min.apply(null, items.map(function (i) { return i.b.y }))
+        const maxY = Math.max.apply(null, items.map(function (i) { return i.b.y + i.b.h }))
+        items.forEach(function (it) {
+          let dx = 0, dy = 0
+          if (kind === 'left') dx = minX - it.b.x
+          if (kind === 'right') dx = maxX - (it.b.x + it.b.w)
+          if (kind === 'hcenter') dx = (minX + maxX) / 2 - (it.b.x + it.b.w / 2)
+          if (kind === 'top') dy = minY - it.b.y
+          if (kind === 'bottom') dy = maxY - (it.b.y + it.b.h)
+          if (kind === 'vcenter') dy = (minY + maxY) / 2 - (it.b.y + it.b.h / 2)
+          if (dx || dy) shiftPoly(it.p, dx, dy)
+        })
+        refresh()
+        commit()
+      }
+
+      function distributeSel(axis) {
+        const ps = S.sel.map(getPanel).filter(Boolean)
+        if (ps.length < 3) { toast('等距分布至少要选 3 格'); return }
+        const items = ps.map(function (p) { return { p: p, b: bbox(p.poly) } })
+        items.sort(function (a, b) { return axis === 'h' ? a.b.x - b.b.x : a.b.y - b.b.y })
+        if (axis === 'h') {
+          const x0 = items[0].b.x, x1 = items[items.length - 1].b.x + items[items.length - 1].b.w
+          const total = items.reduce(function (s, i) { return s + i.b.w }, 0)
+          const gap = (x1 - x0 - total) / (items.length - 1)
+          let cur = x0
+          items.forEach(function (i) {
+            if (i.b.x !== cur) shiftPoly(i.p, cur - i.b.x, 0)
+            cur += i.b.w + gap
+          })
+        } else {
+          const y0 = items[0].b.y, y1 = items[items.length - 1].b.y + items[items.length - 1].b.h
+          const total = items.reduce(function (s, i) { return s + i.b.h }, 0)
+          const gap = (y1 - y0 - total) / (items.length - 1)
+          let cur = y0
+          items.forEach(function (i) {
+            if (i.b.y !== cur) shiftPoly(i.p, 0, cur - i.b.y)
+            cur += i.b.h + gap
+          })
+        }
+        refresh()
+        commit()
+      }
+
+      function multiSection() {
+        const sec = el('div', {})
+        sec.append(el('div', { fontSize: '10px', letterSpacing: '.12em', color: 'var(--dsw-alias-label-secondary)', marginBottom: '6px' }, '已选 ' + S.sel.length + ' 格'))
+        function rowOf(defs) {
+          const row = el('div', { display: 'flex', gap: '4px', marginBottom: '4px' })
+          defs.forEach(function (d) {
+            row.append(btn(d[0], d[1], { flex: '1 1 0', padding: '3px 2px', fontSize: '11px' }))
+          })
+          return row
+        }
+        sec.append(rowOf([['左对齐', function () { alignSel('left') }], ['水平居中', function () { alignSel('hcenter') }], ['右对齐', function () { alignSel('right') }]]))
+        sec.append(rowOf([['顶对齐', function () { alignSel('top') }], ['垂直居中', function () { alignSel('vcenter') }], ['底对齐', function () { alignSel('bottom') }]]))
+        sec.append(rowOf([['水平等距', function () { distributeSel('h') }], ['垂直等距', function () { distributeSel('v') }]]))
+        return sec
+      }
+
+      let summaryTimer = 0
+      function summarySection() {
+        const sec = el('div', { marginBottom: '10px' })
+        sec.append(el('div', { fontSize: '10px', letterSpacing: '.12em', color: 'var(--dsw-alias-label-secondary)', marginBottom: '4px' }, '整页描述 / 画风'))
+        const ta = textInput(S.summary || '', function () {}, 46)
+        ta.placeholder = '全页统一：雨夜、冷蓝主调、电影级打光、写实动漫风'
+        ta.oninput = function () {
+          S.summary = ta.value
+          clearTimeout(summaryTimer)
+          summaryTimer = setTimeout(function () {
+            if (api.saveSummary) api.saveSummary(S.summary)
+          }, 400)
+        }
+        sec.append(ta)
+
+        const seedRow = el('div', { display: 'flex', gap: '6px', alignItems: 'center', marginTop: '6px' })
+        seedRow.append(el('span', { fontSize: '10.5px', color: 'var(--dsw-alias-label-secondary)', whiteSpace: 'nowrap' }, '页面种子'))
+        const seedIn = el('input', {
+          flex: '1 1 auto', minWidth: 0, font: 'inherit', fontSize: '11px',
+          color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-base)',
+          border: '1px solid var(--dsw-alias-border-l2)', borderRadius: '6px',
+          padding: '3px 6px', outline: 'none',
+        })
+        seedIn.value = String(S.pageSeed || 0)
+        seedIn.oninput = function () { S.pageSeed = Number(seedIn.value) || 0 }
+        seedIn.onchange = function () {
+          S.pageSeed = Number(seedIn.value) || 0
+          S.pageRandom = !S.pageSeed
+          if (api.savePageSeed) api.savePageSeed({ value: S.pageSeed, random: S.pageRandom })
+        }
+        const rndChk = el('input')
+        rndChk.type = 'checkbox'
+        rndChk.checked = !!S.pageRandom
+        rndChk.onchange = function () {
+          S.pageRandom = rndChk.checked
+          if (api.savePageSeed) api.savePageSeed({ value: S.pageSeed, random: S.pageRandom })
+        }
+        const rndLbl = el('label', { display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10.5px', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer', whiteSpace: 'nowrap' })
+        rndLbl.append(rndChk, el('span', null, '随机'))
+        if (S.pageRandom) seedIn.placeholder = '每次随机'
+        seedRow.append(seedIn, rndLbl)
+        sec.append(seedRow)
+        return sec
+      }
+
+      function renderRight() {
+        right.innerHTML = ''
+        right.append(modelSection())
+        right.append(summarySection())
+        if (S.sel.length > 1) {
+          right.append(multiSection())
+          return
+        }
+        const p = getPanel(S.selPanel)
+        if (!p) {
+          const box = el('div', { fontSize: '11.5px', color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.7, padding: '4px 2px' })
+          box.innerHTML = ''
+          box.append(
+            el('div', null, '选中一格开始编辑。'),
+            el('div', { marginTop: '8px' }, '双击空白 = 加一格'),
+            el('div', null, '拖格子 = 移动（网格 + 邻近边吸附）'),
+            el('div', null, '拖圆点 = 改形状'),
+            el('div', null, 'Alt 拖动 = 不吸附'),
+            el('div', null, 'Del = 删除'),
+          )
+          right.append(box)
+          return
+        }
+        const b = bbox(p.poly)
+
+        right.append(fieldWrap('提示词', textInput(p.prompt, function (v) { p.prompt = v }, 86)))
+        right.append(fieldWrap('负面', textInput(p.neg, function (v) { p.neg = v }, 40)))
+
+        const seedRow = el('div', { display: 'flex', gap: '6px' })
+        const seedIn = el('input', {
+          flex: '1 1 auto', minWidth: 0, font: 'inherit', fontSize: '12px',
+          color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-base)',
+          border: '1px solid var(--dsw-alias-border-l2)', borderRadius: '7px', padding: '5px 8px', outline: 'none',
+        })
+        seedIn.value = String(p.seed || 0)
+        seedIn.oninput = function () { p.seed = Number(seedIn.value) || 0 }
+        const dice = btn('随机', function () {
+          p.seed = Math.floor(Math.random() * 1e15)
+          seedIn.value = String(p.seed)
+        }, { padding: '4px 8px' })
+        seedRow.append(seedIn, dice)
+        right.append(fieldWrap('种子（0 = 用模板默认）', seedRow))
+
+        const genBtn = btn(p.status === 'busy' ? '生成中…' : '生成本格', function () { generateOne(p) }, {
+          width: '100%', padding: '7px', borderColor: '#4d7fff', background: 'rgba(77,127,255,.16)',
+        })
+        genBtn.disabled = p.status === 'busy'
+        right.append(genBtn)
+
+        right.append(el('div', { fontSize: '10.5px', color: 'var(--dsw-alias-label-secondary)', margin: '7px 0 10px' },
+          '输出 ' + Math.round(mmToPx(b.w)) + ' × ' + Math.round(mmToPx(b.h)) + ' px' + (p.err ? ' · ' + p.err : '')))
+
+        right.append(el('div', { height: '1px', background: 'var(--dsw-alias-border-l2)', margin: '0 0 10px' }))
+        right.append(el('div', { fontSize: '10.5px', letterSpacing: '.14em', color: 'var(--dsw-alias-label-secondary)', marginBottom: '6px' }, '气泡 · ' + p.balloons.length))
+
+        const addRow = el('div', { display: 'flex', gap: '6px', marginBottom: '8px' })
+        const typeSel = el('select', {
+          flex: '1 1 auto', font: 'inherit', fontSize: '12px', color: 'var(--dsw-alias-label-primary)',
+          background: 'var(--dsw-alias-bg-base)', border: '1px solid var(--dsw-alias-border-l2)',
+          borderRadius: '7px', padding: '4px 6px', outline: 'none',
+        })
+        BUBBLES.forEach(function (t) {
+          const o = document.createElement('option')
+          o.value = t.id; o.textContent = t.name
+          typeSel.append(o)
+        })
+        addRow.append(typeSel, btn('+ 加', function () { addBubble(p, typeSel.value) }, { padding: '4px 9px' }))
+        right.append(addRow)
+
+        p.balloons.forEach(function (bub) {
+          const card = el('div', {
+            border: '1px solid ' + (S.selBubble === bub.id ? '#4d7fff' : 'var(--dsw-alias-border-l2)'),
+            background: S.selBubble === bub.id ? 'rgba(77,127,255,.1)' : 'transparent',
+            borderRadius: '8px', padding: '7px', marginBottom: '7px', cursor: 'pointer',
+          })
+          card.onclick = function () { S.selBubble = bub.id; render(); renderRight() }
+          card.append(el('div', { fontSize: '10px', color: 'var(--dsw-alias-label-secondary)', marginBottom: '4px' },
+            (BUBBLES.find(function (t) { return t.id === bub.type }) || { name: bub.type }).name))
+          const ta = textInput(bub.text, function (v) { bub.text = v; render() }, 40)
+          card.append(ta)
+          const tools = el('div', { display: 'flex', gap: '6px', marginTop: '5px' })
+          const vBtn = btn(bub.vertical ? '横排' : '竖排', function (ev) {
+            ev.stopPropagation(); bub.vertical = !bub.vertical; render(); renderRight(); commit()
+          }, { padding: '2px 8px', fontSize: '11px' })
+          const dBtn = btn('删', function (ev) {
+            ev.stopPropagation()
+            p.balloons = p.balloons.filter(function (x) { return x.id !== bub.id })
+            if (S.selBubble === bub.id) S.selBubble = null
+            render(); renderRight(); commit()
+          }, { padding: '2px 8px', fontSize: '11px' })
+          tools.append(vBtn, dBtn)
+          card.append(tools)
+          right.append(card)
+        })
+      }
+
+      function addBubble(p, type) {
+        const b = bbox(p.poly)
+        const SIZE = {
+          speech: { w: 0.34, h: 0.15 }, thought: { w: 0.34, h: 0.16 }, shout: { w: 0.34, h: 0.17 },
+          whisper: { w: 0.34, h: 0.15 }, box: { w: 0.27, h: 0.24 }, caption: { w: 0.24, h: 0.3 },
+          sfx: { w: 0.5, h: 0.2 }, free: { w: 0.5, h: 0.14 },
+        }
+        const spec = SIZE[type] || SIZE.speech
+        const w = clamp(b.w * spec.w, 12, 64), hh2 = clamp(b.h * spec.h, 8, 80)
+        const slots = [[0.04, 0.04], [0.56, 0.05], [0.05, 0.36], [0.57, 0.37], [0.04, 0.64], [0.56, 0.66]]
+        const s = slots[p.balloons.length % slots.length]
+        const bub = {
+          id: 'b' + (S.seq++), type: type,
+          text: type === 'caption' ? '旁白' : type === 'sfx' ? '咚！' : type === 'free' ? '文字' : '台词',
+          x: r2(clamp(b.x + b.w * s[0], b.x + 1.5, b.x + b.w - w - 1.5)),
+          y: r2(clamp(b.y + b.h * s[1], b.y + 1.5, b.y + b.h - hh2 - 1.5)),
+          w: r2(w), h: r2(hh2), fontSize: type === 'sfx' ? 7.5 : 4.2,
+          vertical: type === 'caption' || type === 'box', tailX: 0.72, tailY: 10,
+        }
+        p.balloons.push(bub)
+        S.selBubble = bub.id
+        render(); renderRight()
+        commit()
+      }
+
+      function refresh() { render(); renderLeft(); renderRight() }
+
+      // ---- 页
+      function gotoPage(i) {
+        if (i < 0 || i >= S.pages.length) return
+        S.pageIdx = i
+        S.panels = S.pages[i].panels
+        S.pageImage = S.pages[i].image || ''
+        setSel([], null)
+        S.selBubble = null
+        // 切页保持当前缩放，不重新适应
+        refresh()
+      }
+      function addPage() {
+        S.pages.splice(S.pageIdx + 1, 0, { id: 'pg' + (S.seq++), panels: [], image: '' })
+        gotoPage(S.pageIdx + 1)
+        commit()
+      }
+      function delPage() {
+        if (S.pages.length <= 1) { toast('至少保留一页'); return }
+        S.pages.splice(S.pageIdx, 1)
+        gotoPage(Math.min(S.pageIdx, S.pages.length - 1))
+        commit()
+      }
+
+      function setMode(mode) {
+        S.mode = mode
+        btnPage.style.borderColor = mode === 'page' ? '#4d7fff' : ''
+        btnStrip.style.borderColor = mode === 'strip' ? '#4d7fff' : ''
+        fitZoom(); refresh()
+      }
+
+      function applyTemplate(name) {
+        const polys = tpl(name || 'four')
+        setPanels(readingOrderBoxes(polys).map(function (poly) { return makePanel(poly, '') }))
+        setSel(S.panels.length ? [S.panels[0].id] : [], S.panels.length ? S.panels[0].id : null)
+        S.selBubble = null
+        S.pageImage = ''
+        if (S.pages[S.pageIdx]) S.pages[S.pageIdx].image = ''
+        refresh(); commit()
+      }
+
+      const ZOOM_KEY = 'dsh.comfy.comicZoom'
+      function readSavedZoom() {
+        try {
+          const v = Number(localStorage.getItem(ZOOM_KEY))
+          if (Number.isFinite(v) && v >= 0.5 && v <= 30) return v
+        } catch (e) { /* ignore */ }
+        return 0
+      }
+      function saveZoom() {
+        try { localStorage.setItem(ZOOM_KEY, String(S.zoom)) } catch (e) { /* ignore */ }
+      }
+      /** 手动「适应」：铺满舞台并记住这次的比例 */
+      function fitAndSave() {
+        fitZoom()
+        saveZoom()
+        render()
+      }
+
+      function fitZoom() {
+        const availW = Math.max(240, stage.clientWidth - 40)
+        const availH = Math.max(240, stage.clientHeight - 40)
+        const z = S.mode === 'strip' ? availW / PW() : Math.min(availW / PW(), availH / PH())
+        S.zoom = clamp(z, 0.8, 26)
+      }
+
+      // ---- 交互
+      let drag = null
+      function toMM(ev) {
+        const pt = svg.createSVGPoint()
+        pt.x = ev.clientX; pt.y = ev.clientY
+        const m = svg.getScreenCTM()
+        if (!m) return { x: 0, y: 0 }
+        const q = pt.matrixTransform(m.inverse())
+        return { x: q.x, y: q.y }
+      }
+
+      svg.addEventListener('pointerdown', function (ev) {
+        const pt = toMM(ev)
+        if (S.tool === 'knife') {
+          const a = { x: snapVal(pt.x, ev.altKey), y: snapVal(pt.y, ev.altKey) }
+          S.knife = { a: a, b: { x: a.x, y: a.y } }
+          try { svg.setPointerCapture(ev.pointerId) } catch (e) { /* ignore */ }
+          render()
+          ev.preventDefault()
+          return
+        }
+        const handle = ev.target.closest('[data-vertex]')
+        const bubbleNode = ev.target.closest('[data-bubble]')
+        const panelNode = ev.target.closest('[data-panel]')
+
+        if (handle) {
+          const p = getPanel(handle.getAttribute('data-panel'))
+          if (!p) return
+          setSel([p.id], p.id); S.selBubble = null
+          drag = { kind: 'vertex', p: p, idx: Number(handle.getAttribute('data-vertex')), start: p.poly.map(function (v) { return { x: v.x, y: v.y } }) }
+          try { svg.setPointerCapture(ev.pointerId) } catch (e) { /* ignore */ }
+          refresh(); ev.preventDefault(); return
+        }
+        if (bubbleNode) {
+          const p = getPanel(bubbleNode.getAttribute('data-panel'))
+          const b = p && p.balloons.find(function (x) { return x.id === bubbleNode.getAttribute('data-bubble') })
+          if (!b) return
+          S.selPanel = p.id; S.selBubble = b.id
+          drag = { kind: 'bubble', b: b, start: pt, bx: b.x, by: b.y }
+          try { svg.setPointerCapture(ev.pointerId) } catch (e) { /* ignore */ }
+          refresh(); ev.preventDefault(); return
+        }
+        if (panelNode) {
+          const p = getPanel(panelNode.getAttribute('data-panel'))
+          if (!p) return
+          if (ev.shiftKey) {
+            if (isSel(p.id)) setSel(S.sel.filter(function (x) { return x !== p.id }), S.sel[0])
+            else setSel(S.sel.concat(p.id), p.id)
+          } else if (!isSel(p.id)) setSel([p.id], p.id)
+          else S.selPanel = p.id
+          S.selBubble = null
+          const ps = S.sel.map(getPanel).filter(Boolean)
+          let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+          ps.forEach(function (q) {
+            const bb = bbox(q.poly)
+            x0 = Math.min(x0, bb.x); y0 = Math.min(y0, bb.y)
+            x1 = Math.max(x1, bb.x + bb.w); y1 = Math.max(y1, bb.y + bb.h)
+          })
+          drag = {
+            kind: 'move', start: pt, bb: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 },
+            items: ps.map(function (q) { return { p: q, poly: q.poly.map(function (v) { return { x: v.x, y: v.y } }) } }),
+          }
+          try { svg.setPointerCapture(ev.pointerId) } catch (e) { /* ignore */ }
+          refresh(); ev.preventDefault(); return
+        }
+        // 空白：取消选择
+        setSel([], null); S.selBubble = null; refresh()
+      })
+
+      svg.addEventListener('pointermove', function (ev) {
+        if (S.knife) {
+          const pt = toMM(ev)
+          S.knife.b = { x: snapVal(pt.x, ev.altKey), y: snapVal(pt.y, ev.altKey) }
+          render()
+          return
+        }
+        if (!drag) return
+        const pt = toMM(ev)
+        if (drag.kind === 'vertex') {
+          const v = drag.p.poly[drag.idx]
+          v.x = snapVal(pt.x, ev.altKey); v.y = snapVal(pt.y, ev.altKey)
+          render(); return
+        }
+        if (drag.kind === 'bubble') {
+          drag.b.x = r2(drag.bx + (pt.x - drag.start.x))
+          drag.b.y = r2(drag.by + (pt.y - drag.start.y))
+          render(); return
+        }
+        if (drag.kind === 'move') {
+          let dx = pt.x - drag.start.x, dy = pt.y - drag.start.y
+          if (ev.shiftKey) { if (Math.abs(dx) >= Math.abs(dy)) dy = 0; else dx = 0 }
+          if (ev.altKey) S.guides = null
+          else {
+            const ex = {}
+            drag.items.forEach(function (it) { ex[it.p.id] = 1 })
+            const r = smartSnap(drag.bb, dx, dy, ex)
+            dx = r.dx; dy = r.dy; S.guides = r.guides
+          }
+          drag.items.forEach(function (it) {
+            it.p.poly.forEach(function (v, i) {
+              v.x = r2(it.poly[i].x + dx); v.y = r2(it.poly[i].y + dy)
+            })
+          })
+          render(); return
+        }
+      })
+
+      svg.addEventListener('pointerup', function (ev) {
+        try { svg.releasePointerCapture(ev.pointerId) } catch (e) { /* ignore */ }
+        if (S.knife) {
+          const line = S.knife
+          S.knife = null
+          applyKnife(line.a, line.b)
+          return
+        }
+        if (!drag) return
+        drag = null
+        S.guides = null
+        refresh()
+        commit()
+      })
+
+      // 刀切：一条线穿过哪些格子，就把它们各自切成两块
+      function applyKnife(a, b) {
+        if (Math.hypot(b.x - a.x, b.y - a.y) < 3) { render(); return }
+        const next = []
+        let cut = 0
+        S.panels.forEach(function (p) {
+          if (!hitPoly(a, b, p.poly)) { next.push(p); return }
+          const res = splitByLine(p.poly, a, b)
+          if (!res) { next.push(p); return }
+          cut++
+          res.forEach(function (poly) {
+            const np = makePanel(poly, p.prompt)
+            np.neg = p.neg
+            np.seed = p.seed
+            next.push(np)
+          })
+        })
+        if (!cut) { toast('这条线上没有格子'); render(); return }
+        setPanels(next)
+        setSel([], null)
+        S.selBubble = null
+        refresh()
+        commit()
+        toast('切开了 ' + cut + ' 格')
+      }
+
+      svg.addEventListener('dblclick', function (ev) {
+        if (ev.target.closest('[data-panel]')) return
+        const pt = toMM(ev)
+        const w = S.mode === 'page' ? 60 : PW() - 2 * MG()
+        const p = makePanel(rectPoly(r2(clamp(pt.x - w / 2, 0, PW() - w)), r2(clamp(pt.y - 30, 0, PH() - 60)), w, 55), '')
+        S.panels.push(p)
+        setSel([p.id], p.id)
+        refresh()
+        commit()
+      })
+
+      window.addEventListener('keydown', onKey)
+      function onKey(ev) {
+        const tag = (ev.target && ev.target.tagName) || ''
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+        const mod = ev.ctrlKey || ev.metaKey
+        if (mod && (ev.key === 'z' || ev.key === 'Z')) {
+          ev.preventDefault()
+          if (ev.shiftKey) redo()
+          else undo()
+          return
+        }
+        if (mod && (ev.key === 'y' || ev.key === 'Y')) { ev.preventDefault(); redo(); return }
+        if (ev.key === 'v' || ev.key === 'V') { setTool('select'); return }
+        if (ev.key === 'k' || ev.key === 'K') { setTool('knife'); return }
+        if (ev.key !== 'Delete' && ev.key !== 'Backspace') return
+        if (!S.sel.length) return
+        const kill = {}
+        S.sel.forEach(function (id) { kill[id] = 1 })
+        setPanels(S.panels.filter(function (p) { return !kill[p.id] }))
+        setSel([], null)
+        ev.preventDefault()
+        refresh()
+        commit()
+      }
+
+      const wheelTimer = { t: 0 }
+      svg.addEventListener('wheel', function (ev) {
+        ev.preventDefault()
+        S.zoom = clamp(S.zoom * (ev.deltaY < 0 ? 1.08 : 1 / 1.08), 0.8, 26)
+        render()
+        clearTimeout(zoomSaveTimer)
+        zoomSaveTimer = setTimeout(saveZoom, 400)
+        clearTimeout(wheelTimer.t)
+        wheelTimer.t = setTimeout(fitZoom, 1800)
+      }, { passive: false })
+
+      // ---- 出图
+      function stripSeed(p) {
+        const sampling = {}
+        if (p.seed) sampling.seed = p.seed
+        return sampling
+      }
+
+      // CLIPLoader.type 必须是引擎枚举里的值，模板默认的 flux 会被拒。
+      // 预填写进来的值也未必合法（老配置里就可能是 flux），所以要拿引擎的真实
+      // 列表校验一遍，再按 CLIP 模型名挑一个能用的。
+      let clipTypesCache = null
+      async function fetchClipTypes() {
+        if (clipTypesCache) return clipTypesCache
+        try {
+          const res = await fetch('/plugin/comfy-canvas/model-options')
+          const data = await res.json().catch(function () { return null })
+          clipTypesCache = data && Array.isArray(data.clipTypes) ? data.clipTypes : []
+        } catch (e) {
+          clipTypesCache = []
+        }
+        return clipTypesCache
+      }
+
+      async function ensureClipType() {
+        const preferred = api.getClipType ? String(api.getClipType() || '') : ''
+        const list = await fetchClipTypes()
+        if (!list.length) return preferred
+        if (preferred && list.indexOf(preferred) >= 0) return preferred
+        const models = getModels() || {}
+        const clipName = String(models.clip || '').toLowerCase()
+        if (clipName.indexOf('moss') >= 0 && list.indexOf('moss_image') >= 0) return 'moss_image'
+        if (clipName.indexOf('qwen') >= 0 && list.indexOf('qwen_image') >= 0) return 'qwen_image'
+        if (list.indexOf('moss_image') >= 0) return 'moss_image'
+        return list[0]
+      }
+
+      async function submitPanel(p) {
+        const models = getModels() || {}
+        const clipType = await ensureClipType()
+        const bb = bbox(p.poly)
+        const W = Math.max(256, Math.round(mmToPx(bb.w) / 16) * 16)
+        const H2 = Math.max(256, Math.round(mmToPx(bb.h) / 16) * 16)
+        const body = {
+          prompt: p.prompt || '',
+          negative: p.neg || '',
+          models: models,
+          width: W,
+          height: H2,
+          sampling: stripSeed(p),
+        }
+        if (clipType) body.clipType = clipType
+        const res = await fetch('/plugin/comfy-canvas/text2img', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        const data = await res.json().catch(function () { return null })
+        if (!data || !data.ok) throw new Error((data && data.error) || '提交失败')
+        if (!data.promptId) return ''
+        if (jobStore) jobStore.start(data.promptId, 'comic')
+        return waitForJob(data.promptId)
+      }
+
+      /**
+       * 等一个任务结束。
+       *
+       * 不依赖 jobStore 的事件：它只保留"最后一个任务"，事件也可能在我们
+       * 订阅之前就到；snapshot 里的 last 是引擎侧的真相，按 promptId 对得上
+       * 才采信，出图后再从相册里取这张图的 url。
+       */
+      async function waitForJob(promptId) {
+        const deadline = Date.now() + 600000
+        while (Date.now() < deadline) {
+          await new Promise(function (r) { setTimeout(r, 1200) })
+          let snap = null
+          try {
+            const res = await fetch('/plugin/comfy-status/snapshot', { cache: 'no-store' })
+            snap = await res.json()
+          } catch (e) {
+            continue
+          }
+          const last = snap && snap.last
+          if (!last || last.promptId !== promptId) continue
+          if (last.status === 'error') throw new Error('ComfyUI 执行失败，看 ComfyUI 控制台的报错')
+          if (last.status === 'success') {
+            let list = []
+            try {
+              const res = await fetch('/plugin/comfy-status/album', { cache: 'no-store' })
+              const album = await res.json()
+              list = Array.isArray(album) ? album : (album && album.items) || []
+            } catch (e) {
+              list = []
+            }
+            const hit = list.find(function (x) { return x && x.promptId === promptId })
+            const img = hit && hit.images && hit.images[0]
+            return img && img.url ? img.url : ''
+          }
+        }
+        throw new Error('等待超时')
+      }
+
+      async function generateOne(p) {
+        if (p.status === 'busy') return
+        p.status = 'busy'; p.err = ''
+        refresh()
+        try {
+          const url = await submitPanel(p)
+          p.img = url || p.img
+          p.status = url ? 'done' : 'idle'
+        } catch (e) {
+          p.status = 'error'; p.err = String((e && e.message) || e)
+          toast('生成失败：' + p.err)
+        }
+        refresh()
+        commit()
+      }
+
+      async function generateAll() {
+        if (S.running) { toast('正在生成中'); return }
+        S.running = true
+        const list = ordered().slice()
+        for (let i = 0; i < list.length; i++) {
+          const p = list[i]
+          if (p.status === 'busy') continue
+          await generateOne(p)
+        }
+        S.running = false
+        toast('全部完成')
+      }
+
+      // ---- 整页出图：多边形 → MOSS layout，一次生成一整页（带画格、带字）
+      function pagePx() {
+        const ratio = PW() / PH()
+        const area = (S.pageMp || 1) * 1024 * 1024
+        const step = 16
+        const w = Math.round(Math.sqrt(area * ratio) / step) * step
+        const h = Math.round(Math.sqrt(area / ratio) / step) * step
+        return { w: Math.max(step, w), h: Math.max(step, h) }
+      }
+
+      function buildMossLayout() {
+        const px = pagePx()
+        const sx = px.w / PW(), sy = px.h / PH()
+        const hw = Math.floor(px.w / 2), hh = Math.floor(px.h / 2)
+        const items = []
+        ordered().forEach(function (p) {
+          const b = bbox(p.poly)
+          items.push({
+            label: 'object',
+            caption: p.prompt || '',
+            bbox: [
+              Math.floor(b.y * sy) - hh,
+              Math.floor(b.x * sx) - hw,
+              Math.ceil((b.y + b.h) * sy) - hh,
+              Math.ceil((b.x + b.w) * sx) - hw,
+            ],
+          })
+          p.balloons.forEach(function (bal) {
+            if (!bal.text) return
+            const CN = {
+              speech: '圆形对话气泡', thought: '云朵状思考气泡', shout: '爆炸形呐喊气泡',
+              whisper: '虚线小声气泡', box: '方框台词框', caption: '旁白文字框',
+              sfx: '拟声字，粗体无边框', free: '自由文字，无边框',
+            }
+            items.push({
+              label: 'text',
+              // 字只走 text 字段：caption 里再写一遍会让 MOSS 画两遍
+              caption: (CN[bal.type] || '气泡') + '，气泡与画面风格一致',
+              text: bal.text,
+              bbox: [
+                Math.floor(bal.y * sy) - hh,
+                Math.floor(bal.x * sx) - hw,
+                Math.ceil((bal.y + bal.h) * sy) - hh,
+                Math.ceil((bal.x + bal.w) * sx) - hw,
+              ],
+            })
+          })
+        })
+        return { summary: { caption: S.summary || '' }, items: items, bbox_coord_space: 'abs_centralized', bbox_format: 'yxyx' }
+      }
+
+      async function generatePage() {
+        if (!S.panels.length) { toast('先分格'); return }
+        if (S.running) { toast('正在生成中'); return }
+        const px = pagePx()
+        S.running = true
+        toast('提交整页 ' + px.w + ' × ' + px.h + ' · 种子 ' + String(S.pageSeed || '').slice(0, 8) + '…')
+        try {
+          const models = S.models || (api.getCanvasModels ? api.getCanvasModels() : {}) || {}
+          let seed = Number(S.pageSeed) || 0
+          if (S.pageRandom || !seed) seed = Math.floor(Math.random() * 1e15)
+          S.pageSeed = seed
+          if (api.savePageSeed) api.savePageSeed({ value: seed, random: S.pageRandom })
+          const modelsWithSeed = Object.assign({}, models, {
+            sampling: Object.assign({}, models.sampling || {}, { seed: seed }),
+          })
+          const res = await fetch('/plugin/comfy-canvas/generate', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              layout: buildMossLayout(),
+              models: modelsWithSeed,
+              width: px.w,
+              height: px.h,
+              negative: '',
+            }),
+          })
+          const data = await res.json().catch(function () { return null })
+          if (!data || !data.ok) {
+            if (data && data.code === 'missing-models') {
+              const miss = (data.missing || []).map(function (m) { return m.kind + ':' + m.file }).join(', ')
+              throw new Error('缺模型 ' + miss)
+            }
+            throw new Error((data && data.error) || '提交失败')
+          }
+          if (data.promptId) {
+            if (jobStore) jobStore.start(data.promptId, 'comic')
+            const url = await waitForJob(data.promptId)
+            if (url) { S.pageImage = url; S.pages[S.pageIdx].image = url }
+            toast(url ? '整页出图完成' : '完成，但没拿到图片地址')
+          }
+        } catch (e) {
+          toast('整页出图失败：' + String((e && e.message) || e))
+        }
+        S.running = false
+        refresh()
+        if (S.pageImage) commit()
+      }
+
+      // ---- 导出 / 导入
+      const dataUrlCache = new Map()
+      function toDataUrl(url) {
+        if (dataUrlCache.has(url)) return Promise.resolve(dataUrlCache.get(url))
+        return fetch(url)
+          .then(function (r) { return r.blob() })
+          .then(function (blob) {
+            return new Promise(function (resolve, reject) {
+              const fr = new FileReader()
+              fr.onload = function () { dataUrlCache.set(url, String(fr.result)); resolve(String(fr.result)) }
+              fr.onerror = function () { reject(new Error('读取图片失败')) }
+              fr.readAsDataURL(blob)
+            })
+          })
+      }
+
+      /** 导出「实际提交给 MOSS 的那份」：画布尺寸 + abs_centralized/yxyx 的 layout */
+      function exportLayout() {
+        const px = pagePx()
+        const payload = { width: px.w, height: px.h, layout: buildMossLayout() }
+        download(
+          new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }),
+          'comic-layout-' + Date.now() + '.json'
+        )
+        toast('已导出 layout（' + px.w + ' × ' + px.h + '）')
+      }
+
+      function exportJson() {
+        function ser(list) {
+          return list.map(function (p, i) {
+            return {
+              index: i + 1, id: p.id, poly: p.poly, prompt: p.prompt, neg: p.neg,
+              seed: p.seed, balloons: p.balloons,
+            }
+          })
+        }
+        const data = {
+          version: 3, unit: 'mm', mode: S.mode, order: S.order, dpi: 300,
+          summary: S.summary || '',
+          page: { w: PW(), h: PH(), margin: MG(), gutter: GT() },
+          pages: S.pages.map(function (pg, i) { return { index: i + 1, id: pg.id, panels: ser(pg.panels) } }),
+        }
+        download(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), 'comic-' + Date.now() + '.json')
+      }
+
+      async function copyText(text) {
+        const value = String(text || '')
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(value)
+            toast('已复制到剪贴板')
+            return
+          }
+        } catch (e) { /* fall through */ }
+        const ta = document.createElement('textarea')
+        ta.value = value
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.append(ta)
+        ta.select()
+        try { document.execCommand('copy'); toast('已复制到剪贴板') } catch (e) { toast('复制失败，请手动选中') }
+        ta.remove()
+      }
+
+      /**
+       * 给对话模型看的格局清单：直接用 MOSS 草案的几何（像素、左上原点、xyxy），
+       * 并标出画布尺寸，模型不需要再自己换算或推导。
+       */
+      function layoutSummary() {
+        const px = pagePx()
+        const sx = px.w / PW(), sy = px.h / PH()
+        const W = PW(), H = PH()
+        const CN = {
+          speech: '圆形对话气泡', thought: '云朵状思考气泡', shout: '爆炸形呐喊气泡',
+          whisper: '虚线小声气泡', box: '方框台词框', caption: '旁白文字框',
+          sfx: '拟声字，粗体无边框', free: '自由文字，无边框',
+        }
+        function where(b) {
+          const cx = (b.x + b.w / 2) / W, cy = (b.y + b.h / 2) / H
+          const v = cy < 0.4 ? '上' : cy > 0.6 ? '下' : '中'
+          const h = cx < 0.4 ? '左' : cx > 0.6 ? '右' : '中'
+          return v + h
+        }
+        function shape(b) {
+          const r = b.w / b.h
+          return r > 1.15 ? '横版' : r < 0.85 ? '竖版' : '方形'
+        }
+
+        const lines = []
+        lines.push('—— 给模型的指令 ——')
+        lines.push('你在填写一页漫画的画面内容。硬约束：')
+        lines.push('1. 只改 items 里的 caption 与 text；bbox、label、width/height 一律不动')
+        lines.push('2. 不要增删 items，不要重排，不要改坐标')
+        lines.push('3. caption 用英文写：景别 + 主体 + 动作 + 光线 + 材质；不要把台词写进 caption')
+        lines.push('4. text 里放原文中文，逐字照抄，不要改写')
+        lines.push('5. 只输出完整 JSON，不要解释、不要代码块')
+        lines.push('')
+        lines.push('—— 当前格局 ——')
+        lines.push('MOSS layout · 第 ' + (S.pageIdx + 1) + '/' + S.pages.length + ' 页 · ' + ordered().length + ' 格')
+        lines.push('canvas: ' + px.w + ' × ' + px.h + ' px（16 的倍数；坐标原点左上角，xyxy 像素）')
+        lines.push('summary.caption: ' + (S.summary || '（空，建议补一句整页画风）'))
+        lines.push('阅读顺序：' + (S.order === 'rtl' ? '右→左、上→下' : '左→右、上→下'))
+        lines.push('')
+
+        let n = 0
+        ordered().forEach(function (p) {
+          const b = bbox(p.poly)
+          const box = [
+            Math.floor(b.x * sx), Math.floor(b.y * sy),
+            Math.ceil((b.x + b.w) * sx), Math.ceil((b.y + b.h) * sy),
+          ]
+          n++
+          lines.push(
+            n + '. object  bbox [' + box.join(',') + ']  ' + where(b) + ' · ' +
+            (box[2] - box[0]) + '×' + (box[3] - box[1]) + 'px · ' + shape(b)
+          )
+          lines.push('   caption: ' + ((p.prompt || '（空）').replace(/\s+/g, ' ')))
+          p.balloons.forEach(function (bal) {
+            if (!bal.text) return
+            const tb = [
+              Math.floor(bal.x * sx), Math.floor(bal.y * sy),
+              Math.ceil((bal.x + bal.w) * sx), Math.ceil((bal.y + bal.h) * sy),
+            ]
+            n++
+            lines.push(
+              n + '. text  bbox [' + tb.join(',') + ']  「' + bal.text + '」 · ' +
+              (CN[bal.type] || bal.type) + ' · ' + (tb[2] - tb[0]) + '×' + (tb[3] - tb[1]) + 'px'
+            )
+            lines.push('   caption: ' + (CN[bal.type] || '气泡') + '，气泡与画面风格一致')
+          })
+        })
+        lines.push('')
+        lines.push('—— 可直接提交的 layout（abs_centralized / yxyx，单行）——')
+        lines.push(JSON.stringify(buildMossLayout()))
+        return lines.join('\n')
+      }
+
+      function download(blob, name) {
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = name
+        document.body.append(a)
+        a.click()
+        setTimeout(function () { URL.revokeObjectURL(a.href); a.remove() }, 4000)
+      }
+
+      // 极简 ZIP（store，无压缩）：只为整本导出打包 PNG
+      function crc32(u8) {
+        let crc = 0xFFFFFFFF
+        for (let i = 0; i < u8.length; i++) {
+          crc ^= u8[i]
+          for (let k = 0; k < 8; k++) crc = (crc >>> 1) ^ (0xEDB88320 & -(crc & 1))
+        }
+        return (crc ^ 0xFFFFFFFF) >>> 0
+      }
+      function makeZip(files) {
+        const enc = new TextEncoder()
+        const chunks = []
+        const central = []
+        let offset = 0
+        const now = new Date()
+        const dosTime = ((now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1)) & 0xFFFF
+        const dosDate = (((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate()) & 0xFFFF
+        files.forEach(function (f) {
+          const name = enc.encode(f.name)
+          const crc = crc32(f.data)
+          const size = f.data.length
+          const lh = new Uint8Array(30 + name.length)
+          const dv = new DataView(lh.buffer)
+          dv.setUint32(0, 0x04034b50, true)
+          dv.setUint16(4, 20, true)
+          dv.setUint16(6, 0x0800, true)
+          dv.setUint16(10, dosTime, true)
+          dv.setUint16(12, dosDate, true)
+          dv.setUint32(14, crc, true)
+          dv.setUint32(18, size, true)
+          dv.setUint32(22, size, true)
+          dv.setUint16(26, name.length, true)
+          lh.set(name, 30)
+          chunks.push(lh, f.data)
+          const ch = new Uint8Array(46 + name.length)
+          const cdv = new DataView(ch.buffer)
+          cdv.setUint32(0, 0x02014b50, true)
+          cdv.setUint16(4, 20, true)
+          cdv.setUint16(6, 20, true)
+          cdv.setUint16(8, 0x0800, true)
+          cdv.setUint16(12, dosTime, true)
+          cdv.setUint16(14, dosDate, true)
+          cdv.setUint32(16, crc, true)
+          cdv.setUint32(20, size, true)
+          cdv.setUint32(24, size, true)
+          cdv.setUint16(28, name.length, true)
+          cdv.setUint32(42, offset, true)
+          ch.set(name, 46)
+          central.push(ch)
+          offset += lh.length + size
+        })
+        let cdSize = 0
+        central.forEach(function (c) { cdSize += c.length })
+        const eocd = new Uint8Array(22)
+        const edv = new DataView(eocd.buffer)
+        edv.setUint32(0, 0x06054b50, true)
+        edv.setUint16(8, files.length, true)
+        edv.setUint16(10, files.length, true)
+        edv.setUint32(12, cdSize, true)
+        edv.setUint32(16, offset, true)
+        return new Blob(chunks.concat(central, [eocd]), { type: 'application/zip' })
+      }
+
+      async function renderPageBlob() {
+        const canvas = await rasterizeData()
+        return await new Promise(function (resolve) { canvas.toBlob(resolve, 'image/png') })
+      }
+
+      async function exportAll() {
+        if (S.pages.length === 0) return
+        const cur = S.pageIdx
+        toast('正在导出 ' + S.pages.length + ' 页…')
+        try {
+          const files = []
+          for (let i = 0; i < S.pages.length; i++) {
+            S.pageIdx = i
+            S.panels = S.pages[i].panels
+            render()
+            const blob = await renderPageBlob()
+            const data = new Uint8Array(await blob.arrayBuffer())
+            files.push({ name: 'page-' + String(i + 1).padStart(2, '0') + '.png', data: data })
+          }
+          download(makeZip(files), 'comic-book-' + Date.now() + '.zip')
+          toast('已打包 ' + files.length + ' 页')
+        } catch (e) {
+          toast('打包失败：' + String((e && e.message) || e))
+        }
+        S.pageIdx = cur
+        S.panels = S.pages[cur].panels
+        S.pageImage = S.pages[cur].image || ''
+        render(); renderLeft()
+      }
+
+      async function rasterizeData() {
+        const clone = svg.cloneNode(true)
+        Array.prototype.forEach.call(clone.querySelectorAll('.noexport,.handle'), function (n) { n.remove() })
+        Array.prototype.forEach.call(clone.querySelectorAll('g > polygon'), function (n) {
+          if (n.getAttribute('stroke')) {
+            n.setAttribute('stroke', '#1b2431')
+            n.setAttribute('stroke-width', '0.35')
+          }
+        })
+        const imgs = Array.prototype.slice.call(clone.querySelectorAll('image'))
+        for (let i = 0; i < imgs.length; i++) {
+          const href = imgs[i].getAttribute('href')
+          if (href && href.charAt(0) === '/') {
+            try { imgs[i].setAttribute('href', await toDataUrl(href)) } catch (e) { /* 保持原样 */ }
+          }
+        }
+        clone.setAttribute('xmlns', NS)
+        clone.setAttribute('width', String(Math.round(mmToPx(PW()))))
+        clone.setAttribute('height', String(Math.round(mmToPx(PH()))))
+        const str = new XMLSerializer().serializeToString(clone)
+        const blob = new Blob([str], { type: 'image/svg+xml;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        try {
+          const img = new Image()
+          await new Promise(function (resolve, reject) {
+            img.onload = resolve
+            img.onerror = function () { reject(new Error('SVG 光栅化失败')) }
+            img.src = url
+          })
+          const cv = document.createElement('canvas')
+          cv.width = Math.round(mmToPx(PW()))
+          cv.height = Math.round(mmToPx(PH()))
+          const g = cv.getContext('2d')
+          g.fillStyle = '#fff'
+          g.fillRect(0, 0, cv.width, cv.height)
+          g.drawImage(img, 0, 0, cv.width, cv.height)
+          return cv
+        } finally {
+          URL.revokeObjectURL(url)
+        }
+      }
+
+      async function exportPng() {
+        toast('正在合成…')
+        try {
+          const cv = await rasterizeData()
+          cv.toBlob(function (b) { download(b, 'comic-' + S.mode + '-' + Date.now() + '.png') }, 'image/png')
+          toast('已导出 ' + cv.width + ' × ' + cv.height)
+        } catch (e) {
+          toast('导出失败：' + String((e && e.message) || e))
+        }
+      }
+
+      // 导入
+      const importModal = el('div', {
+        position: 'fixed', inset: '0', background: 'rgba(5,8,12,.72)', display: 'none',
+        alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: '24px',
+      })
+      const importBox = el('div', {
+        background: 'var(--dsw-alias-bg-base)', border: '1px solid var(--dsw-alias-border-l2)',
+        borderRadius: '12px', padding: '14px', width: 'min(760px,92vw)', maxHeight: '100%', overflow: 'auto',
+      })
+      const importTa = el('textarea', {
+        width: '100%', height: '320px', boxSizing: 'border-box', font: '12px/1.5 ui-monospace,Consolas,monospace',
+        color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-1)',
+        border: '1px solid var(--dsw-alias-border-l2)', borderRadius: '8px', padding: '10px', outline: 'none',
+      })
+      importTa.placeholder = '把 agent 返回的 JSON 贴在这里，或点「从文件读取」。\n\n{ "pages": [ { "panels": [ { "prompt": "…", "balloons": [ { "type": "speech", "text": "…" } ] } ] } ] }'
+      const importBar = el('div', { display: 'flex', gap: '8px', justifyContent: 'flex-end', marginBottom: '8px' })
+      const fileIn = el('input')
+      fileIn.type = 'file'
+      fileIn.accept = '.json,application/json'
+      fileIn.style.display = 'none'
+      fileIn.onchange = function () {
+        const f = fileIn.files && fileIn.files[0]
+        if (!f) return
+        const fr = new FileReader()
+        fr.onload = function () { importTa.value = String(fr.result || '') }
+        fr.readAsText(f, 'utf-8')
+        fileIn.value = ''
+      }
+      importBar.append(
+        btn('从文件读取', function () { fileIn.click() }),
+        btn('关闭', function () { importModal.style.display = 'none' }),
+        btn('导入', function () {
+          try {
+            let text = importText()
+            importMsg.textContent = ''
+            importData(JSON.parse(text))
+            importModal.style.display = 'none'
+          } catch (e) {
+            importMsg.textContent = '导入失败：' + String((e && e.message) || e)
+            toast('导入失败：' + String((e && e.message) || e))
+          }
+        }, { borderColor: '#4d7fff', background: 'rgba(77,127,255,.16)' }),
+      )
+      const importMsg = el('div', { fontSize: '11.5px', color: '#e06666', marginTop: '8px', minHeight: '15px', whiteSpace: 'pre-wrap' })
+      importBox.append(importBar, importTa, fileIn, importMsg)
+      importModal.append(importBox)
+      root.append(importModal)
+
+      function importText() {
+        let raw = String(importTa.value || '').trim()
+        const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/)
+        if (fence) raw = fence[1].trim()
+        return raw
+      }
+      function openImport() {
+        importModal.style.display = 'flex'
+        importTa.focus()
+      }
+
+      function autoLayout(n) {
+        const m = MG(), g = GT(), W = PW(), H = PH()
+        const box = { x: m, y: m, w: W - 2 * m, h: H - 2 * m }
+        if (n <= 1) return [rectPoly(box.x, box.y, box.w, box.h)]
+        if (n === 2) {
+          const hh2 = (box.h - g) / 2
+          return [rectPoly(box.x, box.y, box.w, hh2), rectPoly(box.x, box.y + hh2 + g, box.w, hh2)]
+        }
+        if (n === 3) {
+          const hTop = box.h * 0.55, hBot = box.h - hTop - g, w = (box.w - g) / 2
+          return [rectPoly(box.x, box.y, box.w, hTop), rectPoly(box.x, box.y + hTop + g, w, hBot), rectPoly(box.x + w + g, box.y + hTop + g, w, hBot)]
+        }
+        if (n === 4) return tpl('four')
+        const cols = n <= 6 ? 3 : 4
+        const rows = Math.ceil(n / cols)
+        const w = (box.w - g * (cols - 1)) / cols
+        const hh2 = (box.h - g * (rows - 1)) / rows
+        const out = []
+        for (let r = 0; r < rows && out.length < n; r++) {
+          for (let c = 0; c < cols && out.length < n; c++) {
+            out.push(rectPoly(box.x + c * (w + g), box.y + r * (hh2 + g), w, hh2))
+          }
+        }
+        return out
+      }
+
+      /** skill 草案格式 {width,height,items[{label,caption,bbox,text}]} → 工作台的页结构 */
+      /**
+       * 把「画板 / 草案」转成工作台的页结构。三种来源都要认：
+       *   1. skill 草案：{width,height,bbox_coord_space:"abs",bbox_format:"xyxy"}
+       *   2. 编译后的画板：无 width/height，box 是 abs_centralized 的 yxyx（可以有负数）
+       *   3. 混合：有 width/height 但坐标是 centered
+       * 画布尺寸缺失时，从框的极值反推，并对齐到 16 的倍数。
+       */
+      function pagesFromDraft(obj) {
+        const round16 = function (v) { return Math.max(16, Math.round(Number(v) / 16) * 16) };
+        const yxyx = String(obj.bbox_format || '').toLowerCase() === 'yxyx';
+        const central = String(obj.bbox_coord_space || '').toLowerCase().indexOf('central') >= 0;
+
+        const items = (Array.isArray(obj.items) ? obj.items : []).filter(function (it) {
+          if (!it || !Array.isArray(it.bbox) || it.bbox.length !== 4) return false
+          return it.bbox.map(Number).every(function (n) { return Number.isFinite(n) })
+        })
+        if (!items.length) throw new Error('items 里没有可用的框')
+
+        const boxes = items.map(function (it) {
+          const b = it.bbox.map(Number)
+          return { it: it, box: yxyx ? [b[1], b[0], b[3], b[2]] : [b[0], b[1], b[2], b[3]] }
+        })
+
+        let W = Number(obj.width) || 0
+        let H = Number(obj.height) || 0
+
+        if (central) {
+          const halfW = Math.max.apply(null, boxes.map(function (o) {
+            return Math.max(Math.abs(o.box[0]), Math.abs(o.box[2]))
+          }))
+          const halfH = Math.max.apply(null, boxes.map(function (o) {
+            return Math.max(Math.abs(o.box[1]), Math.abs(o.box[3]))
+          }))
+          if (!W) W = round16(halfW * 2)
+          if (!H) H = round16(halfH * 2)
+          boxes.forEach(function (o) {
+            o.box = [o.box[0] + W / 2, o.box[1] + H / 2, o.box[2] + W / 2, o.box[3] + H / 2]
+          })
+        } else {
+          if (!W) W = round16(Math.max.apply(null, boxes.map(function (o) { return o.box[2] })))
+          if (!H) H = round16(Math.max.apply(null, boxes.map(function (o) { return o.box[3] })))
+        }
+        W = Math.max(16, W)
+        H = Math.max(16, H)
+        if (central || !Number(obj.width)) toast('按 ' + W + '×' + H + ' px 换算画布')
+
+        const sx = PW() / W
+        const sy = PH() / H
+        const panels = []
+        const texts = []
+        boxes.forEach(function (o) {
+          if (o.it.label === 'text') texts.push(o)
+          else panels.push(o)
+        })
+        if (!panels.length) throw new Error('没有画面框（label 不是 text 的 item）')
+
+        const made = panels.map(function (o) {
+          const w = (o.box[2] - o.box[0]) * sx
+          const h = (o.box[3] - o.box[1]) * sy
+          return makePanel(rectPoly(o.box[0] * sx, o.box[1] * sy, w, h), String(o.it.caption || ''))
+        })
+
+        texts.forEach(function (o) {
+          const cx = ((o.box[0] + o.box[2]) / 2) * sx
+          const cy = ((o.box[1] + o.box[3]) / 2) * sy
+          let host = null
+          made.forEach(function (p) {
+            const pb = bbox(p.poly)
+            if (!host && cx >= pb.x && cx <= pb.x + pb.w && cy >= pb.y && cy <= pb.y + pb.h) host = p
+          })
+          if (!host) host = made[0]
+          const cap = String(o.it.caption || '')
+          const type = /爆炸|呐喊|burst|shout|jagged|spike/i.test(cap)
+            ? 'shout'
+            : /竖排|vertical|stacked|旁白|narration/i.test(cap)
+              ? 'caption'
+              : /云|thought|思考/i.test(cap)
+                ? 'thought'
+                : /拟声|sfx/i.test(cap)
+                  ? 'sfx'
+                  : 'speech'
+          host.balloons.push({
+            id: 'b' + (S.seq++),
+            type: type,
+            text: String(o.it.text || ''),
+            x: r2(o.box[0] * sx),
+            y: r2(o.box[1] * sy),
+            w: r2(Math.max(6, (o.box[2] - o.box[0]) * sx)),
+            h: r2(Math.max(5, (o.box[3] - o.box[1]) * sy)),
+            fontSize: type === 'sfx' ? 7.5 : 4.2,
+            vertical: type === 'caption',
+            tailX: 0.72,
+            tailY: 10,
+          })
+        })
+        fitIntoPage(made)
+        return [{ panels: made }]
+      }
+
+      /**
+       * 画板文件常常是满版（框贴着 0 和画布边），直接按比例铺到 B5 上会压住页边距。
+       * 这里把整组内容等比缩进版面框（页边距以内）并居中；本来就在版面内的不动。
+       */
+      function fitIntoPage(panels) {
+        if (!panels.length) return
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+        panels.forEach(function (p) {
+          const b = bbox(p.poly)
+          x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y)
+          x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h)
+        })
+        const m = MG()
+        const tw = PW() - 2 * m
+        const th = PH() - 2 * m
+        const w = x1 - x0, h = y1 - y0
+        const inside = x0 >= m - 0.01 && y0 >= m - 0.01 && x1 <= PW() - m + 0.01 && y1 <= PH() - m + 0.01
+        if (inside) return
+        const s = Math.min(1, tw / Math.max(0.01, w), th / Math.max(0.01, h))
+        const tx = m + (tw - w * s) / 2 - x0 * s
+        const ty = m + (th - h * s) / 2 - y0 * s
+        panels.forEach(function (p) {
+          p.poly.forEach(function (v) { v.x = r2(v.x * s + tx); v.y = r2(v.y * s + ty) })
+          p.balloons.forEach(function (b) {
+            b.x = r2(b.x * s + tx); b.y = r2(b.y * s + ty)
+            b.w = r2(b.w * s); b.h = r2(b.h * s)
+            b.fontSize = Math.max(1.6, Math.round((b.fontSize || 4.2) * s * 100) / 100)
+          })
+        })
+      }
+
+      function importData(obj) {
+        if (!obj || typeof obj !== 'object') throw new Error('不是 JSON 对象')
+        let pages = null
+        if (Array.isArray(obj.pages) && obj.pages.length) pages = obj.pages
+        else if (Array.isArray(obj.panels)) pages = [obj]
+        else if (Array.isArray(obj.items) && obj.items.length) pages = pagesFromDraft(obj)
+        if (!pages) throw new Error('找不到 pages / panels / items')
+
+        const next = pages.map(function (pg) {
+          const list = Array.isArray(pg.panels) ? pg.panels : []
+          const hasPoly = list.length > 0 && list.every(function (x) { return Array.isArray(x.poly) && x.poly.length >= 3 })
+          const polys = hasPoly ? null : readingOrderBoxes(autoLayout(list.length))
+          const panels = list.map(function (it, i) {
+            const p = makePanel(hasPoly ? it.poly : polys[i], it.prompt || '')
+            if (it.neg) p.neg = it.neg
+            if (Number.isFinite(it.seed)) p.seed = it.seed
+            ;(Array.isArray(it.balloons) ? it.balloons : []).forEach(function (bb) {
+              const known = BUBBLES.some(function (t) { return t.id === bb.type })
+              const type = known ? bb.type : 'speech'
+              const b = bbox(p.poly)
+              const SIZE = { speech: { w: 0.34, h: 0.15 }, thought: { w: 0.34, h: 0.16 }, shout: { w: 0.34, h: 0.17 }, whisper: { w: 0.34, h: 0.15 }, box: { w: 0.27, h: 0.24 }, caption: { w: 0.24, h: 0.3 }, sfx: { w: 0.5, h: 0.2 }, free: { w: 0.5, h: 0.14 } }[type]
+              const w = clamp(b.w * SIZE.w, 12, 64), hh2 = clamp(b.h * SIZE.h, 8, 80)
+              const slots = [[0.04, 0.04], [0.56, 0.05], [0.05, 0.36], [0.57, 0.37], [0.04, 0.64], [0.56, 0.66]]
+              const s = slots[p.balloons.length % slots.length]
+              p.balloons.push({
+                id: 'b' + (S.seq++), type: type, text: bb.text || '',
+                x: r2(clamp(b.x + b.w * s[0], b.x + 1.5, b.x + b.w - w - 1.5)),
+                y: r2(clamp(b.y + b.h * s[1], b.y + 1.5, b.y + b.h - hh2 - 1.5)),
+                w: r2(w), h: r2(hh2), fontSize: type === 'sfx' ? 7.5 : 4.2,
+                vertical: type === 'caption' || type === 'box', tailX: 0.72, tailY: 10,
+              })
+            })
+            return p
+          })
+          return { id: 'pg' + (S.seq++), panels: panels }
+        })
+
+        const sumText = typeof obj.summary === 'string'
+          ? obj.summary.trim()
+          : (obj.summary && typeof obj.summary.caption === 'string' ? obj.summary.caption.trim() : '')
+        if (sumText) {
+          S.summary = sumText
+          if (api.saveSummary) api.saveSummary(S.summary)
+        }
+        S.pages = next
+        S.pageIdx = 0
+        S.panels = S.pages[0].panels
+        setSel([], null)
+        S.selBubble = null
+        fitZoom(); refresh()
+        commit()
+        toast('已导入 ' + next.length + ' 页')
+      }
+
+      // ---- 启动
+      S.models = (api.getCanvasModels ? api.getCanvasModels() : null) || null
+      S.summary = (api.getSummary ? api.getSummary() : '') || ''
+      const savedSeed = api.getPageSeed ? api.getPageSeed() : null
+      if (savedSeed && typeof savedSeed === 'object') {
+        S.pageSeed = Number(savedSeed.value) || 0
+        S.pageRandom = savedSeed.random !== false
+      }
+      let zoomSaveTimer = 0
+      try { bootSavedAt = Number(localStorage.getItem('dsh.comfy.comicSavedAt')) || 0 } catch (e) { bootSavedAt = 0 }
+      const savedZoom = readSavedZoom()
+      if (savedZoom) S.zoom = savedZoom
+      const restored = loadDoc()
+      if (restored) {
+        S.panels = S.pages[S.pageIdx].panels
+        S.pageImage = S.pages[S.pageIdx].image || ''
+        btnPage.style.borderColor = S.mode === 'page' ? '#4d7fff' : ''
+        btnStrip.style.borderColor = S.mode === 'strip' ? '#4d7fff' : ''
+        btnRtl.style.borderColor = S.order === 'rtl' ? '#4d7fff' : ''
+        btnLtr.style.borderColor = S.order === 'ltr' ? '#4d7fff' : ''
+        setTool('select')
+        setTimeout(function () { if (!savedZoom) fitZoom(); refresh(); commit() }, 0)
+      } else {
+        setMode('page')
+        setTool('select')
+        applyTemplate('four')
+        setTimeout(function () { if (!savedZoom) fitZoom(); refresh(); commit() }, 0)
+      }
+
+      // 舞台一开始量不到尺寸（面板还在布局），有真实尺寸后再适应一次
+      let fittedOnce = Boolean(savedZoom)
+      function fitWhenLaidOut() {
+        if (fittedOnce) return
+        if (stage.clientWidth < 80 || stage.clientHeight < 80) return
+        fittedOnce = true
+        fitZoom()
+        render()
+      }
+      const stageObserver = new ResizeObserver(fitWhenLaidOut)
+      stageObserver.observe(stage)
+      setTimeout(fitWhenLaidOut, 60)
+      setTimeout(fitWhenLaidOut, 300)
+
+      draftTimer = setInterval(pollDraft, 2500)
+      setTimeout(pollDraft, 60)
+
+      return {
+        setModels: function (next) {
+          S.models = next || null
+          renderRight()
+        },
+        destroy: function () {
+          try { stageObserver.disconnect() } catch (e) { /* ignore */ }
+          clearInterval(draftTimer)
+          window.removeEventListener('keydown', onKey)
+          if (root.contains(shell)) root.removeChild(shell)
+          if (root.contains(importModal)) root.removeChild(importModal)
+        },
+      }
+    }
+
+    /** 第 4 个模式的 React 外壳：画布本身是命令式的，这里只提供挂载点。 */
+    function ComicPanel(props) {
+      const hostRef = React.useRef(null)
+      const appRef = React.useRef(null)
+      const [open, setOpen] = React.useState(false)
+      const readModels = function () {
+        const prefs = (pluginPrefs && pluginPrefs.get && pluginPrefs.get()) || {}
+        return prefs.workspaceCanvasModels || prefs.canvasModels || null
+      }
+      const [models, setModels] = React.useState(readModels)
+
+      // 偏好在别处（画板）被改过时，这里跟着刷新
+      React.useEffect(function () {
+        if (!pluginPrefs || !pluginPrefs.subscribe) return undefined
+        return pluginPrefs.subscribe(function () {
+          const next = readModels()
+          setModels(next)
+          if (appRef.current) appRef.current.setModels(next)
+        })
+      }, [])
+
+      React.useEffect(function () {
+        if (!hostRef.current) return undefined
+        const app = createComicApp(hostRef.current, {
+          onBack: props && props.onBack,
+          jobStore: jobStore,
+          getModels: function () {
+            const prefs = (pluginPrefs && pluginPrefs.get && pluginPrefs.get()) || {}
+            return prefs.t2iModels || {}
+          },
+          getClipType: function () {
+            const prefs = (pluginPrefs && pluginPrefs.get && pluginPrefs.get()) || {}
+            return prefs.t2iClipType || ''
+          },
+          getCanvasModels: readModels,
+          getSummary: function () {
+            const prefs = (pluginPrefs && pluginPrefs.get && pluginPrefs.get()) || {}
+            return prefs.comicSummary || ''
+          },
+          saveSummary: function (text) {
+            if (pluginPrefs && pluginPrefs.set) pluginPrefs.set('comicSummary', String(text || ''))
+          },
+          getPageSeed: function () {
+            const prefs = (pluginPrefs && pluginPrefs.get && pluginPrefs.get()) || {}
+            return prefs.comicPageSeed || null
+          },
+          savePageSeed: function (next) {
+            if (pluginPrefs && pluginPrefs.set) pluginPrefs.set('comicPageSeed', next)
+          },
+          openSettings: function () { setOpen(true) },
+        })
+        appRef.current = app
+        return function () {
+          appRef.current = null
+          app.destroy()
+        }
+      }, [])
+
+      const onChange = function (next) {
+        setModels(next)
+        if (pluginPrefs && pluginPrefs.set) pluginPrefs.set('workspaceCanvasModels', next)
+        if (appRef.current) appRef.current.setModels(next)
+      }
+
+      return h(
+        'div',
+        { style: { height: '100%', minHeight: 0 } },
+        h('div', { ref: hostRef, style: { height: '100%', minHeight: 0 } }),
+        h(ModelSettingsDialog, {
+          open: open,
+          models: models || {},
+          onChange: onChange,
+          onClose: function () { setOpen(false) },
+          night: Boolean(props && props.night),
+        }),
       )
     }
 
@@ -14951,7 +17470,7 @@ window.__ModuleLoader__.load({
               }),
             )
 
-      if (view === 'chooser' || view === 'online' || view === 'text2img') {
+      if (view === 'chooser' || view === 'online' || view === 'text2img' || view === 'comic') {
         return h(
           'div',
           {
@@ -14972,16 +17491,18 @@ window.__ModuleLoader__.load({
                   themeMode: surfaceTheme.mode,
                   onTheme: surfaceTheme.cycle,
                 })
-              : h(
-                  WorkbenchBoundary,
-                  null,
-                  h(LocalText2ImgPanel, {
-                    onBack: () => changeView('chooser'),
-                    night: canvasNight,
-                    themeMode: surfaceTheme.mode,
-                    onTheme: surfaceTheme.cycle,
-                  }),
-                ),
+              : view === 'comic'
+                ? h(WorkbenchBoundary, null, h(ComicPanel, { onBack: () => changeView('chooser'), night: canvasNight }))
+                : h(
+                    WorkbenchBoundary,
+                    null,
+                    h(LocalText2ImgPanel, {
+                      onBack: () => changeView('chooser'),
+                      night: canvasNight,
+                      themeMode: surfaceTheme.mode,
+                      onTheme: surfaceTheme.cycle,
+                    }),
+                  ),
         )
       }
 
@@ -16551,6 +19072,500 @@ window.__ModuleLoader__.load({
           tabCtx.slots.inject('sidebar.right.pane.tab.title', () =>
             tabCtx.slots.register({ name: 'sidebar.right.pane.tab.title', key: CANVAS_TAB_ID }, guardSlot(CanvasTitle, '画框标题')),
           )
+        })
+
+        // 对话分栏（照 oh-story 的实测实现）：
+        //   · portal 目标是 [data-slot="conversation.session"]（该 wrapper 在 DSH 里是
+        //     display:contents，所以它的孩子直接成为滚动态容器的 grid item）
+        //   · 自己的根节点也 display:contents，面板本体占第 1 栏，聊天与输入框被规则推到第 2 栏
+        //   · 宽度按 scroller.clientWidth 分三档（620 / 900），对应三套栅格
+        const SPLIT_STYLE_ID = 'dsh-comic-split-css'
+
+        function ensureSplitCss() {
+          if (document.getElementById(SPLIT_STYLE_ID)) return
+          const styleEl = document.createElement('style')
+          styleEl.id = SPLIT_STYLE_ID
+          const open = '[data-conversation-scroll]:has(> [data-slot="conversation.session"] > .dsh-comic-split)'
+          styleEl.textContent = [
+            open + '{display:grid;grid-template-columns:minmax(0,1fr) clamp(360px,38%,520px);grid-template-rows:minmax(0,1fr);min-height:0;overflow-x:hidden;overflow-y:auto;position:relative;scrollbar-gutter:stable;}',
+            '[data-conversation-scroll][data-dsh-comic-layout="medium"]' + open.replace(/^\[data-conversation-scroll\]/, '') + '{grid-template-columns:minmax(0,1fr) clamp(300px,42%,360px);}',
+            '[data-conversation-scroll][data-dsh-comic-layout="compact"]' + open.replace(/^\[data-conversation-scroll\]/, '') + '{grid-template-columns:minmax(0,1fr) clamp(240px,46%,300px);}',
+            open + ' > [data-slot="conversation.session"] > :not(.dsh-comic-split){grid-column:2;grid-row:1;min-width:0;min-height:100%;border-left:1px solid var(--dsw-alias-border-l2);}',
+            open + ' [data-chat-flow]:not([data-step-process-content]){padding-bottom:calc(max(var(--dsh-composer-height,152px),var(--dsh-comic-composer-height,0px)) + 16px);}',
+            open + ' > [data-composer-seat]{grid-column:2;grid-row:1;align-self:start;min-width:0;width:100%;position:sticky;bottom:auto;top:calc(var(--dsh-comic-scroll-height,720px) - max(var(--dsh-composer-height,152px),var(--dsh-comic-composer-height,0px)));}',
+            '.dsh-comic-split{display:contents;}',
+            '.dsh-comic-split-panel{grid-column:1;grid-row:1;min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;background:var(--dsw-alias-bg-base);border-right:1px solid var(--dsw-alias-border-l2);position:sticky;top:0;height:100%;}',
+            '.dsh-comic-split-host{flex:1 1 auto;min-height:0;height:100%;overflow:hidden;display:flex;flex-direction:column;}',
+            '.dsh-comic-split-bar{display:none;}',
+            '.dsh-comic-split-btn{border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;padding:2px 6px;cursor:pointer;border-radius:5px;}',
+            '.dsh-comic-split-btn:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover);}',
+            '.dsh-comic-split-grip{position:absolute;top:0;right:0;bottom:0;width:6px;cursor:col-resize;background:transparent;z-index:3;}',
+            '.dsh-comic-split-grip:hover{background:color-mix(in srgb, var(--dsw-alias-state-business-primary) 35%, transparent);}',
+            '.dsh-comic-split-launcher{position:fixed;right:16px;bottom:120px;z-index:9;display:flex;align-items:center;gap:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background-color:var(--dsw-alias-bg-base);background-image:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:4px 12px;cursor:pointer;box-shadow:0 4px 14px rgb(0 0 0 / 10%);}',
+            '.dsh-comic-split-launcher:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border-color:var(--dsw-alias-state-business-primary);}',
+            '.dsh-comic-split-panel{animation:dsh-comic-split-in 240ms cubic-bezier(.2,.8,.2,1) both;}',
+            '[data-conversation-scroll]:has(> [data-slot="conversation.session"] > .dsh-comic-split) > [data-slot="conversation.session"] > .viewArea{animation:dsh-comic-split-chat 200ms ease-out both;}',
+            '@keyframes dsh-comic-split-in{from{opacity:0;transform:translateX(-10px);}to{opacity:1;transform:none;}}',
+            '@keyframes dsh-comic-split-chat{from{opacity:.35;}to{opacity:1;}}',
+            '@media (prefers-reduced-motion: reduce){.dsh-comic-split-panel,[data-conversation-scroll]:has(> [data-slot="conversation.session"] > .dsh-comic-split) > [data-slot="conversation.session"] > .viewArea{animation:none;}}',
+          ].join('\n')
+          document.head.appendChild(styleEl)
+        }
+
+        const SPLIT_PREF_KEY = 'dsh.comic.split'
+        function readSplitPref() {
+          try {
+            const raw = localStorage.getItem(SPLIT_PREF_KEY)
+            const parsed = raw ? JSON.parse(raw) : null
+            return parsed && typeof parsed === 'object' ? parsed : {}
+          } catch (error) {
+            return {}
+          }
+        }
+        function writeSplitPref(patch) {
+          try {
+            localStorage.setItem(SPLIT_PREF_KEY, JSON.stringify(Object.assign({}, readSplitPref(), patch)))
+          } catch (error) { /* ignore */ }
+        }
+
+        /** 收起后的启动按钮：贴在当前输入框正上方，随滚动/缩放重算。 */
+        function ComicLauncher(props) {
+          const ref = React.useRef(null)
+          React.useEffect(function () {
+            const place = function () {
+              const btn = ref.current
+              if (!btn) return
+              const scroller = document.querySelector('[data-conversation-content]:not([data-sidebar-chat] *) > [data-conversation-scroll]')
+              const seat = scroller ? scroller.querySelector(':scope > [data-composer-seat]') : null
+              if (!seat) {
+                btn.style.right = '16px'
+                btn.style.bottom = '120px'
+                btn.style.left = 'auto'
+                btn.style.top = 'auto'
+                return
+              }
+              // 座位是整栏宽度，输入卡片在中间；用输入框自身定位，才落在卡片正上方。
+              const field = seat.querySelector('textarea')
+                || seat.querySelector('[contenteditable="true"]')
+                || seat.querySelector('input[type="text"]')
+              const box = (field || seat).getBoundingClientRect()
+              const btnBox = btn.getBoundingClientRect()
+              const width = btnBox.width || 120
+              const height = btnBox.height || 28
+              // 水平居中在输入卡片上
+              const left = Math.max(8, Math.min(box.left + box.width / 2 - width / 2, window.innerWidth - width - 8))
+              // 完整地落在卡片上方，留 10px 间隙，不再压住输入框
+              btn.style.left = left + 'px'
+              btn.style.top = Math.max(8, box.top - height - 10) + 'px'
+              btn.style.right = 'auto'
+              btn.style.bottom = 'auto'
+            }
+            place()
+            window.addEventListener('resize', place)
+            window.addEventListener('scroll', place, true)
+            const timer = setInterval(place, 600)
+            return function () {
+              window.removeEventListener('resize', place)
+              window.removeEventListener('scroll', place, true)
+              clearInterval(timer)
+            }
+          }, [])
+          return h('button', {
+            ref: ref,
+            type: 'button',
+            className: 'dsh-comic-split-launcher',
+            title: '展开漫画画布',
+            onClick: props.onOpen,
+          }, '✦ 漫画画布')
+        }
+
+
+        /** 画布宿主：由 React 持有节点，脚本只在里面建画布。 */
+        function ComicSplitHost(props) {
+          const hostRef = React.useRef(null)
+          const callbacks = React.useRef({})
+          callbacks.current = { onToggleCompact: props && props.onToggleCompact, onCollapse: props && props.onCollapse }
+          const [open, setOpen] = React.useState(false)
+          const readModels = function () {
+            const prefs = (pluginPrefs && pluginPrefs.get && pluginPrefs.get()) || {}
+            return prefs.workspaceCanvasModels || prefs.canvasModels || null
+          }
+          const [models, setModels] = React.useState(readModels)
+          React.useEffect(function () {
+            const host = hostRef.current
+            if (!host) return undefined
+            let app = null
+            try {
+              app = createComicApp(host, Object.assign({}, comicAppOptions(), {
+                openSettings: function () { setOpen(true) },
+                onToggleCompact: function () {
+                  const fn = callbacks.current.onToggleCompact
+                  if (typeof fn === 'function') fn()
+                },
+                onCollapse: function () {
+                  const fn = callbacks.current.onCollapse
+                  if (typeof fn === 'function') fn()
+                },
+              }))
+            } catch (error) {
+              console.warn('[comfy-enhance] 画布挂载失败', error)
+            }
+            const unsubscribe = pluginPrefs && pluginPrefs.subscribe
+              ? pluginPrefs.subscribe(function () {
+                const next = readModels()
+                setModels(next)
+                if (app && app.setModels) app.setModels(next)
+              })
+              : function () {}
+            return function () {
+              try { if (typeof unsubscribe === 'function') unsubscribe() } catch (error) { /* ignore */ }
+              try { if (app && app.destroy) app.destroy() } catch (error) { /* ignore */ }
+            }
+          }, [])
+          const onChange = function (next) {
+            setModels(next)
+            if (pluginPrefs && pluginPrefs.set) pluginPrefs.set('workspaceCanvasModels', next)
+            if (hostRef.current) { /* 画布侧会在订阅回调里刷新 */ }
+          }
+          return h(
+            React.Fragment,
+            null,
+            h('div', { ref: hostRef, className: 'dsh-comic-split-host' }),
+            createPortal
+              ? createPortal(
+                h(ModelSettingsDialog, {
+                  open: open,
+                  models: models || {},
+                  onChange: onChange,
+                  onClose: function () { setOpen(false) },
+                  night: false,
+                }),
+                document.body,
+              )
+              : h(ModelSettingsDialog, {
+                open: open,
+                models: models || {},
+                onChange: onChange,
+                onClose: function () { setOpen(false) },
+                night: false,
+              }),
+          )
+        }
+
+        function comicAppOptions() {
+          const prefsOf = function () {
+            return (pluginPrefs && pluginPrefs.get && pluginPrefs.get()) || {}
+          }
+          return {
+            jobStore: jobStore,
+            getModels: function () { return prefsOf().t2iModels || {} },
+            getClipType: function () { return prefsOf().t2iClipType || '' },
+            getCanvasModels: function () { const q = prefsOf(); return q.workspaceCanvasModels || q.canvasModels || null },
+            getSummary: function () { return prefsOf().comicSummary || '' },
+            saveSummary: function (text) {
+              if (pluginPrefs && pluginPrefs.set) pluginPrefs.set('comicSummary', String(text || ''))
+            },
+            getPageSeed: function () { return prefsOf().comicPageSeed || null },
+            savePageSeed: function (next) {
+              if (pluginPrefs && pluginPrefs.set) pluginPrefs.set('comicPageSeed', next)
+            },
+          }
+        }
+
+        /**
+         * 桥：渲染 marker（拿 ownerDocument）→ 找到该会话的 conversation.session 槽 →
+         * 用 React portal 把分栏送进去。同时把宽度档位与两个高度变量写到 scroller 上。
+         */
+        function ComicSplitBridge(props) {
+          const sessionId = props && props.sessionId
+          const markerRef = React.useRef(null)
+          const stored = readSplitPref()
+          const [collapsed, setCollapsed] = React.useState(stored.collapsed === true)
+          const [widthPx, setWidthPx] = React.useState(Number(stored.width) || 0)
+          const [compactPane, setCompactPane] = React.useState(stored.compactPane === 'chat' ? 'chat' : 'canvas')
+          const [forceCompact, setForceCompact] = React.useState(stored.forceCompact === true)
+          const live = React.useRef({ collapsed: false, width: 0, pane: 'canvas' })
+          live.current = { collapsed: collapsed, width: widthPx, pane: compactPane, forceCompact: forceCompact }
+          const layoutRef = React.useRef(null)
+          // 首帧时会话投影往往还没就绪；不能把"当下读不到"当成"不是漫画模式"，
+          // 否则组件再也不会重算。改成定位时实时查。
+          const enabledForLaunch = function () {
+            return Boolean(sessionId) && comicModeNow(sessionId)
+          }
+          const comicModeNow = function (id) {
+            try {
+              const sessions = ctx.get ? ctx.get('sessions') : null
+              const list = sessions && sessions.list && sessions.list.getSnapshot ? sessions.list.getSnapshot() : null
+              const row = list && list.byId ? list.byId[id] : null
+              return Boolean(row && row.projectionValues && row.projectionValues.agentPreset === 'comic')
+            } catch (error) {
+              return false
+            }
+          }
+          const [target, setTarget] = React.useState(null)
+
+          React.useEffect(function () {
+            ensureSplitCss()
+            const marker = markerRef.current
+            const doc = marker && marker.ownerDocument ? marker.ownerDocument : document
+            if (!sessionId) {
+              setTarget(null)
+              return undefined
+            }
+            const view = doc.defaultView
+            const esc = view && view.CSS && view.CSS.escape ? view.CSS.escape(sessionId) : sessionId
+            const contentSelector = '[data-conversation-content][data-conversation-session="' + esc + '"]:not([data-sidebar-chat] *)'
+            const selector = contentSelector + ' > [data-conversation-scroll] > [data-slot="conversation.session"]'
+            // 会话阶段：hero（空白开场）/ settling 时保持 DSH 默认样式，
+            // 只有进入 active（已经真正开始对话）才切到画布分栏。
+            const phaseActive = function () {
+              const content = doc.querySelector(contentSelector)
+              return Boolean(content) && content.getAttribute('data-content-phase') === 'active'
+            }
+            const locate = function () {
+              const found = comicModeNow(sessionId) && phaseActive() ? doc.querySelector(selector) : null
+              setTarget(function (current) { return current === found ? current : found })
+            }
+            locate()
+            const observer = new MutationObserver(locate)
+            observer.observe(doc.body || doc.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-content-phase'] })
+
+            // 宽度档位 + 高度变量：oh-story 的做法，三档 620 / 900
+            const scrollers = function () {
+              return doc.querySelector(contentSelector + ' > [data-conversation-scroll]')
+            }
+            // 0.2.2 里槽的直接子节点是 .viewArea（flex:1 的一整块聊天），
+            // 只靠 CSS 选择器会被它的 display:flex 吃掉，所以这里直接写内联样式。
+            // 非漫画模式必须把布局完全交还给 DSH：清掉所有内联样式。
+            const clearLayout = function (scroller) {
+              scroller.style.removeProperty('display')
+              scroller.style.removeProperty('grid-template-columns')
+              scroller.style.removeProperty('grid-template-rows')
+              scroller.style.removeProperty('overflow-y')
+              const viewArea = scroller.querySelector(':scope > [data-slot="conversation.session"] > .viewArea')
+              if (viewArea) {
+                viewArea.style.removeProperty('grid-column')
+                viewArea.style.removeProperty('grid-row')
+                viewArea.style.removeProperty('min-width')
+                viewArea.style.removeProperty('min-height')
+                viewArea.style.removeProperty('overflow')
+                viewArea.style.removeProperty('overflow-y')
+                viewArea.style.removeProperty('overflow-x')
+                viewArea.style.removeProperty('height')
+              }
+              const seat = scroller.querySelector(':scope > [data-composer-seat]')
+              if (seat) {
+                seat.style.removeProperty('grid-column')
+                seat.style.removeProperty('grid-row')
+                seat.style.removeProperty('min-width')
+                seat.style.removeProperty('align-self')
+                seat.style.removeProperty('position')
+                seat.style.removeProperty('bottom')
+                seat.style.removeProperty('margin-top')
+                seat.style.removeProperty('top')
+                seat.style.removeProperty('z-index')
+              }
+            }
+            const publishLayout = function () {
+              const scroller = scrollers()
+              if (!scroller) return
+              if (!comicModeNow(sessionId) || live.current.collapsed || !phaseActive()) {
+                clearLayout(scroller)
+                return
+              }
+              const composerSeat = scroller.querySelector(':scope > [data-composer-seat]')
+              const viewArea = scroller.querySelector(':scope > [data-slot="conversation.session"] > .viewArea')
+              const width = scroller.clientWidth
+              const compact = width < 620 || live.current.forceCompact
+              const pane = live.current.pane
+              const storedWidth = Number(live.current.width) || 0
+              const tier = compact ? 300 : width < 900 ? 360 : 520
+              const minW = compact ? 240 : 300
+              const rightPx = storedWidth ? Math.max(minW, Math.min(storedWidth, Math.floor(width * 0.7))) : 0
+              const right = rightPx ? rightPx + 'px' : (compact ? 'clamp(240px,46%,300px)' : width < 900 ? 'clamp(300px,42%,360px)' : 'clamp(360px,38%,520px)')
+              scroller.style.display = 'grid'
+              scroller.style.gridTemplateColumns = compact && pane === 'canvas' ? 'minmax(0,1fr)' : compact && pane === 'chat' ? 'minmax(0,1fr) 0px' : 'minmax(0,1fr) ' + right
+              scroller.style.gridTemplateRows = 'minmax(0,1fr)'
+              scroller.style.overflowY = 'auto'
+              if (viewArea) viewArea.style.display = compact && pane === 'canvas' ? 'none' : ''
+              if (composerSeat) composerSeat.style.display = compact && pane === 'canvas' ? 'none' : ''
+              if (composerSeat) {
+                // 照 DSH 与 oh-story 的做法：座位在网格里 align-self:start，
+                // 再用 sticky + 计算出的 top 贴在滚动视口底部。
+                const seatHeight = composerSeat.getBoundingClientRect().height
+                composerSeat.style.gridColumn = '2'
+                composerSeat.style.gridRow = '1'
+                composerSeat.style.minWidth = '0'
+                composerSeat.style.alignSelf = 'start'
+                composerSeat.style.position = 'sticky'
+                composerSeat.style.bottom = 'auto'
+                composerSeat.style.marginTop = '0'
+                composerSeat.style.top = String(Math.max(0, scroller.clientHeight - seatHeight)) + 'px'
+                composerSeat.style.zIndex = '9'
+              }
+              if (viewArea) {
+                // 交还滚动给 DSH 自己的滚动容器（聊天要靠它滚动），
+                // 画布用 sticky 钉住，所以不会被滚走。
+                viewArea.style.gridColumn = '2'
+                viewArea.style.gridRow = '1'
+                viewArea.style.minWidth = '0'
+                viewArea.style.minHeight = '0'
+              }
+              const layout = width < 620 ? 'compact' : width < 900 ? 'medium' : 'wide'
+              if (scroller.dataset.dshComicLayout !== layout) scroller.dataset.dshComicLayout = layout
+            }
+            layoutRef.current = publishLayout
+            publishLayout()
+            let resizeObserver = null
+            if (typeof ResizeObserver === 'function') {
+              resizeObserver = new ResizeObserver(publishLayout)
+              const scroller = scrollers()
+              if (scroller) {
+                resizeObserver.observe(scroller)
+                const composerSeat = scroller.querySelector(':scope > [data-composer-seat]')
+                if (composerSeat) resizeObserver.observe(composerSeat)
+              }
+            }
+            const timer = setInterval(function () {
+              locate()
+              publishLayout()
+            }, 500)
+
+            return function () {
+              observer.disconnect()
+              clearInterval(timer)
+              if (resizeObserver) resizeObserver.disconnect()
+              const scroller = scrollers()
+              if (scroller) {
+                clearLayout(scroller)
+                delete scroller.dataset.dshComicLayout
+              }
+            }
+          }, [sessionId])
+
+          const marker = h('span', { ref: markerRef, style: { display: 'none' }, 'aria-hidden': 'true' })
+          const launcher = enabledForLaunch()
+          if (collapsed && launcher) {
+            return h(React.Fragment, null, marker, h(ComicLauncher, {
+              onOpen: function () { setCollapsed(false); writeSplitPref({ collapsed: false }) },
+            }))
+          }
+
+          if (target === null || !createPortal) return marker
+          return h(
+            React.Fragment,
+            null,
+            marker,
+            createPortal(
+              h('div', { className: 'dsh-comic-split' }, h(
+                'div',
+                {
+                  className: 'dsh-comic-split-panel',
+                  style: { gridColumn: '1', gridRow: '1', minWidth: 0, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', alignSelf: 'stretch', position: 'sticky', top: 0, height: '100%' },
+                },
+                h(
+                  'div',
+                  { className: 'dsh-comic-split-bar' },
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'dsh-comic-split-btn',
+                      title: '窄屏下在画布 / 对话之间切换',
+                      onClick: function () {
+                        const nextPane = compactPane === 'chat' ? 'canvas' : 'chat'
+                        const nextCompact = !forceCompact
+                        setCompactPane(nextPane)
+                        setForceCompact(nextCompact)
+                        writeSplitPref({ compactPane: nextPane, forceCompact: nextCompact })
+                        setTimeout(function () { if (layoutRef.current) layoutRef.current() }, 0)
+                      },
+                    },
+                    '切换',
+                  ),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'dsh-comic-split-btn',
+                      title: '收起画布（回到纯对话）',
+                      onClick: function () { setCollapsed(true); writeSplitPref({ collapsed: true }) },
+                    },
+                    '收起',
+                  ),
+                ),
+                h(ComicSplitHost, {
+                  onToggleCompact: function () {
+                    const nextPane = compactPane === 'chat' ? 'canvas' : 'chat'
+                    const nextCompact = !forceCompact
+                    setCompactPane(nextPane)
+                    setForceCompact(nextCompact)
+                    writeSplitPref({ compactPane: nextPane, forceCompact: nextCompact })
+                    setTimeout(function () { if (layoutRef.current) layoutRef.current() }, 0)
+                  },
+                  onCollapse: function () {
+                    setCollapsed(true)
+                    writeSplitPref({ collapsed: true })
+                  },
+                }),
+                h('div', {
+                  className: 'dsh-comic-split-grip',
+                  title: '拖动调整宽度',
+                  onPointerDown: function (event) {
+                    event.preventDefault()
+                    const startX = event.clientX
+                    const startW = widthPx || (event.currentTarget.parentElement.getBoundingClientRect().width)
+                    const onMove = function (moveEvent) {
+                      const next = Math.max(240, Math.min(startW - (moveEvent.clientX - startX), Math.floor(window.innerWidth * 0.7)))
+                      setWidthPx(Math.round(next))
+                    }
+                    const onUp = function () {
+                      window.removeEventListener('pointermove', onMove)
+                      window.removeEventListener('pointerup', onUp)
+                      writeSplitPref({ width: live.current.width })
+                    }
+                    window.addEventListener('pointermove', onMove)
+                    window.addEventListener('pointerup', onUp)
+                  },
+                }),
+              )),
+              target,
+            ),
+          )
+        }
+
+        /** 座位：声明子槽并渲染它。 */
+        function ComicSplitSeat(props) {
+          const Provider = props && props.SessionProvider
+          const inner = props && typeof props.renderSlot === 'function' ? props.renderSlot('dsh-comic.workspace', {}) : null
+          return Provider ? h(Provider, { empty: function () { return null } }, inner) : inner
+        }
+
+        ctx.slots.inject('shell.overlay', () => {
+          ensureSplitCss()
+          const seat = ctx.slots.register(
+            { name: 'shell.overlay', id: 'dsh-comic-split', order: -100, children: { 'dsh-comic.workspace': { kind: 'single', scope: 'session' } } },
+            guardSlot(ComicSplitSeat, '漫画分栏座位'),
+          )
+          const bridge = ctx.slots.register(
+            {
+              name: 'dsh-comic.workspace',
+              inject: function (sessionId) {
+                let preset = ''
+                try {
+                  const sessions = ctx.get ? ctx.get('sessions') : null
+                  const list = sessions && sessions.list && sessions.list.getSnapshot ? sessions.list.getSnapshot() : null
+                  const row = list && list.byId ? list.byId[sessionId] : null
+                  if (row && row.projectionValues) preset = row.projectionValues.agentPreset || ''
+                } catch (error) {
+                  preset = ''
+                }
+                return { preset: preset }
+              },
+            },
+            guardSlot(ComicSplitBridge, '漫画分栏'),
+          )
+          return [seat, bridge]
         })
 
         // The zoom view lives in the frame-wide overlay seat: it must cover every

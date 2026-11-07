@@ -1,6 +1,6 @@
 {
   "name": "dsh-comfy-enhance",
-  "version": "0.17.1",
+  "version": "0.18.0",
   "private": true,
   "type": "module",
   "description": "ComfyUI enhance: sidebar status card, output album, MOSS bounding-box canvas and a standalone board workspace in one bundle.",
@@ -8,7 +8,8 @@
     ".": "./index.js",
     "./client": "./client.js",
     "./locale/*.json": "./locale/*.json",
-    "./icon": "./icon.svg"
+    "./icon": "./icon.svg",
+    "./comic-tools": "./presets/comic/comic-tools.mjs"
   },
   "files": [
     "index.js",
@@ -17,7 +18,8 @@
     "cordis.patch.yml",
     "locale/*.json",
     "templates/*.json",
-    "icon.svg"
+    "icon.svg",
+    "presets/**"
   ],
   "dsh": {
     "bundle": {

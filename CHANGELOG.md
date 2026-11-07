@@ -18,6 +18,7 @@
 - **整页出图（MOSS）**：格子多边形 → MOSS layout（`abs_centralized` / `yxyx`）的 object 框，气泡 → text 框，走 `/plugin/comfy-canvas/generate` 的画板工作流一次出整页；实测 B5 四格 14.1 秒，四格各是不同镜头
 - **缩放**：打开即铺满舞台（等舞台真正有尺寸后再适应，不再出现"一打开小小一个"）；缩放比例存 localStorage，切页 / 套模板都不重置；顶栏新增「适应」按钮
 - **持久化**：编辑内容自动存进浏览器 localStorage（防抖 500ms），重开面板自动恢复；导出 JSON 仍是跨机器备份手段
+- **漫画模式 preset**：改为在 profile 的 `cordis.patch.yml` 里声明 `@deepseek-ai/dsh-agent-preset`（id: comic），组合沿用 `presets/comic/agent.cordis.yml`；工具通过包 exports `./comic-tools` 挂载。旧格式 `~/.dsh/.agent-presets/` 目录不再被读取，已弃用
 - **comic_fill**：按既有分格回填内容（只改 prompt / balloons，几何不动）；`comic_status` 现在会返回每格的 `poly`（毫米），便于按原几何重建
 - **修复首次轮询失效**：挂载时先快照 `savedAt` 再初始化保存，否则刚写好的草稿会被判成"更旧"而跳过；挂载后的首次轮询从 800ms 提前到立刻
 - **实时状态回传**：工作台保存时把当前文档推到 `~/.dsh/comic/state.json`，`comic_status` 优先读它（source: live），没有才退回 agent 草稿（source: draft）——agent 因此能看到用户手上真实的排版
@@ -109,3 +110,9 @@
 ## 0.16.0
 
 - 相册、画框画布、独立工作台合并在一个 bundle 内
+- **对话分栏**（照 oh-story）：shell.overlay 座位声明 dsh-comic.workspace 子槽（session 作用域），桥组件按 sessionId 找到 [data-conversation-scroll] > [data-slot="conversation.session"]，把画布挂进去，并用 :has() 把滚动容器改成两栏（画布左、Chat 右、输入框跟随右栏）
+- ~~右侧栏「漫画」标签~~（已撤，避免双入口）
+- **右侧栏「漫画」标签**：注册 `sidebar.right.pane.tab`（id `dsh-comfy-comic`，keepMounted），画布与 Chat 同屏；参考 oh-story「不抢主区」的思路，用受支持的座位实现
+- **对话分栏（0.2.2 实测版）**：座位挂 shell.overlay 并声明 dsh-comic.workspace 子槽（session 作用域），桥按 sessionId 找到 [data-slot="conversation.session"] 用 React portal 注入；布局走内联样式（display:grid on [data-conversation-scroll]，.viewArea 与 composer 占第 2 栏，画布占第 1 栏），三档宽度 620/900；composer 用 sticky + top = 视口高 − 座位高 贴底；仅在 gentPreset === 'comic' 时挂载
+- **模型设置弹窗 portal 到 body**：避免被分栏面板的 overflow:hidden 裁剪
+- ~~会话内「画布」标签 / 独立页面~~（已回退，2026-11-07）：`conversation.view` 与主内容区 key 的实验在回滚中丢弃，漫画工作台仍从 Image 工作台进入；`backups/` 下保留了 20 个历史快照

@@ -12,7 +12,8 @@
 
 import { apply as applyCanvasHost } from './canvas-host.js'
 import { dirname, extname, join, resolve } from 'node:path'
-import { readdir, stat, readFile } from 'node:fs/promises'
+import { readdir, stat, readFile, writeFile, mkdir } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { spawn } from 'node:child_process'
 
 const DEFAULT_URL = 'http://127.0.0.1:8188'
@@ -1269,6 +1270,267 @@ function createHandler(baseUrl) {
   }
 }
 
+
+/** 漫画草稿文件：agent 通过 comic_import 写入，工作台轮询后自动载入。 */
+function comicDraftPath() {
+  return join(homedir(), '.dsh', 'comic', 'draft.json')
+}
+
+/**
+ * 面向 agent 的接口：把拆镜结果直接交给工作台，不用记路径、不用手写文件。
+ *
+ * 用的是 ToolDefinition 的字面结构（name / description / parameters /
+ * output / execute），不依赖 @deepseek-ai/dsh-tools —— 本插件装在用户目录下，
+ * 解析不到那个包；字段形状与 defineTool 的输出一致。
+ */
+function registerComicTools(ctx) {
+  if (!ctx || !ctx.tools || typeof ctx.tools.register !== 'function') return
+
+  const make = (name, description, parameters, execute) => ({
+    name,
+    description,
+    parameters,
+    output: {
+      schema: { type: 'object', additionalProperties: true },
+      render(_args, value) {
+        return [{ type: 'text', text: JSON.stringify(value, null, 2) }]
+      },
+    },
+    execute,
+  })
+
+  try {
+    ctx.tools.register(
+      make(
+        'comic_import',
+        '把一份漫画文档设为「漫画工作台」的当前草稿。写入后会立刻生成本地草稿文件，已经打开的工作台在约 2.5 秒内自动载入，不需要用户手动导入。document 支持两种格式：工作台格式 {pages:[{panels:[{prompt, balloons}]}]}，或 MOSS 草案 {width, height, items:[{label, caption, bbox, text}]}。拆镜时请把台词放进 balloons（type: speech/thought/shout/whisper/box/caption/sfx/free），不要写进 prompt。',
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['document'],
+          properties: {
+            document: {
+              type: 'object',
+              additionalProperties: true,
+              description: '漫画文档 JSON（pages 或 items 二选一）',
+            },
+            note: { type: 'string', description: '给操作者看的备注（可选）' },
+          },
+        },
+        async (args) => {
+          const doc = args && args.document
+          if (!doc || typeof doc !== 'object') throw new Error('document 必须是 JSON 对象')
+          const hasShape =
+            Array.isArray(doc.pages) || Array.isArray(doc.panels) || Array.isArray(doc.items)
+          if (!hasShape) throw new Error('document 里找不到 pages / panels / items')
+          const file = comicDraftPath()
+          await mkdir(dirname(file), { recursive: true })
+          await writeFile(file, JSON.stringify(doc, null, 2), 'utf8')
+          const info = await stat(file)
+          let panels = 0
+          let pages = 1
+          if (Array.isArray(doc.pages)) {
+            pages = doc.pages.length
+            panels = doc.pages.reduce((sum, pg) => sum + ((pg && Array.isArray(pg.panels)) ? pg.panels.length : 0), 0)
+          } else if (Array.isArray(doc.items)) {
+            panels = doc.items.filter((it) => it && it.label !== 'text').length
+          } else if (Array.isArray(doc.panels)) {
+            panels = doc.panels.length
+          }
+          return {
+            ok: true,
+            path: file,
+            pages,
+            panels,
+            note: (args && args.note) || '',
+            mtimeMs: info.mtimeMs,
+            hint: '工作台若已打开，约 2.5 秒后自动载入；未打开则下次打开时载入。',
+          }
+        },
+      ),
+    )
+
+    ctx.tools.register(
+      make(
+        'comic_status',
+        '查看漫画工作台当前草稿的状态：是否存在、多少页多少格、每格的提示词摘要与气泡数。用于在改写前先了解现状。',
+        { type: 'object', additionalProperties: false, properties: {} },
+        async () => {
+          const draftFile = comicDraftPath()
+          const liveFile = join(homedir(), '.dsh', 'comic', 'state.json')
+          let file = liveFile
+          let source = 'live'
+          let text = ''
+          let mtimeMs = 0
+          try {
+            text = await readFile(liveFile, 'utf8')
+            mtimeMs = (await stat(liveFile)).mtimeMs
+          } catch {
+            file = draftFile
+            source = 'draft'
+            try {
+              text = await readFile(draftFile, 'utf8')
+              mtimeMs = (await stat(draftFile)).mtimeMs
+            } catch {
+              return { ok: true, exists: false, path: draftFile, livePath: liveFile }
+            }
+          }
+          let doc = null
+          try {
+            doc = JSON.parse(text)
+          } catch {
+            return { ok: false, exists: true, path: file, error: '草稿文件不是合法 JSON' }
+          }
+          const panels = []
+          if (Array.isArray(doc.pages)) {
+            doc.pages.forEach((pg, pi) => {
+              ;(pg && Array.isArray(pg.panels) ? pg.panels : []).forEach((p, i) => {
+                panels.push({
+                  page: pi + 1,
+                  index: i + 1,
+                  prompt: String((p && p.prompt) || '').slice(0, 80),
+                  balloons: Array.isArray(p && p.balloons) ? p.balloons.length : 0,
+                  poly: Array.isArray(p && p.poly)
+                    ? p.poly.map((v) => ({ x: Math.round(Number(v.x) * 100) / 100, y: Math.round(Number(v.y) * 100) / 100 }))
+                    : [],
+                })
+              })
+            })
+          } else if (Array.isArray(doc.items)) {
+            doc.items.forEach((it, i) => {
+              panels.push({
+                index: i + 1,
+                label: it && it.label,
+                prompt: String((it && it.caption) || '').slice(0, 80),
+                text: it && it.text ? String(it.text) : '',
+              })
+            })
+          }
+          return {
+            ok: true,
+            exists: true,
+            path: file,
+            source,
+            mtimeMs,
+            panels,
+            summary:
+              doc && doc.summary
+                ? (typeof doc.summary === 'string' ? doc.summary : String(doc.summary.caption || '')).slice(0, 200)
+                : '',
+          }
+        },
+      ),
+    )
+
+    ctx.tools.register(
+      make(
+        'comic_fill',
+        '按当前画板的既有分格回填内容：只改提示词与气泡，几何一律不动。先调用 comic_status 拿到 page/index，再提交 updates。写入后工作台约 2.5 秒自动载入（原分格保留）。',
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: [],
+          properties: {
+            summary: {
+              type: 'string',
+              description: '整页描述 / 画风（会写进 MOSS layout 的 summary.caption）',
+            },
+            updates: {
+              type: 'array',
+              description: '要改的格子列表，page/index 均为 1 起算',
+              items: {
+                type: 'object',
+                additionalProperties: true,
+                properties: {
+                  page: { type: 'integer', description: '第几页，默认 1' },
+                  index: { type: 'integer', description: '第几格（阅读顺序外的数组序号，与 comic_status 的 index 一致）' },
+                  prompt: { type: 'string', description: '新的画面描述' },
+                  balloons: { type: 'array', description: '整组替换的气泡；type 取 speech/thought/shout/whisper/box/caption/sfx/free' },
+                },
+              },
+            },
+          },
+        },
+        async (args) => {
+          const live = join(homedir(), '.dsh', 'comic', 'state.json')
+          let text = ''
+          try {
+            text = await readFile(live, 'utf8')
+          } catch {
+            throw new Error('还没有实时画板状态：先在工作台里摆好分格并保存一次')
+          }
+          const doc = JSON.parse(text)
+          if (!Array.isArray(doc.pages)) throw new Error('实时状态不是工作台格式（没有 pages）')
+          if (args && typeof args.summary === 'string') doc.summary = args.summary
+          const updates = Array.isArray(args && args.updates) ? args.updates : []
+          if (!updates.length && !(args && typeof args.summary === 'string')) {
+            throw new Error('updates 为空，且没有给 summary')
+          }
+          let changed = 0
+          updates.forEach((u) => {
+            const pageIdx = Math.max(1, Number(u && u.page) || 1) - 1
+            const panelIdx = Math.max(1, Number(u && u.index) || 0) - 1
+            const pg = doc.pages[pageIdx]
+            const panel = pg && Array.isArray(pg.panels) ? pg.panels[panelIdx] : null
+            if (!panel) return
+            if (typeof u.prompt === 'string') panel.prompt = u.prompt
+            if (Array.isArray(u.balloons)) {
+              panel.balloons = u.balloons.map((b) => {
+                const known = ['speech', 'thought', 'shout', 'whisper', 'box', 'caption', 'sfx', 'free']
+                const type = b && known.includes(b.type) ? b.type : 'speech'
+                const size = {
+                  speech: [0.34, 0.15], thought: [0.34, 0.16], shout: [0.34, 0.17], whisper: [0.34, 0.15],
+                  box: [0.27, 0.24], caption: [0.24, 0.3], sfx: [0.5, 0.2], free: [0.5, 0.14],
+                }[type]
+                const poly = Array.isArray(panel.poly) ? panel.poly : []
+                const xs = poly.map((v) => Number(v.x) || 0)
+                const ys = poly.map((v) => Number(v.y) || 0)
+                const bx = xs.length ? Math.min(...xs) : 10
+                const by = ys.length ? Math.min(...ys) : 10
+                const bw = xs.length ? Math.max(...xs) - bx : 80
+                const bh = ys.length ? Math.max(...ys) - by : 100
+                const n = panel.balloons ? panel.balloons.length : 0
+                const w = Math.max(12, Math.min(64, bw * size[0]))
+                const h = Math.max(8, Math.min(80, bh * size[1]))
+                return {
+                  id: 'b' + Math.random().toString(36).slice(2, 8),
+                  type,
+                  text: String((b && b.text) || ''),
+                  x: Math.round((bx + bw * 0.06 + (n % 3) * 4) * 100) / 100,
+                  y: Math.round((by + bh * 0.06 + (n % 2) * 6) * 100) / 100,
+                  w: Math.round(w * 100) / 100,
+                  h: Math.round(h * 100) / 100,
+                  fontSize: type === 'sfx' ? 7.5 : 4.2,
+                  vertical: type === 'caption' || type === 'box',
+                  tailX: 0.72,
+                  tailY: 10,
+                }
+              })
+            }
+            changed++
+          })
+          if (!changed && !(args && typeof args.summary === 'string')) {
+            throw new Error('没有匹配到任何格子，检查 page/index')
+          }
+          const draft = comicDraftPath()
+          await mkdir(dirname(draft), { recursive: true })
+          await writeFile(draft, JSON.stringify(doc, null, 2), 'utf8')
+          const info = await stat(draft)
+          return {
+            ok: true,
+            changed,
+            path: draft,
+            mtimeMs: info.mtimeMs,
+            hint: '工作台约 2.5 秒内自动载入，分格几何保持不变。',
+          }
+        },
+      ),
+    )
+  } catch (error) {
+    console.error('[dsh-comfy-enhance] 漫画工具注册失败：', error)
+  }
+}
+
 export function apply(ctx, config = {}) {
   const configured = config && typeof config.comfyUrl === 'string' ? config.comfyUrl.trim() : ''
   const envUrl = typeof process !== 'undefined' && process.env ? process.env.DSH_COMFY_URL : ''
@@ -1288,4 +1550,6 @@ export function apply(ctx, config = {}) {
   } catch (error) {
     console.error('[dsh-comfy-enhance] 画布路由挂载失败：', error)
   }
+
+  // 漫画工具已移交「漫画模式」preset（presets/comic/comic-tools.mjs），全局不再注册。
 }
