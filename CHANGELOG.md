@@ -1,5 +1,22 @@
 # 变更记录
 
+## 未发布（0.18.0 之后）
+
+> 版本号仍停在 0.18.0（未发版），此节记录工作树里已经落地、但还没进版本的功能。交接时以此判断"现在跑的和发布版差在哪"。
+
+- **对话内画布**：漫画模式会话里画布嵌进对话区左侧（`shell.overlay` 座位 + portal 到 `conversation.session` + grid 布局），含收起 / 展开 / 拖宽 / 紧凑切换；只在 `agentPreset === 'comic'` 且会话进入 `active` 阶段时出现，其它会话布局完全不动
+- **comic_images 工具**：按需返回页级大图与各格成图的本地绝对路径（优先直读 ComfyUI 输出目录，失败才下载到 `~/.dsh/comic/images/`），支持 `page` / `since` 过滤，供 agent 用 `read_image` 检查成图
+- **工具条视觉分层**：开关型按钮实底反白、出图按钮主色实底 + 悬停光晕、角落按钮（切换 / 收起）右对齐深灰实底；动作与状态两类按钮外观区分
+- **漫画模式 preset 落地**：工具从全局迁到 preset 作用域（普通会话不可见），preset 由 profile 的 `cordis.patch.yml` 声明；旧格式 `~/.dsh/.agent-presets/` 已弃用
+- **修复**：分栏在 DSH 0.2.2 上挂载时机不对（槽下还有 `.viewArea`，且首帧读不到 preset 导致必须切视图才出现）、模型设置弹窗被分栏面板裁剪、画布随对话滚动、输入框错位、收起后的浮动按钮位置不居中
+
+### 实现记录（过程稿，发版时合并掉）
+
+- 座位挂 `shell.overlay`、声明 `dsh-comic.workspace` 子槽（session 作用域），桥组件按 `sessionId` 找到 `[data-slot="conversation.session"]` 用 React portal 注入；布局走内联样式（`display: grid` 写在 `[data-conversation-scroll]`，`.viewArea` 与 composer 占第 2 栏，画布占第 1 栏），三档宽度 620 / 900，composer 用 `sticky` + `top = 视口高 − 座位高` 贴底
+- 模型设置弹窗改为 portal 到 `body`，避免被分栏面板的 `overflow: hidden` 裁剪
+- 先试过右侧栏「漫画」标签（`sidebar.right.pane.tab`，id `dsh-comfy-comic`，keepMounted）——为避免双入口已撤
+- 也试过会话内「画布」标签 / 独立页面（`conversation.view` 与主内容区 key），2026-11-07 回退；漫画工作台仍从 Image 工作台进入
+
 ## 0.18.0（2026-11-07）
 
 ### 新增 · Image 工作台第 4 个模式「漫画工作台」
@@ -88,7 +105,7 @@
 - 修复：文生图的进度环不转——`dshComfySpin` 等 keyframes 只写在画布样式表里，而该面板调用的 `ensureWorkbenchStyle()` 没注入；顺带补齐下拉淡入与工作台弹层动画用到的 keyframes。进度环后来改为自绘 SVG，并把转动改成 `stroke-dashoffset`（不再提升合成层，消除背后的残影），卡片底色改为不透明
 - 修复：本地文生图的生成进度遮罩没有过渡——补上淡入（遮罩 160ms / 卡片 180ms 浮入）与结束时 140ms 淡出后再卸载
 - 查看器的「提示词」弹窗补上开合动画：遮罩 160ms 淡入 / 120ms 淡出，卡片 180ms 浮入（scale .97→1）/ 120ms 收出；退出先播完再卸载
-- 修复：查看器缩略图的选中态用 orderColor 覆盖 order 简写，React 会跳过该更新（选中的缩略图边框偶尔不变色）；两处统一改成 orderWidth/borderStyle/borderColor 长写
+- 修复：查看器缩略图的选中态用 borderColor 覆盖 border 简写，React 会跳过该更新（选中的缩略图边框偶尔不变色）；两处统一改成 borderWidth/borderStyle/borderColor 长写
 - 修复：本地文生图里按 Esc 会把预览淡成空白、之后点缩略图也回不来（嵌入式查看器没有「关闭」这个概念，淡出后没人负责恢复）；现在嵌入模式下 Esc 改为还原缩放，相册与画布弹窗的关闭行为不变
 - 查看器顶栏「还原」旁新增「提示词」按钮：弹窗查看当前图的正向 / 负向提示词；图片本身没带参数时按需读取 PNG 内嵌数据
 - 本地文生图新增「钉住」固定提示词：弹窗里设正 / 负质量前缀，提交时按「固定, 正文」拼在前面的英文逗号处；带启用开关，按钮未设置=浅灰、生效=橙色、已设置但停用=灰色虚线；生效时按钮左侧显示「已预置固定词」；输入框里的正文始终不动
@@ -110,9 +127,3 @@
 ## 0.16.0
 
 - 相册、画框画布、独立工作台合并在一个 bundle 内
-- **对话分栏**（照 oh-story）：shell.overlay 座位声明 dsh-comic.workspace 子槽（session 作用域），桥组件按 sessionId 找到 [data-conversation-scroll] > [data-slot="conversation.session"]，把画布挂进去，并用 :has() 把滚动容器改成两栏（画布左、Chat 右、输入框跟随右栏）
-- ~~右侧栏「漫画」标签~~（已撤，避免双入口）
-- **右侧栏「漫画」标签**：注册 `sidebar.right.pane.tab`（id `dsh-comfy-comic`，keepMounted），画布与 Chat 同屏；参考 oh-story「不抢主区」的思路，用受支持的座位实现
-- **对话分栏（0.2.2 实测版）**：座位挂 shell.overlay 并声明 dsh-comic.workspace 子槽（session 作用域），桥按 sessionId 找到 [data-slot="conversation.session"] 用 React portal 注入；布局走内联样式（display:grid on [data-conversation-scroll]，.viewArea 与 composer 占第 2 栏，画布占第 1 栏），三档宽度 620/900；composer 用 sticky + top = 视口高 − 座位高 贴底；仅在 gentPreset === 'comic' 时挂载
-- **模型设置弹窗 portal 到 body**：避免被分栏面板的 overflow:hidden 裁剪
-- ~~会话内「画布」标签 / 独立页面~~（已回退，2026-11-07）：`conversation.view` 与主内容区 key 的实验在回滚中丢弃，漫画工作台仍从 Image 工作台进入；`backups/` 下保留了 20 个历史快照

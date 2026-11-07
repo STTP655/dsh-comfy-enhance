@@ -1,6 +1,6 @@
 # dsh-comfy-enhance
 
-给 [DeepSeek Harness](https://github.com/deepseek-ai) 用的 ComfyUI 面板套件。一个 bundle 里包含四个模块，在插件页里可以分别开关。
+给 [DeepSeek Harness](https://github.com/deepseek-ai) 用的 ComfyUI 面板套件。一个 bundle 里包含四个可开关的模块，外加漫画模式专属的「对话内画布」。
 
 > 它不依赖 ComfyUI 的浏览器界面——Host 端直接调用 ComfyUI 的 HTTP 接口（`/system_stats`、`/history`、`/view`），所以只要 ComfyUI 进程开着就能用。
 
@@ -99,8 +99,43 @@
 - 整页描述 / 画风：作为 layout 的 `summary.caption` 发出去，锁整页主调
 - 导出：整页 300dpi PNG、整本 ZIP、JSON（跨机器备份与交给 agent）
 - 编辑内容自动存浏览器（防抖 500ms），重开面板自动恢复；保存时把当前文档写进 `~/.dsh/comic/state.json`，agent 侧 `comic_status` 能读到真实排版
-- agent 工具：`comic_import`（设为工作台草稿）、`comic_status`（看当前页数/格数/提示词）、`comic_fill`（按既有分格回填内容，几何不动）
+- agent 工具：`comic_import`（设为工作台草稿）、`comic_status`（看当前页数/格数/提示词）、`comic_fill`（按既有分格回填内容，几何不动）、`comic_images`（取页级大图与各格成图的本地路径）
 
+
+### 5. 对话内画布（漫画模式专属）
+
+在「漫画模式」会话里，画布会**嵌进对话区左侧**，聊天与输入框留在右栏——不新开页面，也不占用右侧边栏。
+
+| 项 | 说明 |
+| --- | --- |
+| 挂载方式 | 在 `shell.overlay` 注册一个座位，声明 session 作用域的子槽 `dsh-comic.workspace`；桥组件拿到 `sessionId` 后找到 `[data-conversation-scroll] > [data-slot="conversation.session"]`，用 React portal 把画布送进去 |
+| 为什么能并排 | DSH 的 `[data-slot]` 包装层是 `display: contents`，所以槽里的孩子直接成为滚动容器的 grid item；0.2.2 里槽下还有一层 `.viewArea`（聊天真正的布局盒），布局必须落到它上面 |
+| 布局 | `display: grid` 写在 `[data-conversation-scroll]` 上；`.viewArea` 与输入框在第 2 栏，画布在第 1 栏并 `position: sticky`，所以聊天滚动时画布不动 |
+| 输入框贴底 | `position: sticky; top = 滚动视口高 − 座位高`，随窗口与草稿行数重算 |
+| 三档宽度 | `clientWidth < 620` / `< 900` / 其余，右栏分别 `clamp(240px,46%,300px)` / `clamp(300px,42%,360px)` / `clamp(360px,38%,520px)` |
+| 收起 / 展开 | 工具条右侧「收起」把画布收回，输入框正上方出现「✦ 漫画画布」浮动按钮；状态存在 `localStorage: dsh.comic.split` |
+| 拖宽 | 画布右边缘 6px 热区，横拖调整右栏宽度（240px ~ 窗口 70%），宽度同样存在 `dsh.comic.split` |
+| 切换 | 强制进入/退出紧凑模式；紧凑时一次只显示画布或对话 |
+| 显隐条件 | 只有会话的 `agentPreset === 'comic'` **且** `data-content-phase === 'active'`（已真正开始对话）才挂载；空白开场（hero）与回放中（settling）保持 DSH 默认布局 |
+| 其它会话 | 非漫画模式的会话会主动清空全部内联布局样式，界面与不装插件时一致 |
+
+## Agent 工具（漫画模式专属）
+
+四个工具只在 `presets/comic` 这个 preset 里注册，**普通会话看不到**，因此不会污染日常对话。
+
+| 工具 | 作用 |
+| --- | --- |
+| `comic_status` | 读当前画板：页数、每格提示词摘要、气泡数、每格 `poly`（毫米）、整页 `summary`。优先读实时状态（`source: live`），没有才退回草稿（`source: draft`） |
+| `comic_fill` | 按既有分格回填内容：只改 `prompt` / `balloons`，几何一律不动；也可只传 `summary` 改整页画风 |
+| `comic_import` | 整份替换文档，支持 `{pages:[...]}` 与 MOSS 草案 `{width,height,items}` 两种格式 |
+| `comic_images` | 按需取图：返回页级大图与各格成图的**本地绝对路径**，供 `read_image` 检查。支持 `page` / `since`（epoch 毫秒，只看新图）/ `fetch` |
+
+数据契约：
+
+- `~/.dsh/comic/state.json` —— 工作台保存时推送（防抖 1.2s），工具优先读它
+- `~/.dsh/comic/draft.json` —— 工具写、工作台每 2.5s 轮询 mtime 自动导入
+- `~/.dsh/comic/images/` —— `comic_images` 下载缓存目录（能直读 ComfyUI 输出目录时不使用）
+- 「整页出图」只产**页级** `pages[i].image`，分格 `img` 为空串；`comic_images` 两条都收，页级条目 `kind: 'page'`
 
 ## AI 提示词
 
@@ -184,6 +219,8 @@ cmd /c mklink /J "%USERPROFILE%\.dsh\profiles\<profile>\node_modules\dsh-comfy-e
 
 「Image 工作台」是第四块，入口在左侧边栏，打开后在同一个页面里切四种模式（MOSS 画板 / 在线 API / 本地文生图 / 漫画工作台），四种模式的参数与草稿互相独立。
 
+第五块「对话内画布」没有独立开关：它跟着**漫画模式**走，只有会话的 `agentPreset === 'comic'` 且已经开始对话时才出现，其它会话完全保持 DSH 默认布局。
+
 开关存在浏览器 localStorage，同一浏览器刷新后保持。
 
 ## 工作流文件
@@ -211,7 +248,7 @@ canvas-host.js    画框、出图面板与漫画草稿的 Host 路由（同包�
 client.js         全部 UI（标签页 + 侧边栏卡片 + 工作台四个模式 + 插件页配置）
 cordis.patch.yml  bundle 入口
 templates/        内置的 MOSS 画板与出图工作流模板（画板走 SkipLayerGuidanceDiT，文生图不走）
-presets/comic/    漫画工作台的 agent preset 与工具（comic_import / comic_status / comic_fill）
+presets/comic/    漫画模式的 agent preset 与工具（comic_status / comic_fill / comic_import / comic_images）
 locale/           中英标题与描述
 scripts/          preflight（语法预检）与 snapshot（改动前快照）
 CHANGELOG.md      变更记录
@@ -235,6 +272,11 @@ icon.svg          插件图标
 - 漫画工作台的**逐格出图**走「本地文生图」那套非 MOSS 模型，**整页出图**才走 MOSS；两者要分别配好模型
 - 漫画的整页出图依赖 MOSS 的 layout 能力，文本框位置决定台词的落点，气泡样式（笑声、拟声）目前靠描述词表达
 - 漫画导出暂不支持 PSD，只有 PNG / ZIP / JSON
+- **对话内画布**依赖 DSH 0.2.2 的 DOM 结构（[data-slot] 包装层为 display:contents、槽下有 .viewArea）；升级 DSH 后需要复验选择器与布局
+- 对话内画布只在「漫画模式」且会话已进入 active 阶段时出现；空白开场页与回放中保持默认布局
+- 紧凑模式是把两栏压成单栏再切换画布/对话，没有 oh-story 那种三栏（文件树｜编辑器｜聊天）布局
+- 「台词入图」打开时文字被画进像素，改台词必须重新出图；关掉后文字走矢量气泡，可单独修改
+- comic_images 依赖本机 ComfyUI 的 /view 与 /system_stats；ComfyUI 地址变更时需要同步修改工具
 
 ## 样式约定
 
@@ -253,6 +295,13 @@ icon.svg          插件图标
 3. **同行等高用 `align-self: stretch` 跟随该行最高元素**，不要写死 `height` 去猜——固定值会和按行高推算的邻居差 3～4px。
 4. **同一个控件的外观只定义一次**：类管外观，行内只管尺寸与布局。两边都写尺寸时，删掉一边另一边就冒出来咬人。
 ## 版本
+
+**0.18 之后（未发布）** —— 漫画模式从"一个面板"变成"一种工作模式"：
+
+- **对话内画布**：画布嵌进对话左侧，聊天与输入框留右栏；可收起（浮动按钮在输入框正上方）、可拖宽、可切紧凑；仅漫画模式且会话已开始对话时出现
+- **`comic_images`**：按需取图（页级大图 + 各格成图），返回本地绝对路径供 agent 检查
+- **preset 化**：四个 `comic_*` 工具只在「漫画模式」会话里可见
+- 工具条按"状态按钮 / 动作按钮"分层配色
 
 **0.18** —— 漫画工作台（Image 工作台的第 4 个模式）：
 
