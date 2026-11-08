@@ -1592,6 +1592,16 @@ export function apply(ctx, config = {}) {
             // 多张时按 OpenAI 的数组写法 image[]，单张保持 image
             form.append(imageList.length > 1 ? 'image[]' : 'image', blob, fileName)
           })
+          // mask：同尺寸 PNG，透明区域表示要修改的地方；带多张参考图时作用于第一张。
+          const maskRaw = typeof body.mask === 'string' ? body.mask : ''
+          const maskMatch = /^data:([^;]+);base64,(.+)$/.exec(maskRaw)
+          if (maskMatch) {
+            form.append(
+              'mask',
+              new Blob([Buffer.from(maskMatch[2], 'base64')], { type: 'image/png' }),
+              'mask.png',
+            )
+          }
           const url = /\/images\/edits?$/.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/images/edits'
           upstream = await remoteFetch(url, {
             method: 'POST',

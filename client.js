@@ -13945,6 +13945,8 @@ window.__ModuleLoader__.load({
       // 参考图可以多张（OpenAI /images/edits 的 image 是数组，GPT 图像模型最多 16 张）
       const [imageList, setImageList] = useState([])
       const imageData = imageList[0] || ''
+      // mask：同尺寸 PNG，透明处表示要修改的地方（inpainting）
+      const [maskData, setMaskData] = useState('')
       const [busy, setBusy] = useState(false)
       const [error, setError] = useState('')
       const [result, setResult] = useState(null)
@@ -14046,6 +14048,52 @@ window.__ModuleLoader__.load({
       }
       const removeImageAt = (index) => {
         setImageList((current) => current.filter((_, at) => at !== index))
+        // 第一张变了，旧蒙版的尺寸就对不上了，直接清掉
+        if (index === 0) setMaskData('')
+      }
+      // 蒙版必须与第一张参考图同尺寸：读进来后按它的自然尺寸重绘，顺带兜住格式差异。
+      const pickMask = (event) => {
+        const file = event.target.files && event.target.files[0]
+        event.target.value = ''
+        if (!file) return
+        if (!imageData) {
+          setError('先选参考图，蒙版要和它同尺寸')
+          return
+        }
+        const reader = new FileReader()
+        reader.onerror = () => setError('读取蒙版失败')
+        reader.onload = () => {
+          const raw = typeof reader.result === 'string' ? reader.result : ''
+          if (!raw) {
+            setError('读取蒙版失败')
+            return
+          }
+          const refImg = new Image()
+          refImg.onerror = () => setError('参考图读取失败')
+          refImg.onload = () => {
+            const maskImg = new Image()
+            maskImg.onerror = () => setError('蒙版不是有效图片')
+            maskImg.onload = () => {
+              const canvas = document.createElement('canvas')
+              canvas.width = refImg.naturalWidth
+              canvas.height = refImg.naturalHeight
+              const ctx = canvas.getContext('2d')
+              ctx.clearRect(0, 0, canvas.width, canvas.height)
+              ctx.drawImage(maskImg, 0, 0, canvas.width, canvas.height)
+              const out = canvas.toDataURL('image/png')
+              // 4MB 上限（按 base64 长度粗估）
+              if (out.length > 5.4 * 1024 * 1024) {
+                setError('蒙版太大（PNG 需小于 4MB）')
+                return
+              }
+              setMaskData(out)
+              setError('')
+            }
+            maskImg.src = raw
+          }
+          refImg.src = imageData
+        }
+        reader.readAsDataURL(file)
       }
       const readSystemProxy = async () => {
         setProxyTest({ busy: true, text: '检测中…' })
@@ -14234,6 +14282,7 @@ window.__ModuleLoader__.load({
               mode: mode === 'edit' ? 'edits' : 'generations',
               image: mode === 'edit' ? imageData : '',
               images: mode === 'edit' ? imageList : [],
+              mask: mode === 'edit' ? maskData : '',
               quality,
               background,
               output_format: outputFormat,
@@ -14574,6 +14623,76 @@ window.__ModuleLoader__.load({
                       h(Icon, { name: 'images', size: 18 }),
                       '选择参考图（可多选，最多 16 张）',
                     ),
+                mode === 'edit' && imageList.length > 0
+                  ? h(
+                      'div',
+                      { style: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 } },
+                      maskData
+                        ? h('img', {
+                            src: maskData,
+                            alt: '',
+                            title: '蒙版：透明处会被重画',
+                            style: {
+                              width: 40,
+                              height: 40,
+                              objectFit: 'contain',
+                              borderRadius: 6,
+                              border: '1px solid var(--dsw-alias-border-l2)',
+                              background:
+                                'repeating-conic-gradient(#00000014 0% 25%, transparent 0% 50%) 50% / 10px 10px',
+                            },
+                          })
+                        : null,
+                      h(
+                        'label',
+                        {
+                          style: { display: 'inline-flex', cursor: 'pointer' },
+                          title: '上传一张与参考图同尺寸的 PNG，透明区域表示要修改的地方',
+                        },
+                        h('input', {
+                          type: 'file',
+                          accept: 'image/png,image/*',
+                          style: { display: 'none' },
+                          onChange: pickMask,
+                        }),
+                        h(
+                          'span',
+                          { style: { fontSize: 10, color: 'var(--dsw-alias-brand-primary)' } },
+                          maskData ? '更换蒙版' : '上传蒙版 PNG',
+                        ),
+                      ),
+                      maskData
+                        ? h(
+                            'button',
+                            {
+                              type: 'button',
+                              onClick: () => setMaskData(''),
+                              style: {
+                                border: 0,
+                                background: 'transparent',
+                                padding: 0,
+                                fontSize: 10,
+                                color: 'var(--dsw-alias-label-secondary)',
+                                fontFamily: 'inherit',
+                                cursor: 'pointer',
+                              },
+                            },
+                            '清除蒙版',
+                          )
+                        : null,
+                      h(
+                        'span',
+                        {
+                          style: {
+                            fontSize: 9.5,
+                            color: 'var(--dsw-alias-label-secondary)',
+                            lineHeight: 1.4,
+                          },
+                        },
+                        maskData ? '透明处 = 重画区域' : '可选：只重画局部时用',
+                      ),
+                    )
+                  : null,
               )
             : null,
           h(
