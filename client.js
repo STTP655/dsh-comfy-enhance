@@ -14041,20 +14041,6 @@ window.__ModuleLoader__.load({
           setProxyTest({ ok: false, text: String((error && error.message) || error) })
         }
       }
-      // 舞台数据源：保存目录里已落盘的图（和本地文生图一样带缩略图），
-      // 没保存时退回刚生成的那几张 base64。
-      const stageImages =
-        savedFiles.length > 0
-          ? savedFiles.map((file) => ({
-              url: file.thumb || file.url,
-              full: file.url,
-              filename: file.name,
-            }))
-          : images.map((b64, index) => ({
-              url: 'data:image/png;base64,' + b64,
-              full: 'data:image/png;base64,' + b64,
-              filename: 'remote-' + (index + 1) + '.png',
-            }))
 
       const fetchModels = async () => {
         if (modelsBusy) return
@@ -14221,6 +14207,17 @@ window.__ModuleLoader__.load({
         color: 'var(--dsw-alias-label-secondary)',
       }
       const images = result ? (Array.isArray(result.b64List) ? result.b64List : result.b64 ? [result.b64] : []) : []
+
+      // 舞台数据源：保存目录里已落盘的图，没保存时退回刚生成的那几张 base64。
+      // 和本地文生图一致，统一给原图 url（缩略图条也用同一份，避免大图变成预览图）。
+      const stageImages =
+        savedFiles.length > 0
+          ? savedFiles.map((file) => ({ url: file.url, filename: file.name }))
+          : images.map((b64, index) => ({
+              url: 'data:image/png;base64,' + b64,
+              filename: 'remote-' + (index + 1) + '.png',
+            }))
+
       const btn = {
         padding: '5px 10px',
         borderRadius: 8,
