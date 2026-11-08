@@ -11,7 +11,7 @@
  */
 
 import { apply as applyCanvasHost, sanitizeSaveSubdir } from './canvas-host.js'
-import { dirname, extname, join, resolve } from 'node:path'
+import { dirname, extname, join, relative, resolve } from 'node:path'
 import { readdir, stat, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { spawn } from 'node:child_process'
@@ -1110,7 +1110,16 @@ function createHandler(baseUrl) {
           }
           return out
         }
-        const raw = await collect(dir, '', isComfyOutput || subParam ? 2 : 0)
+        // 目录本身可能就在输出目录的子层里（?sub= 或 ?dir= 指向子目录）：
+        // 起点前缀要带上这段相对路径，否则 /view 少了 subfolder 会 404。
+        let baseSub = ''
+        if (comfyOutput) {
+          const relPath = relative(comfyOutput, dir)
+          if (relPath && !relPath.startsWith('..') && !relPath.includes(':')) {
+            baseSub = relPath.split(/[\\/]+/).filter(Boolean).join('/')
+          }
+        }
+        const raw = await collect(dir, baseSub, isComfyOutput || baseSub ? 2 : 0)
         const files = raw.map((item) => {
           // ComfyUI 自己的输出目录（含子目录）走 /view，可拿它生成的 webp 预览；
           // 其它目录（在线 API 的成果目录等）按路径直读。
