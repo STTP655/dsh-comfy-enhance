@@ -14269,6 +14269,46 @@ window.__ModuleLoader__.load({
         fontFamily: 'inherit',
         outline: 'none',
       }
+      // 下拉里显示「英文（中文说明）」，但提交的值仍是英文——只影响可读性。
+      const OPTION_LABELS = {
+        size: {
+          '1024x1024': '1024x1024（方形）',
+          '1536x1024': '1536x1024（横版）',
+          '1024x1536': '1024x1536（竖版）',
+          auto: 'auto（由模型决定）',
+          custom: '自定义…',
+        },
+        quality: {
+          auto: 'auto（自动）',
+          low: 'low（低）',
+          medium: 'medium（中）',
+          high: 'high（高）',
+          xhigh: 'xhigh（极高）',
+        },
+        background: {
+          auto: 'auto（自动）',
+          opaque: 'opaque（不透明）',
+          transparent: 'transparent（透明）',
+        },
+        format: {
+          png: 'png（无损，体积大）',
+          jpeg: 'jpeg（有损，体积小）',
+          webp: 'webp（兼顾两者）',
+        },
+        aspect: {
+          '1:1': '1:1（方形）',
+          '16:9': '16:9（宽屏）',
+          '4:3': '4:3（横版）',
+          '3:2': '3:2（横版）',
+          '2:3': '2:3（竖版）',
+          '3:4': '3:4（竖版）',
+          '9:16': '9:16（竖屏）',
+          '21:9': '21:9（超宽）',
+        },
+        effort: {},
+      }
+      const labelOf = (group, value) => (OPTION_LABELS[group] && OPTION_LABELS[group][value]) || value
+
       // 自绘下拉的触发器：和上面的字段盒子完全同规格，避免原生 select 的灰边。
       const pickerBox = {
         minHeight: 0,
@@ -14573,7 +14613,7 @@ window.__ModuleLoader__.load({
                     value: aspectRatio,
                     options: ['1:1', '16:9', '4:3', '3:2', '2:3', '3:4', '9:16', '21:9'].map((option) => ({
                       value: option,
-                      label: option,
+                      label: labelOf('aspect', option),
                     })),
                     onPick: setAspectRatio,
                     dark: props.night,
@@ -14620,7 +14660,7 @@ window.__ModuleLoader__.load({
                     value: sizeMode === 'custom' ? 'custom' : size,
                     options: ['1024x1024', '1536x1024', '1024x1536', 'auto', 'custom'].map((option) => ({
                       value: option,
-                      label: option === 'custom' ? '自定义…' : option,
+                      label: labelOf('size', option),
                     })),
                     onPick: (value) => {
                       if (value === 'custom') {
@@ -14673,7 +14713,7 @@ window.__ModuleLoader__.load({
                       value: quality,
                       options: ['auto', 'low', 'medium', 'high', 'xhigh'].map((option) => ({
                         value: option,
-                        label: option,
+                        label: labelOf('quality', option),
                       })),
                       onPick: setQuality,
                       dark: props.night,
@@ -14690,7 +14730,7 @@ window.__ModuleLoader__.load({
                       value: background,
                       options: ['auto', 'opaque', 'transparent'].map((option) => ({
                         value: option,
-                        label: option,
+                        label: labelOf('background', option),
                       })),
                       onPick: setBackground,
                       dark: props.night,
@@ -14705,7 +14745,10 @@ window.__ModuleLoader__.load({
                     h(Dropdown, {
                       title: '格式',
                       value: outputFormat,
-                      options: ['png', 'jpeg', 'webp'].map((option) => ({ value: option, label: option })),
+                      options: ['png', 'jpeg', 'webp'].map((option) => ({
+                        value: option,
+                        label: labelOf('format', option),
+                      })),
                       onPick: setOutputFormat,
                       dark: props.night,
                       menuMinWidth: 140,
