@@ -14511,11 +14511,70 @@ window.__ModuleLoader__.load({
       ensureWorkbenchStyle()
       const [provider, setProvider] = usePref('remoteProvider')
       const [mode, setMode] = usePref('remoteMode')
-      const [endpoint, setEndpoint] = usePref('remoteEndpoint')
-      const [openaiKey, setOpenaiKey] = usePref('remoteApiKeyOpenai')
-      const [minimaxKey, setMinimaxKey] = usePref('remoteApiKeyMinimax')
+      // ---------------------------------------------------------------- 多端点配置
+      // 一家一个配置：端点 + 各自的 key（openai / minimax 分开存）。
+      const [profileListRaw, setProfileList] = usePref('remoteProfiles')
+      const [activeProfileIdRaw, setActiveProfileId] = usePref('remoteProfileId')
+      const profileList = Array.isArray(profileListRaw) ? profileListRaw : []
+      // 首次使用：把旧的端点与 key 收进一个默认配置，避免升级后空白
+      useEffect(() => {
+        if (profileList.length > 0) return
+        const prefs = pluginPrefs.get()
+        const legacyEndpoint = typeof prefs.remoteEndpoint === 'string' ? prefs.remoteEndpoint : ''
+        const seed = {
+          id: 'p' + Date.now().toString(36),
+          name: legacyEndpoint ? legacyEndpoint.replace(/^https?:\/\//, '').replace(/\/.*$/, '') : '默认',
+          endpoint: legacyEndpoint || 'https://api.quickrouter.ai/v1',
+          keys: {
+            openai: typeof prefs.remoteApiKeyOpenai === 'string' ? prefs.remoteApiKeyOpenai : '',
+            minimax: typeof prefs.remoteApiKeyMinimax === 'string' ? prefs.remoteApiKeyMinimax : '',
+          },
+        }
+        setProfileList([seed])
+        setActiveProfileId(seed.id)
+        // 只在没有任何配置时跑一次
+      }, [])
+      const activeProfile =
+        profileList.find((item) => item && item.id === activeProfileIdRaw) || profileList[0] || null
+      const endpoint = activeProfile ? String(activeProfile.endpoint || '') : ''
+      const openaiKey = activeProfile && activeProfile.keys ? String(activeProfile.keys.openai || '') : ''
+      const minimaxKey = activeProfile && activeProfile.keys ? String(activeProfile.keys.minimax || '') : ''
       const apiKey = provider === 'minimax' ? minimaxKey : openaiKey
+      // 改端点 / 改 key 都写回「当前配置」，而不是写进全局
+      const patchProfile = (patch, keyName) => {
+        if (!activeProfile) return
+        setProfileList(
+          profileList.map((item) => {
+            if (!item || item.id !== activeProfile.id) return item
+            if (keyName) {
+              const keys = Object.assign({}, item.keys || {}, { [keyName]: patch })
+              return Object.assign({}, item, { keys })
+            }
+            return Object.assign({}, item, patch)
+          }),
+        )
+      }
+      const setEndpoint = (value) => patchProfile({ endpoint: value })
+      const setOpenaiKey = (value) => patchProfile(value, 'openai')
+      const setMinimaxKey = (value) => patchProfile(value, 'minimax')
       const setApiKey = (value) => (provider === 'minimax' ? setMinimaxKey(value) : setOpenaiKey(value))
+      const addProfile = () => {
+        const created = {
+          id: 'p' + Date.now().toString(36),
+          name: '站点 ' + (profileList.length + 1),
+          endpoint: endpoint || 'https://api.quickrouter.ai/v1',
+          keys: { openai: '', minimax: '' },
+        }
+        setProfileList(profileList.concat([created]))
+        setActiveProfileId(created.id)
+      }
+      const removeProfile = () => {
+        if (!activeProfile || profileList.length <= 1) return
+        const rest = profileList.filter((item) => item && item.id !== activeProfile.id)
+        setProfileList(rest)
+        setActiveProfileId(rest[0] ? rest[0].id : '')
+      }
+      const renameProfile = (value) => patchProfile({ name: value })
       const [model, setModel] = usePref('remoteModel')
       const [prompt, setPrompt] = usePref('remotePrompt')
       const [size, setSize] = usePref('remoteSize')
@@ -15819,6 +15878,76 @@ window.__ModuleLoader__.load({
               },
             },
             h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, '接口设置'),
+            // 多站点：每个配置独立保存端点与 key，切换站点等于换一套凭据。
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+              h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '站点'),
+              h('span', { style: { flex: 1 } }),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  title: '新增一个站点配置',
+                  onClick: addProfile,
+                  style: {
+                    padding: '2px 8px',
+                    borderRadius: 6,
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                    background: 'var(--dsw-alias-bg-layer-2)',
+                    color: 'var(--dsw-alias-label-secondary)',
+                    fontSize: 9.5,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                  },
+                },
+                '新增',
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  title: profileList.length > 1 ? '删除当前站点配置' : '至少保留一个配置',
+                  disabled: profileList.length <= 1,
+                  onClick: removeProfile,
+                  style: {
+                    padding: '2px 8px',
+                    borderRadius: 6,
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                    background: 'var(--dsw-alias-bg-layer-2)',
+                    color: 'var(--dsw-alias-label-secondary)',
+                    fontSize: 9.5,
+                    fontFamily: 'inherit',
+                    cursor: profileList.length > 1 ? 'pointer' : 'not-allowed',
+                    opacity: profileList.length > 1 ? 1 : 0.45,
+                  },
+                },
+                '删除',
+              ),
+            ),
+            h(Dropdown, {
+              title: '选择站点配置',
+              value: activeProfile ? activeProfile.id : '',
+              options: profileList.map((item, index) => ({
+                value: item.id,
+                label: item.name || '站点 ' + (index + 1),
+              })),
+              onPick: (id) => setActiveProfileId(id),
+              dark: props.night,
+              menuMinWidth: 200,
+              triggerStyle: pickerBox,
+            }),
+            h(
+              'label',
+              { style: label },
+              '名称',
+              h('input', {
+                value: activeProfile ? activeProfile.name || '' : '',
+                placeholder: '例如 quickrouter',
+                style: field,
+                onChange: (event) => renameProfile(event.target.value),
+              }),
+            ),
             h(
               'label',
               { style: label },
