@@ -13942,7 +13942,9 @@ window.__ModuleLoader__.load({
       const [customW, setCustomW] = useState('')
       const [customH, setCustomH] = useState('')
       const [sizeMode, setSizeMode] = useState('preset')
-      const [imageData, setImageData] = useState('')
+      // 参考图可以多张（OpenAI /images/edits 的 image 是数组，GPT 图像模型最多 16 张）
+      const [imageList, setImageList] = useState([])
+      const imageData = imageList[0] || ''
       const [busy, setBusy] = useState(false)
       const [error, setError] = useState('')
       const [result, setResult] = useState(null)
@@ -14022,13 +14024,28 @@ window.__ModuleLoader__.load({
       }, [endpoint, modelCache])
 
       const pickImage = (event) => {
-        const file = event.target.files && event.target.files[0]
+        const files = Array.from((event.target.files && event.target.files) || [])
         event.target.value = ''
-        if (!file) return
-        const reader = new FileReader()
-        reader.onload = () => setImageData(typeof reader.result === 'string' ? reader.result : '')
-        reader.onerror = () => setError('读取参考图失败')
-        reader.readAsDataURL(file)
+        if (files.length === 0) return
+        const readOne = (file) =>
+          new Promise((resolve) => {
+            const reader = new FileReader()
+            reader.onload = () =>
+              resolve(typeof reader.result === 'string' ? reader.result : '')
+            reader.onerror = () => resolve('')
+            reader.readAsDataURL(file)
+          })
+        Promise.all(files.map(readOne)).then((urls) => {
+          const usable = urls.filter(Boolean)
+          if (usable.length === 0) {
+            setError('读取参考图失败')
+            return
+          }
+          setImageList((current) => current.concat(usable).slice(0, 16))
+        })
+      }
+      const removeImageAt = (index) => {
+        setImageList((current) => current.filter((_, at) => at !== index))
       }
       const readSystemProxy = async () => {
         setProxyTest({ busy: true, text: '检测中…' })
@@ -14216,6 +14233,7 @@ window.__ModuleLoader__.load({
               size: finalSize,
               mode: mode === 'edit' ? 'edits' : 'generations',
               image: mode === 'edit' ? imageData : '',
+              images: mode === 'edit' ? imageList : [],
               quality,
               background,
               output_format: outputFormat,
@@ -14418,46 +14436,113 @@ window.__ModuleLoader__.load({
                 'div',
                 { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
                 h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '参考图'),
-                imageData
+                imageList.length > 0
                   ? h(
                       'div',
-                      { style: { display: 'flex', gap: 10, alignItems: 'center' } },
-                      h('img', {
-                        src: imageData,
-                        alt: '',
-                        style: {
-                          width: 64,
-                          height: 64,
-                          objectFit: 'cover',
-                          borderRadius: 8,
-                          border: '1px solid var(--dsw-alias-border-l2)',
-                        },
-                      }),
+                      { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
                       h(
                         'div',
-                        { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
-                        h(
-                          'label',
-                          { style: { display: 'inline-flex', cursor: 'pointer' } },
-                          h('input', { type: 'file', accept: 'image/*', style: { display: 'none' }, onChange: pickImage }),
-                          h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-brand-primary)' } }, '更换'),
+                        { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
+                        imageList.map((src, index) =>
+                          h(
+                            'div',
+                            { key: index, style: { position: 'relative', width: 64, height: 64 } },
+                            h('img', {
+                              src,
+                              alt: '',
+                              title: '参考图 ' + (index + 1),
+                              style: {
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'cover',
+                                borderRadius: 8,
+                                border: '1px solid var(--dsw-alias-border-l2)',
+                              },
+                            }),
+                            h(
+                              'button',
+                              {
+                                type: 'button',
+                                title: '移除这张',
+                                onClick: () => removeImageAt(index),
+                                style: {
+                                  position: 'absolute',
+                                  top: -6,
+                                  right: -6,
+                                  width: 18,
+                                  height: 18,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  padding: 0,
+                                  borderRadius: '50%',
+                                  border: '1px solid var(--dsw-alias-border-l2)',
+                                  background: 'var(--dsw-alias-bg-base)',
+                                  color: 'var(--dsw-alias-label-secondary)',
+                                  fontSize: 11,
+                                  lineHeight: 1,
+                                  fontFamily: 'inherit',
+                                  cursor: 'pointer',
+                                },
+                              },
+                              '×',
+                            ),
+                          ),
                         ),
+                        imageList.length < 16
+                          ? h(
+                              'label',
+                              {
+                                title: '继续添加（最多 16 张）',
+                                style: {
+                                  width: 64,
+                                  height: 64,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  borderRadius: 8,
+                                  border: '1px dashed var(--dsw-alias-border-l2)',
+                                  background: 'var(--dsw-alias-bg-layer-1)',
+                                  color: 'var(--dsw-alias-label-secondary)',
+                                  cursor: 'pointer',
+                                },
+                              },
+                              h('input', {
+                                type: 'file',
+                                accept: 'image/*',
+                                multiple: true,
+                                style: { display: 'none' },
+                                onChange: pickImage,
+                              }),
+                              h('span', { style: { fontSize: 18, lineHeight: 1 } }, '+'),
+                            )
+                          : null,
+                      ),
+                      h(
+                        'div',
+                        { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+                        h(
+                          'span',
+                          { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } },
+                          imageList.length + ' / 16 张 · 会一起作为参考上传',
+                        ),
+                        h('span', { style: { flex: 1 } }),
                         h(
                           'button',
                           {
                             type: 'button',
-                            onClick: () => setImageData(''),
+                            onClick: () => setImageList([]),
                             style: {
                               border: 0,
                               background: 'transparent',
                               padding: 0,
-                              textAlign: 'left',
-                              fontSize: 10.5,
+                              fontSize: 10,
                               color: 'var(--dsw-alias-label-secondary)',
+                              fontFamily: 'inherit',
                               cursor: 'pointer',
                             },
                           },
-                          '清除',
+                          '全部清除',
                         ),
                       ),
                     )
@@ -14479,9 +14564,15 @@ window.__ModuleLoader__.load({
                           fontSize: 10.5,
                         },
                       },
-                      h('input', { type: 'file', accept: 'image/*', style: { display: 'none' }, onChange: pickImage }),
+                      h('input', {
+                        type: 'file',
+                        accept: 'image/*',
+                        multiple: true,
+                        style: { display: 'none' },
+                        onChange: pickImage,
+                      }),
                       h(Icon, { name: 'images', size: 18 }),
-                      '选择参考图（随请求上传）',
+                      '选择参考图（可多选，最多 16 张）',
                     ),
               )
             : null,

@@ -1557,7 +1557,16 @@ export function apply(ctx, config = {}) {
           return send(200, { ok: true, model, b64List: list })
         }
         const mode = body.mode === 'edits' ? 'edits' : 'generations'
-        const imageData = typeof body.image === 'string' ? body.image : ''
+        // 参考图可以是多张：OpenAI /images/edits 的 image 是数组，GPT 图像模型最多 16 张。
+        const rawImages = Array.isArray(body.images)
+          ? body.images
+          : typeof body.image === 'string' && body.image
+            ? [body.image]
+            : []
+        const imageList = rawImages
+          .filter((item) => typeof item === 'string' && /^data:[^;]+;base64,/.test(item))
+          .slice(0, 16)
+        const imageData = imageList[0] || ''
         const quality = ['low', 'medium', 'high', 'xhigh', 'auto'].includes(body.quality) ? body.quality : 'auto'
         const background = ['transparent', 'opaque', 'auto'].includes(body.background) ? body.background : 'auto'
         const outputFormat = ['png', 'jpeg', 'webp'].includes(body.output_format) ? body.output_format : 'png'
@@ -1565,8 +1574,7 @@ export function apply(ctx, config = {}) {
         let upstream
         if (mode === 'edits') {
           if (!imageData) return send(400, { ok: false, error: '编辑模式需要参考图' })
-          const match = /^data:([^;]+);base64,(.+)$/.exec(imageData)
-          if (!match) return send(400, { ok: false, error: '参考图格式不对（需要 data URL）' })
+          if (imageList.length === 0) return send(400, { ok: false, error: '参考图格式不对（需要 data URL）' })
           const form = new FormData()
           form.append('model', model)
           form.append('n', String(count))
@@ -1576,7 +1584,14 @@ export function apply(ctx, config = {}) {
           form.append('output_format', outputFormat)
           form.append('response_format', 'b64_json')
           form.append('prompt', prompt)
-          form.append('image', new Blob([Buffer.from(match[2], 'base64')], { type: match[1] }), 'reference.png')
+          imageList.forEach((item, index) => {
+            const parsed = /^data:([^;]+);base64,(.+)$/.exec(item)
+            if (!parsed) return
+            const fileName = 'reference-' + (index + 1) + '.png'
+            const blob = new Blob([Buffer.from(parsed[2], 'base64')], { type: parsed[1] })
+            // 多张时按 OpenAI 的数组写法 image[]，单张保持 image
+            form.append(imageList.length > 1 ? 'image[]' : 'image', blob, fileName)
+          })
           const url = /\/images\/edits?$/.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/images/edits'
           upstream = await remoteFetch(url, {
             method: 'POST',
