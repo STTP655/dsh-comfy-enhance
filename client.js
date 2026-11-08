@@ -17247,18 +17247,15 @@ window.__ModuleLoader__.load({
                     : '当前显示全部输出，点击只显示保存目录'
                   : '先在右侧设置保存位置，才能只看该目录',
                 disabled: !String(saveSubdir || '').trim(),
-                style: Object.assign(
-                  null,
-                  String(saveSubdir || '').trim()
-                    ? onlySaveDir
-                      ? {
-                          background: 'var(--dsw-alias-brand-primary)',
-                          color: '#ffffff',
-                          borderColor: 'var(--dsw-alias-brand-primary)',
-                        }
-                      : null
-                    : { opacity: 0.45, cursor: 'not-allowed' },
-                ),
+                style: String(saveSubdir || '').trim()
+                  ? onlySaveDir
+                    ? {
+                        background: 'var(--dsw-alias-brand-primary)',
+                        color: '#ffffff',
+                        borderColor: 'var(--dsw-alias-brand-primary)',
+                      }
+                    : null
+                  : { opacity: 0.45, cursor: 'not-allowed' },
                 onClick: () => {
                   if (!String(saveSubdir || '').trim()) return
                   setOnlySaveDir(!onlySaveDirRaw)
