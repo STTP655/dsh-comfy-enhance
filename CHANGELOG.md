@@ -12,6 +12,7 @@
 - **手绘蒙版的准星改成画笔圆形**：系统光标隐藏，改用一个跟随指针的圆，直径就是画笔在屏幕上的实际大小（按原图→显示的比例换算），拖动滑块即时变化
 - **手绘蒙版**：编辑模式下点「画蒙版」，在参考图上用画笔/橡皮涂出要重画的地方（画笔 4–200px、按笔画撤销、反相、清除）；导出时把涂抹区域擦成透明，得到 OpenAI mask 约定的 PNG，尺寸与原图一致。零依赖实现（canvas 2D），组件 MaskPainterDialog 可复用给其它编辑面板
 - **在线 API 支持蒙版（inpainting）**：可选上传一张 PNG，**透明处表示要重画的地方**（OpenAI mask 的语义，作用于第一张参考图，需同尺寸、PNG 且 <4MB）；上传后按参考图的自然尺寸自动重绘对齐，尺寸不符也能用
+- **在线 API 支持流式进度**：直连时按 gpt-image 的 stream: true + partial_images: 2 取中间图，宿主把 SSE 转成 NDJSON 推给浏览器；生成浮卡贴在相册舞台左上角（脉动点 + 正在生成 + 秒数），有中间图就直接显示在里面，越到后面越清晰；走代理或编辑模式自动退回一次性返回
 - **代理与模型列表按 provider 分开存**：emoteProxyMap / emoteModelMap 各存 openai 与 minimax 一份，切 provider 互不影响（原来共用一套，MiniMax 改端口会污染 OpenAI 那边）
 - **按 provider 隐藏不支持的能力**：切到 MiniMax 时不显示蒙版（无 inpainting）、参考图上限收到 1 张（官方只说支持一张）、隐藏「获取列表」（它没有 /models）；切回 OpenAI 全部恢复。质量/背景/格式本来就只在 OpenAI 分支里
 - **在线 API 的参考图编辑支持多张**：OpenAI /images/edits 的 image 是数组（GPT 图像模型最多 16 张、每张 png/webp/jpg 且 <50MB），前台改多选 + 缩略图增删，宿主多张按 image[] 重复字段上传、单张仍用 image（兼容 dall-e-2）

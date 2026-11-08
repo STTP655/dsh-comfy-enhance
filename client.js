@@ -14508,6 +14508,20 @@ window.__ModuleLoader__.load({
       const [maskData, setMaskData] = useState('')
       const [maskPainterOpen, setMaskPainterOpen] = useState(false)
       const [busy, setBusy] = useState(false)
+      // 流式中间图（gpt-image 的 partial_images）与已用秒数
+      const [remoteProgress, setRemoteProgress] = useState(null)
+      const [elapsed, setElapsed] = useState(0)
+      useEffect(() => {
+        if (!busy) {
+          setRemoteProgress(null)
+          setElapsed(0)
+          return undefined
+        }
+        const started = Date.now()
+        setElapsed(0)
+        const timer = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000)
+        return () => clearInterval(timer)
+      }, [busy])
       const [error, setError] = useState('')
       const [result, setResult] = useState(null)
       const [aiBusy, setAiBusy] = useState(false)
@@ -14859,9 +14873,47 @@ window.__ModuleLoader__.load({
               width: Number(customW) || 0,
               height: Number(customH) || 0,
               proxy: proxySpec,
+              // 只有直连的文生图会真的走流式，宿主会自己判断代理
+              stream: mode !== 'edit',
             }),
           })
-          const data = await res.json().catch(() => null)
+          const contentType = String(res.headers.get('content-type') || '')
+          let data = null
+          if (contentType.includes('application/x-ndjson') && res.body) {
+            const reader = res.body.getReader()
+            const decoder = new TextDecoder()
+            let buffer = ''
+            let finalPayload = null
+            // eslint-disable-next-line no-constant-condition
+            while (true) {
+              const chunk = await reader.read()
+              if (chunk.done) break
+              buffer += decoder.decode(chunk.value, { stream: true })
+              let cut = buffer.indexOf('\n')
+              while (cut >= 0) {
+                const line = buffer.slice(0, cut).trim()
+                buffer = buffer.slice(cut + 1)
+                cut = buffer.indexOf('\n')
+                if (!line) continue
+                let event = null
+                try {
+                  event = JSON.parse(line)
+                } catch {
+                  continue
+                }
+                if (event.type === 'partial' && event.b64) {
+                  setRemoteProgress({ index: Number(event.index) || 0, b64: event.b64 })
+                } else if (event.type === 'error') {
+                  throw new Error(event.error || '请求失败')
+                } else if (event.type === 'done') {
+                  finalPayload = event
+                }
+              }
+            }
+            data = finalPayload
+          } else {
+            data = await res.json().catch(() => null)
+          }
           if (!data || !data.ok) throw new Error((data && data.error) || '请求失败')
           setResult(data)
           const list = Array.isArray(data.b64List) ? data.b64List : data.b64 ? [data.b64] : []
@@ -16034,6 +16086,85 @@ window.__ModuleLoader__.load({
                     overflow: 'hidden',
                   },
                 },
+                // 生成中的浮卡：与侧边栏相册那条同款（脉动点 + 文案 + 秒数），
+                // 流式中间图直接显示在卡片里，越到后面越清晰。
+                busy
+                  ? h(
+                      'div',
+                      {
+                        style: {
+                          position: 'absolute',
+                          top: 12,
+                          left: 12,
+                          zIndex: 8,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          maxWidth: 'calc(100% - 24px)',
+                          padding: '6px 10px',
+                          borderRadius: 10,
+                          border: '1px solid var(--dsw-alias-border-l2)',
+                          background: 'var(--dsw-alias-bg-base)',
+                          boxShadow: '0 10px 26px rgba(0, 0, 0, 0.32)',
+                          animation: 'dshComfyPanelIn 180ms cubic-bezier(.23, 1, .32, 1) both',
+                        },
+                      },
+                      h('span', {
+                        style: {
+                          width: 7,
+                          height: 7,
+                          borderRadius: '50%',
+                          flex: 'none',
+                          background: '#ff5a5a',
+                          animation: 'dshComfyJobPulse 1.1s ease-in-out infinite',
+                        },
+                      }),
+                      h(
+                        'span',
+                        { style: { fontSize: 10.5, fontWeight: 600, color: '#ff6b6b', whiteSpace: 'nowrap' } },
+                        '正在生成',
+                      ),
+                      h(
+                        'span',
+                        {
+                          style: {
+                            fontSize: 10,
+                            color: 'var(--dsw-alias-label-secondary)',
+                            fontVariantNumeric: 'tabular-nums',
+                            whiteSpace: 'nowrap',
+                          },
+                        },
+                        elapsed + 's',
+                      ),
+                      remoteProgress
+                        ? h('img', {
+                            src: 'data:image/png;base64,' + remoteProgress.b64,
+                            alt: '',
+                            title: '第 ' + (remoteProgress.index + 1) + ' 张中间图',
+                            style: {
+                              width: 64,
+                              height: 64,
+                              borderRadius: 6,
+                              objectFit: 'cover',
+                              border: '1px solid var(--dsw-alias-border-l2)',
+                              flex: 'none',
+                              animation: 'dshComfyViewerFadeIn 180ms ease-out both',
+                            },
+                          })
+                        : null,
+                      remoteProgress
+                        ? h(
+                            'span',
+                            { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } },
+                            '中间图 ' + (remoteProgress.index + 1),
+                          )
+                        : h(
+                            'span',
+                            { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } },
+                            '等待第一张…',
+                          ),
+                    )
+                  : null,
                 h(ImageViewer, {
                   // 和本地文生图同一套嵌入式查看器：选中的大图 + 未选中的缩略图条。
                   // 新图落盘后列表首位会变，用首个文件名当 key：重挂载即自动切到新图。

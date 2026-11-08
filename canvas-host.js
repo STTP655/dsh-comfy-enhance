@@ -1611,21 +1611,113 @@ export function apply(ctx, config = {}) {
           }, body.proxy)
         } else {
           const url = /\/images\//.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/images/generations'
+          const payload = {
+            model,
+            prompt,
+            n: count,
+            size,
+            quality,
+            background,
+            output_format: outputFormat,
+            response_format: 'b64_json',
+          }
+          // 流式只在「客户端要、且不经代理」时尝试：隧道目前是整块缓冲的，
+          // 走代理时拿不到增量，硬开只会白等。
+          const wantsStream = Boolean(body.stream) && !body.proxy
+          if (wantsStream) {
+            payload.stream = true
+            payload.partial_images = 2
+            const live = await fetch(url, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
+              body: JSON.stringify(payload),
+              signal: AbortSignal.timeout(300000),
+            })
+            const ctype = String(live.headers.get('content-type') || '')
+            if (live.ok && ctype.includes('text/event-stream') && live.body) {
+              // 逐条 SSE → 转成 NDJSON 写给浏览器
+              res.writeHead(200, {
+                'content-type': 'application/x-ndjson; charset=utf-8',
+                'cache-control': 'no-store',
+                connection: 'keep-alive',
+              })
+              const write = (obj) => res.write(JSON.stringify(obj) + '\n')
+              let buffered = ''
+              let finalB64 = null
+              let finalUrl = null
+              try {
+                for await (const chunk of live.body) {
+                  buffered += Buffer.from(chunk).toString('utf8')
+                  let cut = buffered.indexOf('\n\n')
+                  while (cut >= 0) {
+                    const block = buffered.slice(0, cut)
+                    buffered = buffered.slice(cut + 2)
+                    for (const line of block.split('\n')) {
+                      if (!line.startsWith('data:')) continue
+                      const raw = line.slice(5).trim()
+                      if (!raw || raw === '[DONE]') continue
+                      let event = null
+                      try {
+                        event = JSON.parse(raw)
+                      } catch {
+                        continue
+                      }
+                      if (event && event.type === 'image_generation.partial_image' && event.b64_json) {
+                        write({
+                          type: 'partial',
+                          index: Number(event.partial_image_index) || 0,
+                          b64: event.b64_json,
+                        })
+                      } else if (event && event.type === 'image_generation.completed') {
+                        if (event.b64_json) finalB64 = event.b64_json
+                      } else if (event && event.b64_json && !finalB64) {
+                        finalB64 = event.b64_json
+                      }
+                    }
+                    cut = buffered.indexOf('\n\n')
+                  }
+                }
+                if (finalB64) {
+                  write({ type: 'done', ok: true, model, b64: finalB64, url: null })
+                } else {
+                  write({ type: 'error', error: '流结束但没有拿到最终图片' })
+                }
+              } catch (streamError) {
+                write({ type: 'error', error: String((streamError && streamError.message) || streamError) })
+              }
+              res.end()
+              return
+            }
+            const text = await live.text()
+            if (!live.ok) {
+              res.writeHead(502, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' })
+              res.end(JSON.stringify({ type: 'error', error: 'HTTP ' + live.status + ' ' + text.slice(0, 300) }) + '\n')
+              return
+            }
+            let parsed = null
+            try {
+              parsed = JSON.parse(text)
+            } catch {
+              parsed = null
+            }
+            const pick = parsed && ((parsed.data && parsed.data[0]) || parsed)
+            const pickedB64 = pick && typeof pick.b64_json === 'string' ? pick.b64_json : null
+            res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' })
+            res.end(
+              JSON.stringify(
+                pickedB64
+                  ? { type: 'done', ok: true, model, b64: pickedB64, url: null }
+                  : { type: 'error', error: '响应里没有图片数据' },
+              ) + '\n',
+            )
+            return
+          }
           upstream = await remoteFetch(
             url,
             {
               method: 'POST',
               headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
-              body: JSON.stringify({
-                model,
-                prompt,
-                n: count,
-                size,
-                quality,
-                background,
-                output_format: outputFormat,
-                response_format: 'b64_json',
-              }),
+              body: JSON.stringify(payload),
               timeoutMs: 300000,
             },
             body.proxy,
