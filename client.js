@@ -13960,6 +13960,18 @@ window.__ModuleLoader__.load({
       const [promptWriteEffort] = usePref('promptWriteEffort')
       const [historyOpen, setHistoryOpen] = useState(false)
       const [modelOptions, setModelOptions] = useState([])
+      // 拉过一次列表就存下来：下次打开同一个端点不必再点「获取列表」。
+      const [modelCache, setModelCache] = usePref('remoteModelCache')
+      const cacheAt =
+        modelCache && modelCache.endpoint === endpoint && Number.isFinite(modelCache.at) ? modelCache.at : 0
+      const cacheLabel = cacheAt
+        ? new Date(cacheAt).toLocaleString('zh-CN', {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+        : ''
       const [modelsBusy, setModelsBusy] = useState(false)
       const [modelsError, setModelsError] = useState('')
       const [saveDir, setSaveDir] = usePref('remoteSaveDir')
@@ -14002,6 +14014,13 @@ window.__ModuleLoader__.load({
           alive = false
         }
       }, [saveDir, savedTick])
+      // 端点没变就用上次拉到的列表，省掉每次打开都要点一次「获取列表」。
+      useEffect(() => {
+        if (!modelCache || modelCache.endpoint !== endpoint) return
+        if (!Array.isArray(modelCache.models) || modelCache.models.length === 0) return
+        setModelOptions((current) => (current.length > 0 ? current : modelCache.models))
+      }, [endpoint, modelCache])
+
       const pickImage = (event) => {
         const file = event.target.files && event.target.files[0]
         event.target.value = ''
@@ -14103,7 +14122,9 @@ window.__ModuleLoader__.load({
           })
           const data = await res.json().catch(() => null)
           if (!data || !data.ok) throw new Error((data && data.error) || '获取失败')
-          setModelOptions(Array.isArray(data.models) ? data.models : [])
+          const list = Array.isArray(data.models) ? data.models : []
+          setModelOptions(list)
+          setModelCache({ endpoint, models: list, at: Date.now() })
           setProxyVia(data.via === 'proxy' ? '经代理' : '直连')
         } catch (err) {
           setModelsError(String((err && err.message) || err))
@@ -14789,6 +14810,19 @@ window.__ModuleLoader__.load({
                 'div',
                 { style: { display: 'flex', alignItems: 'center', gap: 8 } },
                 h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '模型'),
+                modelOptions.length > 0
+                  ? h(
+                      'span',
+                      {
+                        style: {
+                          fontSize: 9.5,
+                          color: 'var(--dsw-alias-label-secondary)',
+                          whiteSpace: 'nowrap',
+                        },
+                      },
+                      modelOptions.length + ' 个' + (cacheLabel ? ' · 更新于 ' + cacheLabel : ''),
+                    )
+                  : null,
                 h('span', { style: { flex: 1 } }),
                 h(
                   'button',
