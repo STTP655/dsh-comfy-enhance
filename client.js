@@ -14517,6 +14517,8 @@ window.__ModuleLoader__.load({
       const [activeProfileIdRaw, setActiveProfileId] = usePref('remoteProfileId')
       // 名称 / 端点 / key 是低频操作，默认收起，点「修改」再展开
       const [profileEditOpen, setProfileEditOpen] = useState(false)
+      // 展开时可以把 key 明文看一眼，方便核对复制是否完整
+      const [keyVisible, setKeyVisible] = useState(false)
       const profileList = Array.isArray(profileListRaw) ? profileListRaw : []
       // 首次使用：把旧的端点与 key 收进一个默认配置，避免升级后空白
       useEffect(() => {
@@ -15987,11 +15989,32 @@ window.__ModuleLoader__.load({
               h(
                 'label',
                 { style: label },
-                'API Key（只存本机）',
+                h(
+                  'span',
+                  { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+                  'API Key（只存本机' + (apiKey ? ' · 末 4 位 ' + apiKey.slice(-4) : '') + '）',
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      onClick: () => setKeyVisible(!keyVisible),
+                      style: {
+                        border: 0,
+                        background: 'transparent',
+                        padding: 0,
+                        fontSize: 9.5,
+                        color: 'var(--dsw-alias-brand-primary)',
+                        fontFamily: 'inherit',
+                        cursor: 'pointer',
+                      },
+                    },
+                    keyVisible ? '隐藏' : '显示',
+                  ),
+                ),
                 h('input', {
-                  type: 'password',
+                  type: keyVisible ? 'text' : 'password',
                   value: apiKey,
-                  placeholder: '填写你的 key',
+                  placeholder: '填写你的 key（sk- 开头）',
                   style: field,
                   onChange: (event) => setApiKey(event.target.value),
                 }),

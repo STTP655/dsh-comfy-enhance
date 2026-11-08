@@ -18,6 +18,7 @@
 - **修复舞台过滤按钮渲染崩溃**：`Object.assign(null, …)` 会把 null 当目标对象抛 TypeError，改成直接用三元返回样式对象
 - **fetch failed 会带上真实错因**：直连/代理失败时把 `cause` 里的 ENOTFOUND / ECONNRESET / CERT_… 一起报出来，不再只有一句 fetch failed
 - **端点自动归一**：用户直接粘 `…/v1/images/generations` 也能用——内部会剥掉尾部 `/images`、`/images/generations`、`/images/edits` 再拼对应接口，修掉「获取列表」拼成 `/images/generations/models` 的 404
+- **API Key 可核对**：标签右侧显示末 4 位，并加「显示 / 隐藏」切换，方便确认粘贴是否完整（含隐藏字符）
 - **站点配置默认收起**：只露「站点」下拉与新增/修改/删除，名称、端点、API Key 收进「修改」里展开（低频操作不再占版面）
 - **在线 API 支持多站点配置**：端点与 key 收进 `remoteProfiles`（每站点一套端点 + openai/minimax 各自的 key），面板新增站点下拉与「新增 / 删除 / 名称」，切换站点即换端点和凭据；旧的单端点配置首次打开自动迁移成一个配置
 - **本地文生图的相册舞台加过滤按钮**：左上角「全部图片 / 仅：<保存目录>」切换，默认列全部输出，开启后只列保存目录；未设保存位置时置灰；状态持久化
