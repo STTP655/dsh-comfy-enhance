@@ -228,6 +228,18 @@ export function sanitizeSaveName(raw) {
 }
 
 /**
+ * 端点归一化：用户可能直接粘完整的图片接口地址（.../v1/images/generations），
+ * 也可能只填到 /v1。统一剥掉尾部的 /images、/images/generations、/images/edits，
+ * 后面再接 /models 或 /images/xxx 就不会拼出双段落。
+ */
+function apiBaseOf(endpoint) {
+  const text = typeof endpoint === 'string' ? endpoint.trim().replace(/\/+$/, '') : ''
+  return text
+    .replace(/\/images\/(generations|edits)$/i, '')
+    .replace(/\/images$/i, '')
+}
+
+/**
  * 整理用户填的保存子目录：允许 a/b 这种相对层级，剥掉绝对路径、盘符、
  * 首尾斜杠与 ..，每段只留字母数字、中划线和下划线。
  */
@@ -1351,7 +1363,8 @@ export function apply(ctx, config = {}) {
         const endpoint = typeof body.endpoint === 'string' ? body.endpoint.trim() : ''
         const key = typeof body.key === 'string' ? body.key.trim() : ''
         if (!endpoint) return send(400, { ok: false, error: '需要端点' })
-        const url = /\/models$/.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/models'
+        const apiBase = apiBaseOf(endpoint)
+        const url = /\/models$/i.test(apiBase) ? apiBase : apiBase + '/models'
         const via = body.proxy ? 'proxy' : 'direct'
         const res = await remoteFetch(
           url,
@@ -1650,7 +1663,7 @@ export function apply(ctx, config = {}) {
               'mask.png',
             )
           }
-          const url = /\/images\/edits?$/.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/images/edits'
+          const url = apiBaseOf(endpoint) + '/images/edits'
           upstream = await remoteFetch(url, {
             method: 'POST',
             headers: { authorization: 'Bearer ' + key },
@@ -1658,7 +1671,7 @@ export function apply(ctx, config = {}) {
             timeoutMs: 300000,
           }, body.proxy)
         } else {
-          const url = /\/images\//.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/images/generations'
+          const url = apiBaseOf(endpoint) + '/images/generations'
           const payload = {
             model,
             prompt,
