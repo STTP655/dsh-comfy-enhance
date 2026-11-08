@@ -13949,14 +13949,8 @@ window.__ModuleLoader__.load({
       const [aiBusy, setAiBusy] = useState(false)
       const [aiError, setAiError] = useState('')
       const [rulesOpen, setRulesOpen] = useState(false)
-      // 与本地文生图对齐：风格切换（SD 标签 / 自然语言）与钉住（固定质量前缀）。
+      // 与本地文生图对齐：风格切换（SD 标签 / 自然语言）。
       const [promptStyle, setPromptStyle] = usePref('remotePromptStyle')
-      const [pinOpen, setPinOpen] = useState(false)
-      const [pinPositive, setPinPositive] = usePref('remotePinPositive')
-      const [pinNegative, setPinNegative] = usePref('remotePinNegative')
-      const [pinEnabled, setPinEnabled] = usePref('remotePinEnabled')
-      const pinSet = Boolean(String(pinPositive || '').trim() || String(pinNegative || '').trim())
-      const pinActive = Boolean(String(pinPositive || '').trim()) && pinEnabled !== false
       // Extra requirements handed to the model on top of the prompt box.
       const [aiExtra, setAiExtra] = useState('')
       const [promptWriteSystemNatural] = usePref('promptWriteSystemNatural')
@@ -14197,8 +14191,7 @@ window.__ModuleLoader__.load({
               endpoint,
               key: apiKey,
               model,
-              // 钉住的质量前缀只在提交时拼接，输入框里的正文保持原样。
-              prompt: mergePinnedText(pinPositive, prompt, pinEnabled !== false),
+              prompt,
               size: finalSize,
               mode: mode === 'edit' ? 'edits' : 'generations',
               image: mode === 'edit' ? imageData : '',
@@ -14521,37 +14514,6 @@ window.__ModuleLoader__.load({
                   },
                 },
                 '对话',
-              ),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  title: pinActive
-                    ? '固定提示词已启用：生成时拼在正文前面（点击修改）'
-                    : pinSet
-                      ? '固定提示词已设置但停用（点击启用或修改）'
-                      : '设置固定提示词：每次生成自动拼在正文前面',
-                  onClick: () => setPinOpen(true),
-                  style: {
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    flex: 'none',
-                    padding: '3px 8px',
-                    borderRadius: 6,
-                    borderWidth: 1,
-                    borderStyle: pinSet && !pinActive ? 'dashed' : 'solid',
-                    borderColor: pinActive ? '#f59e0b' : 'var(--dsw-alias-border-l2)',
-                    background: pinActive ? 'rgba(245, 158, 11, 0.14)' : 'transparent',
-                    color: pinActive ? '#f59e0b' : 'var(--dsw-alias-label-secondary)',
-                    fontSize: 10,
-                    fontWeight: 600,
-                    fontFamily: 'inherit',
-                    cursor: 'pointer',
-                  },
-                },
-                h(Icon, { name: 'pin', size: 10 }),
-                '钉住',
               ),
             ),
             h('textarea', {
@@ -15113,19 +15075,6 @@ window.__ModuleLoader__.load({
             },
             onClose: () => setPickerOpen(false),
           }),
-        h(PinnedPromptDialog, {
-          open: pinOpen,
-          onClose: () => setPinOpen(false),
-          positive: pinPositive || '',
-          negative: pinNegative || '',
-          enabled: pinEnabled !== false,
-          onSave: (next) => {
-            setPinPositive(next.positive || '')
-            setPinNegative(next.negative || '')
-            setPinEnabled(next.enabled !== false)
-            setPinOpen(false)
-          },
-        }),
         h(PromptRulesDialog, { open: rulesOpen, onClose: () => setRulesOpen(false) }),
           h(PromptHistoryDialog, { open: historyOpen, onClose: () => setHistoryOpen(false) }),
           error
