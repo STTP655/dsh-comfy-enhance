@@ -14494,6 +14494,8 @@ window.__ModuleLoader__.load({
       // 参考图可以多张（OpenAI /images/edits 的 image 是数组，GPT 图像模型最多 16 张）
       const [imageList, setImageList] = useState([])
       const imageData = imageList[0] || ''
+      // MiniMax 的 subject_reference 每次只收一张（官方文档明说）；OpenAI 最多 16 张。
+      const maxRefs = provider === 'minimax' ? 1 : 16
       // mask：同尺寸 PNG，透明处表示要修改的地方（inpainting）
       const [maskData, setMaskData] = useState('')
       const [maskPainterOpen, setMaskPainterOpen] = useState(false)
@@ -14543,6 +14545,8 @@ window.__ModuleLoader__.load({
           if (!endpoint || endpoint === 'https://api.minimax.cn/v1') setEndpoint('https://api.quickrouter.ai/v1')
           if (!model || model === 'image-01') setModel('gpt-image-2.5-flare-c')
         }
+        // 两家模型命名空间不同，切换后旧的候选列表没有意义
+        setModelOptions([])
       }, [provider])
       useEffect(() => {
         // 读「保存目录」里的图：在线 API 的成果和 ComfyUI 无关，所以没设目录时
@@ -14593,7 +14597,7 @@ window.__ModuleLoader__.load({
             setError('读取参考图失败')
             return
           }
-          setImageList((current) => current.concat(usable).slice(0, 16))
+          setImageList((current) => current.concat(usable).slice(0, maxRefs))
         })
       }
       const removeImageAt = (index) => {
@@ -15088,7 +15092,7 @@ window.__ModuleLoader__.load({
                             ),
                           ),
                         ),
-                        imageList.length < 16
+                        imageList.length < maxRefs
                           ? h(
                               'label',
                               {
@@ -15123,7 +15127,11 @@ window.__ModuleLoader__.load({
                         h(
                           'span',
                           { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } },
-                          imageList.length + ' / 16 张 · 会一起作为参考上传',
+                          imageList.length +
+                            ' / ' +
+                            maxRefs +
+                            ' 张 · ' +
+                            (provider === 'minimax' ? 'MiniMax 每次仅支持 1 张' : '会一起作为参考上传'),
                         ),
                         h('span', { style: { flex: 1 } }),
                         h(
@@ -15173,7 +15181,8 @@ window.__ModuleLoader__.load({
                       h(Icon, { name: 'images', size: 18 }),
                       '选择参考图（可多选，最多 16 张）',
                     ),
-                mode === 'edit' && imageList.length > 0
+                // 蒙版是 OpenAI 的能力，MiniMax 没有对应参数，换成它就直接不显示
+                mode === 'edit' && imageList.length > 0 && provider !== 'minimax'
                   ? h(
                       'div',
                       { style: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 } },
@@ -15647,7 +15656,9 @@ window.__ModuleLoader__.load({
                     )
                   : null,
                 h('span', { style: { flex: 1 } }),
-                h(
+                provider === 'minimax'
+                  ? null
+                  : h(
                   'button',
                   {
                     type: 'button',
