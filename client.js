@@ -4193,7 +4193,8 @@ window.__ModuleLoader__.load({
         setPromptBusy(true)
         const endpoint = current.path
           ? '/plugin/comfy-status/output-meta?path=' + encodeURIComponent(current.path)
-          : '/plugin/comfy-status/output-meta?filename=' + encodeURIComponent(filename)
+          : '/plugin/comfy-status/output-meta?filename=' + encodeURIComponent(filename) +
+            (current.subfolder ? '&sub=' + encodeURIComponent(current.subfolder) : '')
         fetch(endpoint, { cache: 'no-store' })
           .then((res) => res.json())
           .then((data) => {
@@ -5120,7 +5121,8 @@ window.__ModuleLoader__.load({
         let alive = true
         const endpoint = image.path
           ? '/plugin/comfy-status/output-meta?path=' + encodeURIComponent(image.path)
-          : '/plugin/comfy-status/output-meta?filename=' + encodeURIComponent(image.filename)
+          : '/plugin/comfy-status/output-meta?filename=' + encodeURIComponent(image.filename) +
+            (image.subfolder ? '&sub=' + encodeURIComponent(image.subfolder) : '')
         fetch(endpoint, { cache: 'no-store' })
           .then((res) => res.json())
           .then((data) => {
@@ -16454,7 +16456,14 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         if (!selected || fileMeta[selected]) return undefined
         let alive = true
-        fetch('/plugin/comfy-status/output-meta?filename=' + encodeURIComponent(selected), { cache: 'no-store' })
+        const pickedFile = gallery.find((file) => file.name === selected) || null
+        const subOfPicked = pickedFile && pickedFile.sub ? pickedFile.sub : String(saveSubdir || '').trim()
+        fetch(
+          '/plugin/comfy-status/output-meta?filename=' +
+            encodeURIComponent(selected) +
+            (subOfPicked ? '&sub=' + encodeURIComponent(subOfPicked) : ''),
+          { cache: 'no-store' },
+        )
           .then((res) => res.json())
           .then((data) => {
             if (!alive || !data || !data.ok) return

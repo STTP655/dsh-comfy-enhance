@@ -1080,27 +1080,55 @@ function createHandler(baseUrl) {
         // ComfyUI's own output folder can be served through /view (with webp
         // previews); any other folder is streamed as-is by /file.
         const isComfyOutput = Boolean(comfyOutput) && dir === comfyOutput
-        const entries = await readdir(dir, { withFileTypes: true })
-        const files = []
-        for (const entry of entries) {
-          if (!entry.isFile() || !/\.(png|jpe?g|webp|gif)$/i.test(entry.name)) continue
-          let info = null
+        // 列最近输出时连子目录一起看：文生图可以自定义保存到 output/<子目录>/，
+        // 只扫根目录会漏掉这些新图（相册看起来就像坏了）。
+        const collect = async (baseDir, subPrefix, depth) => {
+          const out = []
+          let entries = []
           try {
-            info = await stat(join(dir, entry.name))
+            entries = await readdir(baseDir, { withFileTypes: true })
           } catch {
-            continue
+            return out
           }
-          const url = isComfyOutput
-            ? `${PREFIX}/view?filename=${encodeURIComponent(entry.name)}&type=output`
-            : `${PREFIX}/file?path=${encodeURIComponent(join(dir, entry.name))}`
-          files.push({
-            name: entry.name,
-            mtime: info.mtimeMs,
-            path: join(dir, entry.name),
-            url,
-            thumb: isComfyOutput ? url + '&preview=webp' : url,
-          })
+          for (const entry of entries) {
+            const full = join(baseDir, entry.name)
+            if (entry.isDirectory()) {
+              if (depth > 0 && !entry.name.startsWith('.')) {
+                const nested = await collect(full, subPrefix ? subPrefix + '/' + entry.name : entry.name, depth - 1)
+                out.push(...nested)
+              }
+              continue
+            }
+            if (!/\.(png|jpe?g|webp|gif)$/i.test(entry.name)) continue
+            let info = null
+            try {
+              info = await stat(full)
+            } catch {
+              continue
+            }
+            out.push({ name: entry.name, sub: subPrefix, path: full, mtime: info.mtimeMs })
+          }
+          return out
         }
+        const raw = await collect(dir, '', isComfyOutput || subParam ? 2 : 0)
+        const files = raw.map((item) => {
+          // ComfyUI 自己的输出目录（含子目录）走 /view，可拿它生成的 webp 预览；
+          // 其它目录（在线 API 的成果目录等）按路径直读。
+          const viaView = Boolean(comfyOutput) && item.path.startsWith(comfyOutput)
+          const url = viaView
+            ? `${PREFIX}/view?filename=${encodeURIComponent(item.name)}` +
+              (item.sub ? '&subfolder=' + encodeURIComponent(item.sub) : '') +
+              '&type=output'
+            : `${PREFIX}/file?path=${encodeURIComponent(item.path)}`
+          return {
+            name: item.name,
+            sub: item.sub,
+            mtime: item.mtime,
+            path: item.path,
+            url,
+            thumb: viaView ? url + '&preview=webp' : url,
+          }
+        })
         files.sort((left, right) => right.mtime - left.mtime)
         return send(200, { ok: true, dir, files: files.slice(0, 300) })
       } catch (error) {
@@ -1148,7 +1176,9 @@ function createHandler(baseUrl) {
           throw new Error('invalid filename')
         }
         const dir = await outputDir()
-        const meta = await readOutputMeta(dir, filename)
+        // sub=<子目录>：文生图可以自定义保存位置，参数要从子目录里读
+        const subParam = sanitizeSaveSubdir(query.get('sub') || '')
+        const meta = await readOutputMeta(subParam ? join(dir, subParam) : dir, filename)
         return send(200, { ok: true, meta })
       } catch (error) {
         return send(404, { ok: false, error: String((error && error.message) || error) })
