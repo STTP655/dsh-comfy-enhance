@@ -13893,8 +13893,14 @@ window.__ModuleLoader__.load({
       // 偏好在别处（画板）被改过时，这里跟着刷新
       React.useEffect(function () {
         if (!pluginPrefs || !pluginPrefs.subscribe) return undefined
+        // 任何偏好变化（包括打字保存提示词）都会触发这里；值没变就别更新，
+        // 否则每敲一个字都会 setState + 让画布重设模型。
+        let lastJson = JSON.stringify(readModels())
         return pluginPrefs.subscribe(function () {
           const next = readModels()
+          const nextJson = JSON.stringify(next)
+          if (nextJson === lastJson) return
+          lastJson = nextJson
           setModels(next)
           if (appRef.current) appRef.current.setModels(next)
         })
@@ -20853,12 +20859,17 @@ window.__ModuleLoader__.load({
         ctx.inject(['sidebarRightTabs'], (tabCtx) => {
           // The canvas module can be switched off from the plugin page.
           let disposeType = null
+          let lastCanvas = null
           const syncCanvasTab = () => {
+            // 同上：只有 canvas 开关变化时才重挂 tab
+            const enabled = Boolean(pluginPrefs.get().canvas)
+            if (enabled === lastCanvas) return
+            lastCanvas = enabled
             if (disposeType) {
               disposeType()
               disposeType = null
             }
-            if (pluginPrefs.get().canvas) {
+            if (enabled) {
               disposeType = tabCtx.sidebarRightTabs.register({
                 id: CANVAS_TAB_ID,
                 kind: CANVAS_TAB_KIND,
@@ -21033,11 +21044,18 @@ window.__ModuleLoader__.load({
               console.warn('[comfy-enhance] 画布挂载失败', error)
             }
             const unsubscribe = pluginPrefs && pluginPrefs.subscribe
-              ? pluginPrefs.subscribe(function () {
-                const next = readModels()
-                setModels(next)
-                if (app && app.setModels) app.setModels(next)
-              })
+              ? pluginPrefs.subscribe((function () {
+                // 同上：只有模型配置真的变了才推给画布
+                let lastJson = JSON.stringify(readModels())
+                return function () {
+                  const next = readModels()
+                  const nextJson = JSON.stringify(next)
+                  if (nextJson === lastJson) return
+                  lastJson = nextJson
+                  setModels(next)
+                  if (app && app.setModels) app.setModels(next)
+                }
+              })())
               : function () {}
             return function () {
               try { if (typeof unsubscribe === 'function') unsubscribe() } catch (error) { /* ignore */ }
@@ -21404,12 +21422,16 @@ window.__ModuleLoader__.load({
         )
         ctx.slots.inject('sidebar.panellist', () => {
           let disposeEntry = null
+          let lastWorkspace = null
           const syncEntry = () => {
+            const enabled = Boolean(pluginPrefs.get().canvasWorkspace)
+            if (enabled === lastWorkspace) return
+            lastWorkspace = enabled
             if (disposeEntry) {
               disposeEntry()
               disposeEntry = null
             }
-            if (pluginPrefs.get().canvasWorkspace) {
+            if (enabled) {
               disposeEntry = ctx.slots.register(
                 {
                   name: 'sidebar.panellist',
@@ -21440,12 +21462,18 @@ window.__ModuleLoader__.load({
         // preference instead of being fixed at apply time.
         safe('状态卡', () => ctx.slots.inject('sidebar.footer.action', () => {
           let dispose = null
+          let lastStatus = null
           const sync = () => {
+            // 偏好里任何一项变化都会走到这里（打字保存提示词也算），
+            // 只有 status 开关本身变了才需要重挂，否则会不停重挂、状态卡闪烁。
+            const enabled = Boolean(pluginPrefs.get().status)
+            if (enabled === lastStatus) return
+            lastStatus = enabled
             if (dispose) {
               dispose()
               dispose = null
             }
-            if (pluginPrefs.get().status) {
+            if (enabled) {
               dispose = ctx.slots.register(
                 {
                   name: 'sidebar.footer.action',
@@ -21478,12 +21506,17 @@ window.__ModuleLoader__.load({
         // card above must keep working, so it registers on its own sub-context.
         safe('相册', () => ctx.inject(['sidebarRightTabs'], (tabCtx) => {
           let disposeType = null
+          let lastAlbum = null
           const syncAlbum = () => {
+            // 同上：只有 album 开关变化时才重挂 tab
+            const enabled = Boolean(pluginPrefs.get().album)
+            if (enabled === lastAlbum) return
+            lastAlbum = enabled
             if (disposeType) {
               disposeType()
               disposeType = null
             }
-            if (pluginPrefs.get().album) {
+            if (enabled) {
               disposeType = tabCtx.sidebarRightTabs.register({
                 id: TAB_ID,
                 kind: TAB_KIND,
