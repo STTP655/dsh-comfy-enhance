@@ -13929,6 +13929,12 @@ window.__ModuleLoader__.load({
       const [proxyUrlRaw, setProxyUrl] = usePref('remoteProxyUrl')
       const proxyOn = proxyOnRaw !== false
       const proxyUrl = typeof proxyUrlRaw === 'string' && proxyUrlRaw.trim() ? proxyUrlRaw.trim() : 'http://127.0.0.1:7897'
+      // 首次进入把默认值写进偏好：此后用户填的、或者「自动检测」拿到的一律以存下来的
+      // 值为准，不会被默认值盖回去（之前每次都要重新改正就是因为默认值没落盘）。
+      useEffect(() => {
+        if (proxyUrlRaw === undefined) setProxyUrl('http://127.0.0.1:7897')
+        // 只在挂载时补一次
+      }, [])
       const proxySpec = proxyOn ? proxyUrl : ''
       const [proxyVia, setProxyVia] = useState('')
       const [proxyOpen, setProxyOpen] = useState(false)
@@ -13970,9 +13976,11 @@ window.__ModuleLoader__.load({
         }
       }, [provider])
       useEffect(() => {
-        if (!saveDir) return undefined
+        // 打开面板就先把已有的图load进来（不要求先设保存目录）：设了保存目录读那个目录，
+        // 没设就读 ComfyUI 的默认输出目录——和相册用的是同一个接口，所以看到的就是相册里的图。
         let alive = true
-        fetch('/plugin/comfy-status/outputs?dir=' + encodeURIComponent(saveDir), { cache: 'no-store' })
+        const url = '/plugin/comfy-status/outputs' + (saveDir ? '?dir=' + encodeURIComponent(saveDir) : '')
+        fetch(url, { cache: 'no-store' })
           .then((res) => res.json())
           .then((data) => {
             if (!alive || !data || !data.ok) return
@@ -14207,6 +14215,9 @@ window.__ModuleLoader__.load({
             }
             if (savedAny) setSavedTick((value) => value + 1)
           }
+          // 没保存目录时也要刷新一次：舞台读的是输出目录，新图落盘后要能立刻出现，
+          // 列表按时间倒序，重排后第 0 张就是刚生成的那张。
+          if (!saveDir) setSavedTick((value) => value + 1)
         } catch (err) {
           setError(String((err && err.message) || err))
         } finally {
@@ -14232,19 +14243,27 @@ window.__ModuleLoader__.load({
         fontSize: 10.5,
         color: 'var(--dsw-alias-label-secondary)',
       }
-      // 舞台数据源：保存目录里已落盘的图，没保存时退回刚生成的那几张 base64。
+      // 舞台数据源：相册（输出目录）里已有的图 + 刚生成但还没落盘的那几张。
       // 用 useMemo 固定引用：base64 的 data URL 每次渲染都重建的话，图片会被反复
       // 解码，面板一有状态更新就卡一下。
       const stageImages = React.useMemo(() => {
-        if (savedFiles.length > 0) {
-          return savedFiles.map((file) => ({ url: file.url, filename: file.name }))
-        }
-        const list = result ? (Array.isArray(result.b64List) ? result.b64List : result.b64 ? [result.b64] : []) : []
-        return list.map((b64, index) => ({
+        const album = savedFiles.map((file) => ({ url: file.url, filename: file.name }))
+        const fresh = result
+          ? Array.isArray(result.b64List)
+            ? result.b64List
+            : result.b64
+              ? [result.b64]
+              : []
+          : []
+        if (fresh.length === 0) return album
+        // 设了保存目录时，新图已经进了相册（排在第一位），不用再叠一份 base64
+        if (saveDir && album.length > 0) return album
+        const freshItems = fresh.map((b64, index) => ({
           url: 'data:image/png;base64,' + b64,
-          filename: 'remote-' + (index + 1) + '.png',
+          filename: '新图-' + (index + 1) + '.png',
         }))
-      }, [savedFiles, result])
+        return freshItems.concat(album)
+      }, [savedFiles, result, saveDir])
 
       const btn = {
         padding: '5px 10px',
@@ -15074,7 +15093,8 @@ window.__ModuleLoader__.load({
                 },
                 h(ImageViewer, {
                   // 和本地文生图同一套嵌入式查看器：选中的大图 + 未选中的缩略图条。
-                  key: 'remote-' + stageImages.length,
+                  // 新图落盘后列表首位会变，用首个文件名当 key：重挂载即自动切到新图。
+                  key: 'remote-' + (stageImages[0] ? stageImages[0].filename : 'none') + '-' + stageImages.length,
                   embedded: true,
                   theme: props.night ? 'dark' : 'light',
                   images: stageImages,
