@@ -13995,24 +13995,46 @@ window.__ModuleLoader__.load({
         reader.readAsDataURL(file)
       }
       const readSystemProxy = async () => {
-        setProxyTest({ busy: true, text: '读取中…' })
+        setProxyTest({ busy: true, text: '检测中…' })
         try {
-          const res = await fetch('/plugin/comfy-canvas/system-proxy')
-          const data = await res.json().catch(() => null)
-          if (!data || !data.ok) throw new Error((data && data.error) || '读取失败')
-          if (!data.url) {
-            const raw = data.raw || {}
-            const detail = data.pac
-              ? '系统用的是 PAC 脚本（' + data.pac + '），不是固定端口'
-              : !data.enabled
-                ? '系统代理当前是关闭状态（ProxyEnable=' + (raw.enabled || '空') + '）'
-                : '读到了 ProxyEnable 但 ProxyServer 为空：' + (raw.serverError || '空值')
-            setProxyTest({ ok: false, text: detail })
+          // 先按目标主机扫本机常见端口：哪个能真的建起隧道就用哪个，
+          // 比读注册表可靠（注册表只说明"配置着"，不说明"能用"）。
+          let host = ''
+          try {
+            host = new URL(String(endpoint).trim()).hostname
+          } catch {
+            host = ''
+          }
+          const scanRes = await fetch('/plugin/comfy-canvas/proxy-scan', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ host }),
+          })
+          const scan = await scanRes.json().catch(() => null)
+          if (scan && scan.ok && scan.found) {
+            setProxyUrl(scan.found)
+            setProxyOn(true)
+            setProxyTest({ ok: true, text: '自动检测到可用代理：' + scan.found + '（' + scan.results[scan.results.length - 1].ms + 'ms）' })
             return
           }
-          setProxyUrl(data.url)
-          setProxyOn(true)
-          setProxyTest({ ok: true, text: '已读取系统代理：' + data.url })
+          const tried = (scan && scan.results ? scan.results.map((item) => item.port) : []).join(' / ')
+          // 扫不到再退回注册表，至少把配置的端口读出来给用户看
+          const res = await fetch('/plugin/comfy-canvas/system-proxy')
+          const data = await res.json().catch(() => null)
+          if (data && data.ok && data.url) {
+            setProxyUrl(data.url)
+            setProxyOn(true)
+            setProxyTest({ ok: false, text: '常见端口都不通（试过 ' + tried + '），但注册表里配的是 ' + data.url })
+            return
+          }
+          const raw = (data && data.raw) || {}
+          setProxyTest({
+            ok: false,
+            text:
+              '没检测到可用代理（试过 ' + tried + '）；注册表：ProxyEnable=' +
+              (raw.enabled || '空') +
+              (raw.enabledError ? '（' + raw.enabledError + '）' : ''),
+          })
         } catch (error) {
           setProxyTest({ ok: false, text: String((error && error.message) || error) })
         }
@@ -14998,7 +15020,7 @@ window.__ModuleLoader__.load({
                             cursor: 'pointer',
                           },
                         },
-                        '读取系统代理',
+                        '自动检测',
                       ),
                       h(
                         'button',

@@ -1402,6 +1402,66 @@ export function apply(ctx, config = {}) {
       }
     }
 
+    // 自动检测：挨个试本机常见代理端口，看哪个能真的建起隧道并到达目标。
+    // 比读注册表可靠——注册表只说明"配置着这个端口"，这里验证的是"它真能通"。
+    if (pathname === `${PREFIX}/proxy-scan`) {
+      if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const body = JSON.parse((await readBody(req)) || '{}')
+        const targetHost =
+          typeof body.host === 'string' && body.host.trim() ? body.host.trim() : 'www.google.com'
+        const ports = Array.isArray(body.ports) && body.ports.length
+          ? body.ports.map((item) => Number(item)).filter((item) => Number.isFinite(item) && item > 0)
+          : [7989, 7897, 7890, 10809, 1080, 8889, 2080]
+
+        const probe = (port) =>
+          new Promise((resolve) => {
+            const started = Date.now()
+            let done = false
+            const socket = net.connect(port, '127.0.0.1')
+            const finish = (ok) => {
+              if (done) return
+              done = true
+              try {
+                socket.destroy()
+              } catch {
+                // 已关闭
+              }
+              resolve({ port, ok, ms: Date.now() - started })
+            }
+            socket.setTimeout(1200, () => finish(false))
+            socket.on('error', () => finish(false))
+            socket.on('connect', () => {
+              socket.write(
+                'CONNECT ' + targetHost + ':443 HTTP/1.1\r\nHost: ' + targetHost + ':443\r\n\r\n',
+              )
+            })
+            let head = ''
+            socket.on('data', (chunk) => {
+              head += chunk.toString('latin1')
+              if (!head.includes('\r\n\r\n')) return
+              finish(/^HTTP\/1\.[01] 200/.test(head))
+            })
+          })
+
+        const results = []
+        for (const port of ports) {
+          // 串行探测：并发会让某些客户端把连接判成风暴
+          results.push(await probe(port))
+          if (results[results.length - 1].ok) break
+        }
+        const hit = results.find((item) => item.ok)
+        return send(200, {
+          ok: true,
+          found: hit ? 'http://127.0.0.1:' + hit.port : '',
+          port: hit ? hit.port : 0,
+          results,
+        })
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
+    }
+
     // 连通测试：拿当前端点和代理试一次，把阶段性的失败原因直接返回给面板。
     if (pathname === `${PREFIX}/proxy-test`) {
       if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
