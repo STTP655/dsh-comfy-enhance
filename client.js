@@ -14248,6 +14248,18 @@ window.__ModuleLoader__.load({
         fontFamily: 'inherit',
         outline: 'none',
       }
+      // 自绘下拉的触发器：和上面的字段盒子完全同规格，避免原生 select 的灰边。
+      const pickerBox = {
+        minHeight: 0,
+        boxSizing: 'border-box',
+        padding: '7px 10px',
+        borderRadius: 9,
+        fontSize: 11.5,
+        fontFamily: 'inherit',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        border: '1px solid var(--dsw-alias-border-l2)',
+      }
       const label = {
         display: 'flex',
         flexDirection: 'column',
@@ -14535,13 +14547,18 @@ window.__ModuleLoader__.load({
                   'label',
                   { style: label },
                   '宽高比',
-                  h(
-                    'select',
-                    { value: aspectRatio, style: field, onChange: (event) => setAspectRatio(event.target.value) },
-                    ['1:1', '16:9', '4:3', '3:2', '2:3', '3:4', '9:16', '21:9'].map((option) =>
-                      h('option', { key: option, value: option }, option),
-                    ),
-                  ),
+                  h(Dropdown, {
+                    title: '宽高比',
+                    value: aspectRatio,
+                    options: ['1:1', '16:9', '4:3', '3:2', '2:3', '3:4', '9:16', '21:9'].map((option) => ({
+                      value: option,
+                      label: option,
+                    })),
+                    onPick: setAspectRatio,
+                    dark: props.night,
+                    menuMinWidth: 120,
+                    triggerStyle: pickerBox,
+                  }),
                 ),
                 h(
                   'label',
@@ -14577,26 +14594,25 @@ window.__ModuleLoader__.load({
                   'div',
                   { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
                   h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '尺寸'),
-                  h(
-                    'select',
-                    {
-                      value: sizeMode === 'custom' ? 'custom' : size,
-                      style: field,
-                      onChange: (event) => {
-                        const value = event.target.value
-                        if (value === 'custom') {
-                          setSizeMode('custom')
-                        } else {
-                          setSizeMode('preset')
-                          setSize(value)
-                        }
-                      },
+                  h(Dropdown, {
+                    title: '尺寸',
+                    value: sizeMode === 'custom' ? 'custom' : size,
+                    options: ['1024x1024', '1536x1024', '1024x1536', 'auto', 'custom'].map((option) => ({
+                      value: option,
+                      label: option === 'custom' ? '自定义…' : option,
+                    })),
+                    onPick: (value) => {
+                      if (value === 'custom') {
+                        setSizeMode('custom')
+                      } else {
+                        setSizeMode('preset')
+                        setSize(value)
+                      }
                     },
-                    ['1024x1024', '1536x1024', '1024x1536', 'auto'].map((option) =>
-                      h('option', { key: option, value: option }, option),
-                    ),
-                    h('option', { value: 'custom' }, '自定义…'),
-                  ),
+                    dark: props.night,
+                    menuMinWidth: 200,
+                    triggerStyle: pickerBox,
+                  }),
                   sizeMode === 'custom'
                     ? h(
                         'div',
@@ -14631,35 +14647,49 @@ window.__ModuleLoader__.load({
                     'label',
                     { style: label },
                     '质量',
-                    h(
-                      'select',
-                      { value: quality, style: field, onChange: (event) => setQuality(event.target.value) },
-                      ['auto', 'low', 'medium', 'high', 'xhigh'].map((option) =>
-                        h('option', { key: option, value: option }, option),
-                      ),
-                    ),
+                    h(Dropdown, {
+                      title: '质量',
+                      value: quality,
+                      options: ['auto', 'low', 'medium', 'high', 'xhigh'].map((option) => ({
+                        value: option,
+                        label: option,
+                      })),
+                      onPick: setQuality,
+                      dark: props.night,
+                      menuMinWidth: 140,
+                      triggerStyle: pickerBox,
+                    }),
                   ),
                   h(
                     'label',
                     { style: label },
                     '背景',
-                    h(
-                      'select',
-                      { value: background, style: field, onChange: (event) => setBackground(event.target.value) },
-                      ['auto', 'opaque', 'transparent'].map((option) =>
-                        h('option', { key: option, value: option }, option),
-                      ),
-                    ),
+                    h(Dropdown, {
+                      title: '背景',
+                      value: background,
+                      options: ['auto', 'opaque', 'transparent'].map((option) => ({
+                        value: option,
+                        label: option,
+                      })),
+                      onPick: setBackground,
+                      dark: props.night,
+                      menuMinWidth: 140,
+                      triggerStyle: pickerBox,
+                    }),
                   ),
                   h(
                     'label',
                     { style: label },
                     '格式',
-                    h(
-                      'select',
-                      { value: outputFormat, style: field, onChange: (event) => setOutputFormat(event.target.value) },
-                      ['png', 'jpeg', 'webp'].map((option) => h('option', { key: option, value: option }, option)),
-                    ),
+                    h(Dropdown, {
+                      title: '格式',
+                      value: outputFormat,
+                      options: ['png', 'jpeg', 'webp'].map((option) => ({ value: option, label: option })),
+                      onPick: setOutputFormat,
+                      dark: props.night,
+                      menuMinWidth: 140,
+                      triggerStyle: pickerBox,
+                    }),
                   ),
                   h(
                     'label',
