@@ -5008,6 +5008,11 @@ window.__ModuleLoader__.load({
       const [albumTheme, setAlbumTheme] = usePref('albumTheme')
       const nightTheme = albumTheme !== 'light'
       const [albumDir, setAlbumDir] = usePref('albumDir')
+      // 只显示本地生图的保存目录（目录来源下的一个过滤开关）
+      const [onlySaveDirRaw, setOnlySaveDir] = usePref('albumOnlySaveDir')
+      const onlySaveDir = Boolean(onlySaveDirRaw)
+      const [t2iSaveDir] = usePref('t2iSaveSubdir')
+      const saveDirSub = String(t2iSaveDir || '').trim()
       const [source, setSource] = useState('album')
       const [layout, setLayout] = useState('default')
       const [dirFiles, setDirFiles] = useState(null)
@@ -5090,7 +5095,12 @@ window.__ModuleLoader__.load({
         let alive = true
         setDirBusy(true)
         setDirError('')
-        fetch('/plugin/comfy-status/outputs?dir=' + encodeURIComponent(albumDir || ''), { cache: 'no-store' })
+        // 开关开着且确实配了保存目录时，只看那个子目录；否则按原来的目录规则。
+        const useSaveDir = onlySaveDir && Boolean(saveDirSub)
+        const listUrl = useSaveDir
+          ? '/plugin/comfy-status/outputs?sub=' + encodeURIComponent(saveDirSub)
+          : '/plugin/comfy-status/outputs?dir=' + encodeURIComponent(albumDir || '')
+        fetch(listUrl, { cache: 'no-store' })
           .then((res) => res.json())
           .then((data) => {
             if (!alive) return
@@ -5110,7 +5120,7 @@ window.__ModuleLoader__.load({
         return () => {
           alive = false
         }
-      }, [source, albumDir, dirNonce])
+      }, [source, albumDir, dirNonce, onlySaveDir, saveDirSub])
 
       // Directory pictures embed their parameters in the PNG; read them on demand
       // so the details panel matches what the album shows.
@@ -5311,7 +5321,13 @@ window.__ModuleLoader__.load({
           : dirError
             ? h('div', { style: ALBUM_EMPTY }, dirError)
             : dirItems.length === 0
-              ? h('div', { style: ALBUM_EMPTY }, '这个目录里没有图片')
+              ? h(
+                  'div',
+                  { style: ALBUM_EMPTY },
+                  onlySaveDir && saveDirSub
+                    ? '保存目录 ' + saveDirSub + ' 里还没有图片'
+                    : '这个目录里没有图片',
+                )
               : layout === 'flat'
                 ? flatGrid
                 : defaultView
@@ -5417,6 +5433,32 @@ window.__ModuleLoader__.load({
             layout === 'flat' ? '分组' : '平铺',
           ),
           source === 'dir' ? h('button', { className: 'dshComfyAlbum-btn', onClick: pickAlbumDir }, '选择目录') : null,
+          source === 'dir'
+            ? h(
+                'button',
+                {
+                  className: 'dshComfyAlbum-btn',
+                  title: saveDirSub
+                    ? '只显示本地生图保存目录里的图片：' + saveDirSub
+                    : '先在本地文生图里设置保存位置，再启用这个过滤',
+                  disabled: !saveDirSub,
+                  style: !saveDirSub
+                    ? { opacity: 0.45, cursor: 'not-allowed' }
+                    : onlySaveDir
+                      ? {
+                          background: 'var(--dsw-alias-brand-primary)',
+                          color: '#ffffff',
+                          borderColor: 'var(--dsw-alias-brand-primary)',
+                        }
+                      : null,
+                  onClick: () => {
+                    if (!saveDirSub) return
+                    setOnlySaveDir(!onlySaveDir)
+                  },
+                },
+                onlySaveDir && saveDirSub ? '只显示：' + saveDirSub : '只显示保存目录',
+              )
+            : null,
           h(
             'button',
             {
