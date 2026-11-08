@@ -213,6 +213,25 @@ function findLatentNode(graph) {
   return null
 }
 
+/**
+ * 整理用户填的保存子目录：允许 a/b 这种相对层级，剥掉绝对路径、盘符、
+ * 首尾斜杠与 ..，每段只留字母数字、中划线和下划线。
+ */
+export function sanitizeSaveSubdir(raw) {
+  const text = typeof raw === 'string' ? raw.trim() : ''
+  if (!text) return ''
+  const parts = text
+    .replace(/\\/g, '/')
+    .split('/')
+    .map((part) => part.trim())
+    .filter((part) => part && part !== '.' && part !== '..')
+    .map((part) => part.replace(/[^A-Za-z0-9_-]/g, ''))
+    .filter(Boolean)
+  if (parts.length === 0) return ''
+  if (parts.length > 3) parts.length = 3
+  return parts.join('/')
+}
+
 /** Node id + body of the first node of the given class_type. */
 function findNodeWithId(graph, type) {
   for (const [id, node] of Object.entries(graph || {})) {
@@ -689,6 +708,19 @@ async function submitText2Img(baseUrl, body) {
     if (typeof sampling.sampler === 'string' && sampling.sampler) samplerNode.inputs.sampler_name = sampling.sampler
     if (typeof sampling.scheduler === 'string' && sampling.scheduler) samplerNode.inputs.scheduler = sampling.scheduler
     if (Number.isFinite(Number(sampling.seed))) samplerNode.inputs.seed = Math.max(0, Math.floor(Number(sampling.seed)))
+  }
+  // 保存目录：SaveImage 的 filename_prefix 支持子目录，写 "名字/text2img" 就落到
+  // output/名字/ 下；不传则沿用模板里的 text2img。
+  const saveSubdir = sanitizeSaveSubdir(body && body.saveSubdir)
+  if (saveSubdir) {
+    const saveNode = findNodeByType(graph, 'SaveImage')
+    if (saveNode && saveNode.inputs) {
+      const base =
+        typeof saveNode.inputs.filename_prefix === 'string' && saveNode.inputs.filename_prefix
+          ? saveNode.inputs.filename_prefix.split('/').pop()
+          : 'text2img'
+      saveNode.inputs.filename_prefix = saveSubdir + '/' + base
+    }
   }
   rewriteLoraChain(graph, normalizeLoras(models))
   const clientId = 'dsh-comfy-canvas'

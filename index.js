@@ -10,7 +10,7 @@
  * the same apply, under their own `/plugin/comfy-canvas` prefix.
  */
 
-import { apply as applyCanvasHost } from './canvas-host.js'
+import { apply as applyCanvasHost, sanitizeSaveSubdir } from './canvas-host.js'
 import { dirname, extname, join, resolve } from 'node:path'
 import { readdir, stat, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -1067,13 +1067,15 @@ function createHandler(baseUrl) {
       try {
         const query = new URL(req.url || '/', 'http://localhost').searchParams
         const requested = (query.get('dir') || '').trim()
+        // sub=<名字>：列 ComfyUI 输出目录下的子文件夹（文生图的自定义保存位置）
+        const subParam = sanitizeSaveSubdir(query.get('sub') || '')
         // 显式给了目录时完全不碰 ComfyUI：在线 API 的成果目录和引擎无关，
         // 引擎没起也该能看。只有没给目录时才去问 ComfyUI 的输出路径。
         let comfyOutput = ''
         if (!requested) {
           comfyOutput = await outputDir()
         }
-        const dir = requested || comfyOutput
+        const dir = requested || (subParam ? join(comfyOutput, subParam) : comfyOutput)
         if (!dir) return send(503, { ok: false, error: 'ComfyUI 未运行，且没有指定目录' })
         // ComfyUI's own output folder can be served through /view (with webp
         // previews); any other folder is streamed as-is by /file.

@@ -16389,6 +16389,8 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState('')
       const [status, setStatus] = useState('')
       const [gallery, setGallery] = useState([])
+      // 保存子目录：留空就用 ComfyUI 默认输出目录；填了就落到 output/<子目录>/ 下。
+      const [saveSubdir, setSaveSubdir] = usePref('t2iSaveSubdir')
       const [selected, setSelected] = useState('')
       const [jobId, setJobId] = useState('')
       // The same SSE tracker the album and the canvas use: ComfyUI's progress and
@@ -16432,7 +16434,9 @@ window.__ModuleLoader__.load({
         })
       }
       const refreshGallery = () => {
-        fetch('/plugin/comfy-status/outputs', { cache: 'no-store' })
+        const sub = String(saveSubdir || '').trim()
+        const url = '/plugin/comfy-status/outputs' + (sub ? '?sub=' + encodeURIComponent(sub) : '')
+        fetch(url, { cache: 'no-store' })
           .then((res) => res.json())
           .then((data) => {
             if (data && data.ok) applyGallery(Array.isArray(data.files) ? data.files.slice(0, 24) : [])
@@ -16440,8 +16444,9 @@ window.__ModuleLoader__.load({
           .catch(() => {})
       }
       useEffect(() => {
+        // 换保存位置后要重新列目录，否则相册还是旧文件夹里的图
         refreshGallery()
-      }, [])
+      }, [saveSubdir])
       // Read the embedded ComfyUI parameters for the selected file (the same
       // endpoint the album viewer uses).
       useEffect(() => {
@@ -16647,6 +16652,8 @@ window.__ModuleLoader__.load({
               width: outputSize.width,
               height: outputSize.height,
               sampling: submittedSampling,
+              // 自定义保存位置（ComfyUI 的 SaveImage 子目录写法），留空即默认
+              saveSubdir: String(saveSubdir || '').trim(),
             }),
           })
           const data = await res.json().catch(() => null)
@@ -17835,6 +17842,54 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
+          ),
+          // 保存位置：SaveImage 的 filename_prefix 支持子目录，留空就是 ComfyUI 默认目录。
+          h(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+              h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '保存位置'),
+              h('span', { style: { flex: 1 } }),
+              String(saveSubdir || '').trim()
+                ? h(
+                    'button',
+                    {
+                      type: 'button',
+                      title: '清空并回到 ComfyUI 默认输出目录',
+                      onClick: () => {
+                        setSaveSubdir('')
+                        refreshGallery()
+                      },
+                      style: {
+                        padding: '2px 8px',
+                        borderRadius: 6,
+                        border: '1px solid var(--dsw-alias-border-l2)',
+                        background: 'var(--dsw-alias-bg-layer-2)',
+                        color: 'var(--dsw-alias-label-secondary)',
+                        fontSize: 9.5,
+                        fontFamily: 'inherit',
+                        cursor: 'pointer',
+                      },
+                    },
+                    '恢复默认',
+                  )
+                : null,
+            ),
+            h('input', {
+              value: saveSubdir || '',
+              placeholder: '留空 = ComfyUI 默认输出目录；可填子目录，例如 anime/t2i',
+              style: field,
+              onChange: (event) => setSaveSubdir(event.target.value),
+            }),
+            h(
+              'div',
+              { style: { fontSize: 9, color: 'var(--dsw-alias-label-secondary)' } },
+              String(saveSubdir || '').trim()
+                ? '生成结果存到 ComfyUI 的 output/' + String(saveSubdir).trim().replace(/^\/+/, '') + '/'
+                : '生成结果存到 ComfyUI 默认输出目录',
+            ),
           ),
           // 页脚在滚动区之外：光晕能往面板留白里散开，不会被滚动的横向裁剪切平。
           h(
