@@ -13949,6 +13949,14 @@ window.__ModuleLoader__.load({
       const [aiBusy, setAiBusy] = useState(false)
       const [aiError, setAiError] = useState('')
       const [rulesOpen, setRulesOpen] = useState(false)
+      // 与本地文生图对齐：风格切换（SD 标签 / 自然语言）与钉住（固定质量前缀）。
+      const [promptStyle, setPromptStyle] = usePref('remotePromptStyle')
+      const [pinOpen, setPinOpen] = useState(false)
+      const [pinPositive, setPinPositive] = usePref('remotePinPositive')
+      const [pinNegative, setPinNegative] = usePref('remotePinNegative')
+      const [pinEnabled, setPinEnabled] = usePref('remotePinEnabled')
+      const pinSet = Boolean(String(pinPositive || '').trim() || String(pinNegative || '').trim())
+      const pinActive = Boolean(String(pinPositive || '').trim()) && pinEnabled !== false
       // Extra requirements handed to the model on top of the prompt box.
       const [aiExtra, setAiExtra] = useState('')
       const [promptWriteSystemNatural] = usePref('promptWriteSystemNatural')
@@ -14127,7 +14135,8 @@ window.__ModuleLoader__.load({
               // The extra box is the instruction; empty keeps the old behaviour.
               instruction: instruction || prompt,
               targetModel: model,
-              system: promptWriteSystemNatural,
+              style: promptStyle === 'tags' ? 'tags' : 'natural',
+              system: promptStyle === 'tags' ? promptWriteSystemTags : promptWriteSystemNatural,
               provider: promptWriteProvider || undefined,
               model: promptWriteModel || undefined,
               effort: promptWriteEffort,
@@ -14138,7 +14147,7 @@ window.__ModuleLoader__.load({
           const output = data.text || ''
           setPrompt(output)
           setPromptHistory(
-            [{ ts: Date.now(), style: 'natural', input: prompt, output }]
+            [{ ts: Date.now(), style: promptStyle === 'tags' ? 'tags' : 'natural', input: prompt, output }]
               .concat(Array.isArray(promptHistory) ? promptHistory : [])
               .slice(0, 50),
           )
@@ -14188,7 +14197,8 @@ window.__ModuleLoader__.load({
               endpoint,
               key: apiKey,
               model,
-              prompt,
+              // 钉住的质量前缀只在提交时拼接，输入框里的正文保持原样。
+              prompt: mergePinnedText(pinPositive, prompt, pinEnabled !== false),
               size: finalSize,
               mode: mode === 'edit' ? 'edits' : 'generations',
               image: mode === 'edit' ? imageData : '',
@@ -14432,12 +14442,20 @@ window.__ModuleLoader__.load({
               style: Object.assign({}, field, { resize: 'vertical', lineHeight: 1.55 }),
               onChange: (event) => setPrompt(event.target.value),
             }),
-            // The AI trio acts on the prompt above it, so it sits under the box
-            // instead of crowding the label row. The extra box is what the model
-            // is told on top of that prompt.
+            // 与本地文生图同一套：风格切换 + AI 写/润色（渐变橙红）+ 规则 + 对话 + 钉住。
             h(
               'div',
               { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
+              h(SegmentToggle, {
+                compact: true,
+                style: { flex: 'none' },
+                options: [
+                  { value: 'tags', label: 'SD 标签' },
+                  { value: 'natural', label: '自然语言' },
+                ],
+                value: promptStyle === 'tags' ? 'tags' : 'natural',
+                onChange: setPromptStyle,
+              }),
               h(
                 'button',
                 {
@@ -14445,23 +14463,25 @@ window.__ModuleLoader__.load({
                   disabled: aiBusy,
                   onClick: aiWrite,
                   title: 'AI 写 / 润色提示词',
+                  className: 'dshComfyAiBtn',
                   style: {
+                    flex: '1 1 auto',
+                    minWidth: 0,
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: 4,
-                    padding: '3px 8px',
-                    borderRadius: 6,
-                    border: '1px solid var(--dsw-alias-border-l2)',
-                    background: 'var(--dsw-alias-bg-layer-2)',
-                    color: 'var(--dsw-alias-label-primary)',
-                    fontSize: 10,
+                    justifyContent: 'center',
+                    gap: 5,
+                    padding: '6px 9px',
+                    borderRadius: 8,
+                    border: '1px solid transparent',
+                    fontSize: 11.5,
                     fontWeight: 600,
                     fontFamily: 'inherit',
+                    whiteSpace: 'nowrap',
                     cursor: aiBusy ? 'default' : 'pointer',
-                    opacity: aiBusy ? 0.6 : 1,
                   },
                 },
-                h(Icon, { name: 'sparkles', size: 11 }),
+                h(Icon, { name: 'sparkles', size: 12 }),
                 aiBusy ? '生成中…' : 'AI 写/润色',
               ),
               h(
@@ -14501,6 +14521,37 @@ window.__ModuleLoader__.load({
                   },
                 },
                 '对话',
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  title: pinActive
+                    ? '固定提示词已启用：生成时拼在正文前面（点击修改）'
+                    : pinSet
+                      ? '固定提示词已设置但停用（点击启用或修改）'
+                      : '设置固定提示词：每次生成自动拼在正文前面',
+                  onClick: () => setPinOpen(true),
+                  style: {
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    flex: 'none',
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    borderWidth: 1,
+                    borderStyle: pinSet && !pinActive ? 'dashed' : 'solid',
+                    borderColor: pinActive ? '#f59e0b' : 'var(--dsw-alias-border-l2)',
+                    background: pinActive ? 'rgba(245, 158, 11, 0.14)' : 'transparent',
+                    color: pinActive ? '#f59e0b' : 'var(--dsw-alias-label-secondary)',
+                    fontSize: 10,
+                    fontWeight: 600,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                  },
+                },
+                h(Icon, { name: 'pin', size: 10 }),
+                '钉住',
               ),
             ),
             h('textarea', {
@@ -15062,6 +15113,19 @@ window.__ModuleLoader__.load({
             },
             onClose: () => setPickerOpen(false),
           }),
+        h(PinnedPromptDialog, {
+          open: pinOpen,
+          onClose: () => setPinOpen(false),
+          positive: pinPositive || '',
+          negative: pinNegative || '',
+          enabled: pinEnabled !== false,
+          onSave: (next) => {
+            setPinPositive(next.positive || '')
+            setPinNegative(next.negative || '')
+            setPinEnabled(next.enabled !== false)
+            setPinOpen(false)
+          },
+        }),
         h(PromptRulesDialog, { open: rulesOpen, onClose: () => setRulesOpen(false) }),
           h(PromptHistoryDialog, { open: historyOpen, onClose: () => setHistoryOpen(false) }),
           error
