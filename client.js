@@ -13905,6 +13905,474 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * 蒙版画笔：在参考图上涂出「要重画的地方」，导出符合 OpenAI images/edits 约定的
+     * PNG（涂过的地方 alpha=0）。零依赖，只用到 canvas 2D。
+     *
+     * 内部维护一张与原图同尺寸的 paintCanvas，涂过的地方是红色不透明；导出时用
+     * destination-out 把它从白底上擦掉，得到「透明 = 重画」的蒙版。
+     */
+    function MaskPainterDialog(props) {
+      ensureWorkbenchStyle()
+      const open = Boolean(props.open)
+      const [ready, setReady] = useState(false)
+      const [mode, setMode] = useState('brush')
+      const [size, setSize] = useState(28)
+      const [strokeCount, setStrokeCount] = useState(0)
+      const [dirty, setDirty] = useState(false)
+      const [error, setError] = useState('')
+
+      const stageRef = useRef(null)
+      const viewRef = useRef(null)
+      const paintRef = useRef(null)
+      const imageRef = useRef(null)
+      const baseRef = useRef('') // 打开时既有蒙版的快照（撤销要用它重放）
+      const strokesRef = useRef([]) // 每条 stroke: { erase, size, points: [[x,y],…] }
+      const drawingRef = useRef(null)
+
+      // 打开时初始化：建同尺寸的 paintCanvas，把已有蒙版接进来
+      useEffect(() => {
+        if (!props.open) return
+        setReady(false)
+        setError('')
+        setMode('brush')
+        setStrokeCount(0)
+        setDirty(false)
+        strokesRef.current = []
+        baseRef.current = ''
+        let alive = true
+        const img = new Image()
+        img.onerror = () => {
+          if (alive) setError('参考图读取失败')
+        }
+        img.onload = () => {
+          if (!alive) return
+          imageRef.current = img
+          const canvas = document.createElement('canvas')
+          canvas.width = img.naturalWidth
+          canvas.height = img.naturalHeight
+          paintRef.current = canvas
+          const ctx = canvas.getContext('2d')
+          ctx.clearRect(0, 0, canvas.width, canvas.height)
+          const finish = () => {
+            // 既有蒙版转成红色同 alpha 形状，之后所有涂抹都只改这一张
+            if (props.initialMask) {
+              const mask = new Image()
+              mask.onload = () => {
+                if (!alive) return
+                ctx.globalCompositeOperation = 'source-over'
+                ctx.drawImage(mask, 0, 0, canvas.width, canvas.height)
+                ctx.globalCompositeOperation = 'source-in'
+                ctx.fillStyle = '#ef4444'
+                ctx.fillRect(0, 0, canvas.width, canvas.height)
+                ctx.globalCompositeOperation = 'source-over'
+                baseRef.current = canvas.toDataURL('image/png')
+                setDirty(true)
+                setReady(true)
+                redraw()
+              }
+              mask.onerror = () => {
+                setReady(true)
+                redraw()
+              }
+              mask.src = props.initialMask
+              return
+            }
+            setReady(true)
+            redraw()
+            // 首帧舞台可能还没量到尺寸，下一帧再画一次
+            if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => redraw())
+          }
+          finish()
+        }
+        img.src = props.imageUrl || ''
+        return () => {
+          alive = false
+        }
+        // 只在打开时初始化一次
+      }, [props.open])
+
+      // 视图尺寸变化时重绘（窗口缩放 / 侧栏宽度变化都会走这里）
+      useEffect(() => {
+        if (!open || !ready) return undefined
+        const onResize = () => redraw()
+        window.addEventListener('resize', onResize)
+        onResize()
+        return () => window.removeEventListener('resize', onResize)
+      }, [open, ready])
+
+      function displayGeometry() {
+        const stage = stageRef.current
+        const paint = paintRef.current
+        if (!stage || !paint) return null
+        const rect = stage.getBoundingClientRect()
+        if (rect.width < 2 || rect.height < 2) return null
+        // contain：整张图完整放进舞台
+        const scale = Math.min(rect.width / paint.width, rect.height / paint.height)
+        const width = Math.max(1, Math.round(paint.width * scale))
+        const height = Math.max(1, Math.round(paint.height * scale))
+        return { rect, scale, width, height }
+      }
+
+      function redraw() {
+        const view = viewRef.current
+        const paint = paintRef.current
+        const img = imageRef.current
+        if (!view || !paint || !img) return
+        const geo = displayGeometry()
+        if (!geo) return
+        const dpr = Math.min(2, window.devicePixelRatio || 1)
+        view.width = Math.round(geo.width * dpr)
+        view.height = Math.round(geo.height * dpr)
+        view.style.width = geo.width + 'px'
+        view.style.height = geo.height + 'px'
+        const ctx = view.getContext('2d')
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+        ctx.clearRect(0, 0, geo.width, geo.height)
+        ctx.drawImage(img, 0, 0, geo.width, geo.height)
+        ctx.globalAlpha = 0.55
+        ctx.drawImage(paint, 0, 0, geo.width, geo.height)
+        ctx.globalAlpha = 1
+      }
+
+      function pointFromEvent(event) {
+        const view = viewRef.current
+        const paint = paintRef.current
+        if (!view || !paint) return null
+        const rect = view.getBoundingClientRect()
+        if (rect.width < 2) return null
+        const scaleX = paint.width / rect.width
+        const scaleY = paint.height / rect.height
+        return [(event.clientX - rect.left) * scaleX, (event.clientY - rect.top) * scaleY]
+      }
+
+      function paintStroke(stroke) {
+        const paint = paintRef.current
+        if (!paint) return
+        const ctx = paint.getContext('2d')
+        ctx.save()
+        ctx.globalCompositeOperation = stroke.erase ? 'destination-out' : 'source-over'
+        ctx.strokeStyle = '#ef4444'
+        ctx.fillStyle = '#ef4444'
+        ctx.lineWidth = stroke.size
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        const pts = stroke.points
+        if (pts.length === 1) {
+          ctx.beginPath()
+          ctx.arc(pts[0][0], pts[0][1], stroke.size / 2, 0, Math.PI * 2)
+          ctx.fill()
+        } else {
+          ctx.beginPath()
+          ctx.moveTo(pts[0][0], pts[0][1])
+          for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i][0], pts[i][1])
+          ctx.stroke()
+        }
+        ctx.restore()
+      }
+
+      function replay() {
+        const paint = paintRef.current
+        if (!paint) return
+        const ctx = paint.getContext('2d')
+        ctx.clearRect(0, 0, paint.width, paint.height)
+        if (baseRef.current) {
+          const base = new Image()
+          base.onload = () => {
+            ctx.clearRect(0, 0, paint.width, paint.height)
+            ctx.drawImage(base, 0, 0, paint.width, paint.height)
+            strokesRef.current.forEach(paintStroke)
+            redraw()
+          }
+          base.src = baseRef.current
+          return
+        }
+        strokesRef.current.forEach(paintStroke)
+        redraw()
+      }
+
+      const onPointerDown = (event) => {
+        if (!ready) return
+        event.preventDefault()
+        viewRef.current && viewRef.current.setPointerCapture
+          ? viewRef.current.setPointerCapture(event.pointerId)
+          : null
+        const point = pointFromEvent(event)
+        if (!point) return
+        const stroke = { erase: mode === 'erase', size, points: [point] }
+        drawingRef.current = stroke
+        paintStroke(stroke)
+        redraw()
+      }
+      const onPointerMove = (event) => {
+        const stroke = drawingRef.current
+        if (!stroke) return
+        const point = pointFromEvent(event)
+        if (!point) return
+        const last = stroke.points[stroke.points.length - 1]
+        // 距离太近的点丢掉，省内存也省重绘
+        if (Math.abs(point[0] - last[0]) + Math.abs(point[1] - last[1]) < stroke.size / 6) return
+        stroke.points.push(point)
+        paintStroke({ erase: stroke.erase, size: stroke.size, points: [last, point] })
+        redraw()
+      }
+      const onPointerUp = () => {
+        const stroke = drawingRef.current
+        drawingRef.current = null
+        if (!stroke) return
+        strokesRef.current = strokesRef.current.concat([stroke])
+        setStrokeCount(strokesRef.current.length)
+        setDirty(true)
+      }
+
+      const undo = () => {
+        if (strokesRef.current.length === 0) return
+        strokesRef.current = strokesRef.current.slice(0, -1)
+        setStrokeCount(strokesRef.current.length)
+        replay()
+        setDirty(true)
+      }
+      const clearAll = () => {
+        strokesRef.current = []
+        baseRef.current = ''
+        setStrokeCount(0)
+        const paint = paintRef.current
+        if (paint) paint.getContext('2d').clearRect(0, 0, paint.width, paint.height)
+        redraw()
+        setDirty(false)
+      }
+      const invert = () => {
+        const paint = paintRef.current
+        if (!paint) return
+        const ctx = paint.getContext('2d')
+        const snapshot = document.createElement('canvas')
+        snapshot.width = paint.width
+        snapshot.height = paint.height
+        snapshot.getContext('2d').drawImage(paint, 0, 0)
+        ctx.clearRect(0, 0, paint.width, paint.height)
+        ctx.fillStyle = '#ef4444'
+        ctx.fillRect(0, 0, paint.width, paint.height)
+        ctx.globalCompositeOperation = 'destination-out'
+        ctx.drawImage(snapshot, 0, 0)
+        ctx.globalCompositeOperation = 'source-over'
+        // 反相后无法用 stroke 重放表达，直接固化进 base
+        strokesRef.current = []
+        baseRef.current = paint.toDataURL('image/png')
+        setStrokeCount(0)
+        redraw()
+        setDirty(true)
+      }
+
+      const done = () => {
+        const paint = paintRef.current
+        if (!paint) {
+          props.onClose && props.onClose()
+          return
+        }
+        const out = document.createElement('canvas')
+        out.width = paint.width
+        out.height = paint.height
+        const ctx = out.getContext('2d')
+        // 白底 + 把涂过的区域擦成透明：这就是 OpenAI 要的「透明处 = 要改」
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, out.width, out.height)
+        ctx.globalCompositeOperation = 'destination-out'
+        ctx.drawImage(paint, 0, 0)
+        ctx.globalCompositeOperation = 'source-over'
+        const dataUrl = out.toDataURL('image/png')
+        if (props.onDone) props.onDone(dirty ? dataUrl : '')
+        if (props.onClose) props.onClose()
+      }
+
+      const close = () => {
+        props.onClose && props.onClose()
+      }
+
+      if (!open) return null
+
+      const btn = {
+        padding: '5px 10px',
+        borderRadius: 7,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 10.5,
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+      }
+      const chip = (active) => ({
+        padding: '5px 10px',
+        borderRadius: 7,
+        border: '1px solid ' + (active ? '#3b82f6' : 'var(--dsw-alias-border-l2)'),
+        background: active ? '#3b82f6' : 'var(--dsw-alias-bg-layer-1)',
+        color: active ? '#ffffff' : 'var(--dsw-alias-label-secondary)',
+        fontSize: 10.5,
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+      })
+
+      return h(
+        'div',
+        {
+          style: {
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1350,
+            display: 'flex',
+            background: 'rgba(0, 0, 0, 0.72)',
+            backdropFilter: 'blur(3px)',
+            animation: 'dshComfyOverlayIn 150ms ease-out both',
+          },
+        },
+        h(
+          'div',
+          {
+            style: {
+              margin: 'auto',
+              width: 'min(1100px, calc(100vw - 48px))',
+              height: 'min(760px, calc(100vh - 48px))',
+              display: 'flex',
+              flexDirection: 'column',
+              borderRadius: 14,
+              border: '1px solid var(--dsw-alias-border-l2)',
+              background: 'var(--dsw-alias-bg-base)',
+              color: 'var(--dsw-alias-label-primary)',
+              boxShadow: '0 28px 80px rgba(0, 0, 0, 0.5)',
+              overflow: 'hidden',
+              animation: 'dshComfyPanelIn 190ms cubic-bezier(.23, 1, .32, 1) both',
+            },
+          },
+          // 标题栏
+          h(
+            'div',
+            {
+              style: {
+                flex: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 14px',
+                borderBottom: '1px solid var(--dsw-alias-border-l2)',
+              },
+            },
+            h('span', { style: { fontSize: 12.5, fontWeight: 600 } }, '画蒙版'),
+            h(
+              'span',
+              { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } },
+              '涂过的地方会被重画，其余保持不动',
+            ),
+            h('span', { style: { flex: 1 } }),
+            h('button', { type: 'button', style: btn, onClick: close }, '取消'),
+            h(
+              'button',
+              {
+                type: 'button',
+                onClick: done,
+                style: Object.assign({}, btn, {
+                  background: '#3b82f6',
+                  borderColor: '#3b82f6',
+                  color: '#ffffff',
+                  fontWeight: 600,
+                }),
+              },
+              '完成',
+            ),
+          ),
+          // 工具条
+          h(
+            'div',
+            {
+              style: {
+                flex: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 14px',
+                borderBottom: '1px solid var(--dsw-alias-border-l2)',
+              },
+            },
+            h(
+              'button',
+              { type: 'button', style: chip(mode === 'brush'), onClick: () => setMode('brush') },
+              '画笔',
+            ),
+            h(
+              'button',
+              { type: 'button', style: chip(mode === 'erase'), onClick: () => setMode('erase') },
+              '橡皮',
+            ),
+            h('span', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, '笔刷'),
+            h('input', {
+              type: 'range',
+              min: 4,
+              max: 200,
+              step: 1,
+              value: size,
+              onChange: (event) => setSize(Number(event.target.value) || 28),
+              style: { width: 140 },
+            }),
+            h('span', { style: { fontSize: 10, width: 42, fontVariantNumeric: 'tabular-nums' } }, size + ' px'),
+            h('span', { style: { flex: 1 } }),
+            h('button', { type: 'button', style: btn, onClick: undo, disabled: strokeCount === 0 }, '撤销'),
+            h('button', { type: 'button', style: btn, onClick: invert }, '反相'),
+            h('button', { type: 'button', style: btn, onClick: clearAll }, '清除'),
+          ),
+          // 画布舞台
+          h(
+            'div',
+            {
+              ref: stageRef,
+              style: {
+                flex: 1,
+                minHeight: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 12,
+                background: 'var(--dsw-alias-bg-layer-1)',
+                overflow: 'hidden',
+              },
+            },
+            h('canvas', {
+              ref: viewRef,
+              onPointerDown,
+              onPointerMove,
+              onPointerUp,
+              onPointerCancel: onPointerUp,
+              style: {
+                display: 'block',
+                borderRadius: 8,
+                boxShadow: '0 10px 30px rgba(0, 0, 0, 0.35)',
+                cursor: mode === 'erase' ? 'cell' : 'crosshair',
+                touchAction: 'none',
+              },
+            }),
+            error
+              ? h(
+                  'div',
+                  { style: { position: 'absolute', fontSize: 10.5, color: 'var(--dsw-alias-state-error-primary)' } },
+                  error,
+                )
+              : null,
+          ),
+          // 脚注
+          h(
+            'div',
+            {
+              style: {
+                flex: 'none',
+                padding: '6px 14px',
+                borderTop: '1px solid var(--dsw-alias-border-l2)',
+                fontSize: 9.5,
+                color: 'var(--dsw-alias-label-secondary)',
+              },
+            },
+            '导出的 PNG 中，涂过的地方是透明的——正是 OpenAI images/edits 里 mask 的语义；撤销按笔画回退，反相后无法再逐笔撤销。',
+          ),
+        ),
+      )
+    }
+
     /** Remotely generated images: OpenAI-compatible and MiniMax adapters. */
     function OnlineImagePanel(props) {
       ensureWorkbenchStyle()
@@ -13947,6 +14415,7 @@ window.__ModuleLoader__.load({
       const imageData = imageList[0] || ''
       // mask：同尺寸 PNG，透明处表示要修改的地方（inpainting）
       const [maskData, setMaskData] = useState('')
+      const [maskPainterOpen, setMaskPainterOpen] = useState(false)
       const [busy, setBusy] = useState(false)
       const [error, setError] = useState('')
       const [result, setResult] = useState(null)
@@ -14643,6 +15112,26 @@ window.__ModuleLoader__.load({
                             },
                           })
                         : null,
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          onClick: () => setMaskPainterOpen(true),
+                          title: '在参考图上直接涂出要重画的地方',
+                          style: {
+                            padding: '3px 8px',
+                            borderRadius: 6,
+                            border: '1px solid #3b82f6',
+                            background: 'rgba(59, 130, 246, 0.12)',
+                            color: '#3b82f6',
+                            fontSize: 10,
+                            fontFamily: 'inherit',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          },
+                        },
+                        '画蒙版',
+                      ),
                       h(
                         'label',
                         {
@@ -15392,6 +15881,16 @@ window.__ModuleLoader__.load({
             },
             onClose: () => setPickerOpen(false),
           }),
+        h(MaskPainterDialog, {
+          open: maskPainterOpen,
+          imageUrl: imageData,
+          initialMask: maskData,
+          onClose: () => setMaskPainterOpen(false),
+          onDone: (next) => {
+            setMaskData(next || '')
+            setMaskPainterOpen(false)
+          },
+        }),
         h(PromptRulesDialog, { open: rulesOpen, onClose: () => setRulesOpen(false) }),
           h(PromptHistoryDialog, { open: historyOpen, onClose: () => setHistoryOpen(false) }),
           error
