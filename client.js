@@ -14473,17 +14473,25 @@ window.__ModuleLoader__.load({
       const [count, setCount] = usePref('remoteCount')
       const [aspectRatio, setAspectRatio] = usePref('remoteAspect')
       const [promptOptimizer, setPromptOptimizer] = usePref('remoteOptimizer')
-      // 境外端点需要代理：宿主进程的 fetch 不吃系统代理，只有显式给了地址才走隧道。
-      const [proxyOnRaw, setProxyOn] = usePref('remoteProxyOn')
-      const [proxyUrlRaw, setProxyUrl] = usePref('remoteProxyUrl')
-      const proxyOn = proxyOnRaw !== false
-      const proxyUrl = typeof proxyUrlRaw === 'string' && proxyUrlRaw.trim() ? proxyUrlRaw.trim() : 'http://127.0.0.1:7897'
-      // 首次进入把默认值写进偏好：此后用户填的、或者「自动检测」拿到的一律以存下来的
-      // 值为准，不会被默认值盖回去（之前每次都要重新改正就是因为默认值没落盘）。
+      // 代理按 provider 分开存：MiniMax 走国内直连，OpenAI 兼容常常要代理，
+      // 两边混用会互相干扰，所以各存各的。
+      const [proxyMapRaw, setProxyMap] = usePref('remoteProxyMap')
+      const proxyMap = proxyMapRaw && typeof proxyMapRaw === 'object' ? proxyMapRaw : {}
+      const proxyEntry = proxyMap[provider] || {}
+      const proxyOn = proxyEntry.on !== false
+      const proxyUrl =
+        typeof proxyEntry.url === 'string' && proxyEntry.url.trim()
+          ? proxyEntry.url.trim()
+          : 'http://127.0.0.1:7897'
+      const writeProxy = (patch) =>
+        setProxyMap(Object.assign({}, proxyMap, { [provider]: Object.assign({}, proxyEntry, patch) }))
+      const setProxyOn = (next) => writeProxy({ on: next })
+      const setProxyUrl = (next) => writeProxy({ url: next })
+      // 首次进入给当前 provider 落一份默认值，之后一律以存下来的为准
       useEffect(() => {
-        if (proxyUrlRaw === undefined) setProxyUrl('http://127.0.0.1:7897')
-        // 只在挂载时补一次
-      }, [])
+        if (!proxyMap[provider]) writeProxy({ on: true, url: 'http://127.0.0.1:7897' })
+        // 只在 provider 变化且该侧还没有配置时补一次
+      }, [provider])
       const proxySpec = proxyOn ? proxyUrl : ''
       const [proxyVia, setProxyVia] = useState('')
       const [proxyOpen, setProxyOpen] = useState(false)
@@ -14516,8 +14524,13 @@ window.__ModuleLoader__.load({
       const [promptWriteEffort] = usePref('promptWriteEffort')
       const [historyOpen, setHistoryOpen] = useState(false)
       const [modelOptions, setModelOptions] = useState([])
-      // 拉过一次列表就存下来：下次打开同一个端点不必再点「获取列表」。
-      const [modelCache, setModelCache] = usePref('remoteModelCache')
+      // 拉过一次列表就存下来：按 provider 分开，互不影响。
+      const [modelCacheMapRaw, setModelCacheMap] = usePref('remoteModelMap')
+      const modelCacheMap =
+        modelCacheMapRaw && typeof modelCacheMapRaw === 'object' ? modelCacheMapRaw : {}
+      const modelCache = modelCacheMap[provider] || null
+      const setModelCache = (next) =>
+        setModelCacheMap(Object.assign({}, modelCacheMap, { [provider]: next }))
       const cacheAt =
         modelCache && modelCache.endpoint === endpoint && Number.isFinite(modelCache.at) ? modelCache.at : 0
       const cacheLabel = cacheAt
