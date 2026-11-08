@@ -14483,13 +14483,22 @@ window.__ModuleLoader__.load({
         typeof proxyEntry.url === 'string' && proxyEntry.url.trim()
           ? proxyEntry.url.trim()
           : 'http://127.0.0.1:7897'
-      const writeProxy = (patch) =>
-        setProxyMap(Object.assign({}, proxyMap, { [provider]: Object.assign({}, proxyEntry, patch) }))
+      // 合并时读偏好的最新值，而不是本次渲染闭包里的快照：
+      // 连续 writeProxy 调用（先写 url 再写 on）不会互相覆盖。
+      const writeProxy = (patch) => {
+        const latest = pluginPrefs.get().remoteProxyMap
+        const map = latest && typeof latest === 'object' ? latest : {}
+        const current = map[provider] || {}
+        setProxyMap(Object.assign({}, map, { [provider]: Object.assign({}, current, patch) }))
+      }
       const setProxyOn = (next) => writeProxy({ on: next })
       const setProxyUrl = (next) => writeProxy({ url: next })
       // 首次进入给当前 provider 落一份默认值，之后一律以存下来的为准
       useEffect(() => {
-        if (!proxyMap[provider]) writeProxy({ on: true, url: 'http://127.0.0.1:7897' })
+        // 同样看偏好的最新值：避免用渲染快照把刚检测出来的地址当成"还没配置"
+        const latest = pluginPrefs.get().remoteProxyMap
+        const map = latest && typeof latest === 'object' ? latest : {}
+        if (!map[provider]) writeProxy({ on: true, url: 'http://127.0.0.1:7897' })
         // 只在 provider 变化且该侧还没有配置时补一次
       }, [provider])
       const proxySpec = proxyOn ? proxyUrl : ''
