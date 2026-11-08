@@ -14552,10 +14552,25 @@ window.__ModuleLoader__.load({
       const modelCacheMap =
         modelCacheMapRaw && typeof modelCacheMapRaw === 'object' ? modelCacheMapRaw : {}
       const modelCache = modelCacheMap[provider] || null
-      const setModelCache = (next) =>
-        setModelCacheMap(Object.assign({}, modelCacheMap, { [provider]: next }))
+      // 同样从偏好最新值合并：两个 provider 先后写入时不会互相覆盖
+      const setModelCache = (next) => {
+        const latest = pluginPrefs.get().remoteModelMap
+        const map = latest && typeof latest === 'object' ? latest : {}
+        setModelCacheMap(Object.assign({}, map, { [provider]: next }))
+      }
       const cacheAt =
-        modelCache && modelCache.endpoint === endpoint && Number.isFinite(modelCache.at) ? modelCache.at : 0
+        modelCache &&
+        String(modelCache.endpoint || '')
+          .trim()
+          .replace(/\/+$/, '')
+          .toLowerCase() ===
+          String(endpoint || '')
+            .trim()
+            .replace(/\/+$/, '')
+            .toLowerCase() &&
+        Number.isFinite(modelCache.at)
+          ? modelCache.at
+          : 0
       const cacheLabel = cacheAt
         ? new Date(cacheAt).toLocaleString('zh-CN', {
             month: '2-digit',
@@ -14646,7 +14661,13 @@ window.__ModuleLoader__.load({
 
       // 端点没变就用上次拉到的列表，省掉每次打开都要点一次「获取列表」。
       useEffect(() => {
-        if (!modelCache || modelCache.endpoint !== endpoint) return
+        // 端点比较放宽：尾斜杠、大小写不同也算同一个端点，否则缓存看着像没生效
+        const normalize = (value) =>
+          String(value || '')
+            .trim()
+            .replace(/\/+$/, '')
+            .toLowerCase()
+        if (!modelCache || normalize(modelCache.endpoint) !== normalize(endpoint)) return
         if (!Array.isArray(modelCache.models) || modelCache.models.length === 0) return
         setModelOptions((current) => (current.length > 0 ? current : modelCache.models))
       }, [endpoint, modelCache])
