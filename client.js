@@ -14657,18 +14657,39 @@ window.__ModuleLoader__.load({
                   modelsBusy ? '获取中…' : '获取列表',
                 ),
               ),
-              h('input', {
-                value: model,
-                list: 'dsh-remote-models',
-                placeholder: provider === 'minimax' ? 'image-01' : 'gpt-image-2.5-flare-c',
-                style: field,
-                onChange: (event) => setModel(event.target.value),
-              }),
-              h(
-                'datalist',
-                { id: 'dsh-remote-models' },
-                modelOptions.map((option) => h('option', { key: option, value: option })),
-              ),
+              // 自绘下拉：原生 datalist 会按输入框当前值过滤候选项，只显示一条，
+              // 看着像"列表载入失败"。有候选时用 Dropdown，没有候选（还没取过列表）
+              // 时退回文本框，保证任何情况下都能手填模型名。
+              modelOptions.length > 0
+                ? h(Dropdown, {
+                    title: '模型（' + modelOptions.length + ' 个可选）',
+                    placeholder: model || (provider === 'minimax' ? 'image-01' : '选择模型'),
+                    value: model,
+                    options: (modelOptions.indexOf(model) >= 0 ? modelOptions : [model, ...modelOptions])
+                      .filter(Boolean)
+                      .map((item) => ({ value: item, label: item })),
+                    onPick: (value) => setModel(value),
+                    dark: props.night,
+                    menuMinWidth: 260,
+                    menuAlign: 'right',
+                    triggerStyle: {
+                      minHeight: 0,
+                      boxSizing: 'border-box',
+                      padding: '7px 10px',
+                      borderRadius: 9,
+                      fontSize: 11.5,
+                      fontFamily: 'inherit',
+                      background: 'var(--dsw-alias-bg-layer-1)',
+                      color: 'var(--dsw-alias-label-primary)',
+                      border: '1px solid var(--dsw-alias-border-l2)',
+                    },
+                  })
+                : h('input', {
+                    value: model,
+                    placeholder: provider === 'minimax' ? 'image-01' : 'gpt-image-2.5-flare-c',
+                    style: field,
+                    onChange: (event) => setModel(event.target.value),
+                  }),
               modelsError
                 ? h('div', { style: { fontSize: 9.5, color: 'var(--dsw-alias-state-error-primary)' } }, modelsError)
                 : null,
