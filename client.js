@@ -14676,27 +14676,84 @@ window.__ModuleLoader__.load({
         }
         reader.readAsDataURL(file)
       }
+      // 扫本机常见端口，返回能真的建起隧道的那个（'' 表示都没通）
+      const scanProxyPort = async () => {
+        let host = ''
+        try {
+          host = new URL(String(endpoint).trim()).hostname
+        } catch {
+          host = ''
+        }
+        const scanRes = await fetch('/plugin/comfy-canvas/proxy-scan', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ host }),
+        })
+        const scan = await scanRes.json().catch(() => null)
+        if (!scan || !scan.ok) return { found: '', results: [] }
+        return { found: scan.found || '', results: scan.results || [] }
+      }
+      // 静默验证一个具体地址：能打通就返回 true
+      const probeProxyUrl = async (url) => {
+        try {
+          const res = await fetch('/plugin/comfy-canvas/proxy-test', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ endpoint, key: apiKey, proxy: url }),
+          })
+          const data = await res.json().catch(() => null)
+          return Boolean(data && data.ok && data.reachable)
+        } catch {
+          return false
+        }
+      }
+      // 打开代理弹窗时自动校准：当前地址能用就不动；不能用但别的端口能通，就换上并落盘。
+      useEffect(() => {
+        if (!proxyOpen) return undefined
+        let alive = true
+        // 已有地址时只做后台校验，不弹提示，避免每次打开都闪一下
+        const saved = proxyEntry.url || ''
+        if (saved) {
+          probeProxyUrl(saved).then((ok) => {
+            if (!alive || ok) return
+            scanProxyPort().then((scan) => {
+              if (!alive || !scan.found) return
+              setProxyUrl(scan.found)
+              setProxyOn(true)
+              setProxyTest({ ok: true, text: '原地址不通，已自动改用 ' + scan.found })
+            })
+          })
+          return () => {
+            alive = false
+          }
+        }
+        scanProxyPort().then((scan) => {
+          if (!alive || !scan.found) return
+          setProxyUrl(scan.found)
+          setProxyOn(true)
+          setProxyTest({ ok: true, text: '已自动填入 ' + scan.found })
+        })
+        return () => {
+          alive = false
+        }
+      }, [proxyOpen])
+
       const readSystemProxy = async () => {
         setProxyTest({ busy: true, text: '检测中…' })
         try {
           // 先按目标主机扫本机常见端口：哪个能真的建起隧道就用哪个，
           // 比读注册表可靠（注册表只说明"配置着"，不说明"能用"）。
-          let host = ''
-          try {
-            host = new URL(String(endpoint).trim()).hostname
-          } catch {
-            host = ''
-          }
-          const scanRes = await fetch('/plugin/comfy-canvas/proxy-scan', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ host }),
-          })
-          const scan = await scanRes.json().catch(() => null)
-          if (scan && scan.ok && scan.found) {
+          const scan = await scanProxyPort()
+          if (scan.found) {
             setProxyUrl(scan.found)
             setProxyOn(true)
-            setProxyTest({ ok: true, text: '自动检测到可用代理：' + scan.found + '（' + scan.results[scan.results.length - 1].ms + 'ms）' })
+            setProxyTest({
+              ok: true,
+              text:
+                '自动检测到可用代理：' +
+                scan.found +
+                (scan.results.length ? '（' + scan.results[scan.results.length - 1].ms + 'ms）' : ''),
+            })
             return
           }
           const tried = (scan && scan.results ? scan.results.map((item) => item.port) : []).join(' / ')
