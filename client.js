@@ -14838,6 +14838,11 @@ window.__ModuleLoader__.load({
           const data = await res.json().catch(() => null)
           if (!data) throw new Error('没有响应')
           if (!data.ok) throw new Error(data.error || '测试失败')
+          // 测通了就把这个地址落盘：验证过的配置不该在刷新后丢掉
+          if (data.reachable) {
+            setProxyUrl(proxySpec || proxyUrl)
+            setProxyOn(true)
+          }
           setProxyTest({
             ok: Boolean(data.reachable),
             text:
@@ -14847,7 +14852,7 @@ window.__ModuleLoader__.load({
               ' · ' +
               data.ms +
               'ms' +
-              (data.reachable ? '' : '（端点可达但返回非 2xx，多半是 key 问题）'),
+              (data.reachable ? ' · 已保存' : '（端点可达但返回非 2xx，多半是 key 问题）'),
           })
         } catch (error) {
           setProxyTest({ ok: false, text: String((error && error.message) || error) })
@@ -16062,6 +16067,11 @@ window.__ModuleLoader__.load({
                       style: Object.assign({}, field, proxyOn ? null : { opacity: 0.55 }),
                       onChange: (event) => setProxyUrl(event.target.value),
                     }),
+                    h(
+                      'div',
+                      { style: { fontSize: 9, color: 'var(--dsw-alias-label-secondary)' } },
+                      '已保存：' + (proxyEntry.url || '（默认值）'),
+                    ),
                     h(
                       'div',
                       { style: { display: 'flex', gap: 6 } },
