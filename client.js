@@ -13931,6 +13931,8 @@ window.__ModuleLoader__.load({
       const proxyUrl = typeof proxyUrlRaw === 'string' && proxyUrlRaw.trim() ? proxyUrlRaw.trim() : 'http://127.0.0.1:7897'
       const proxySpec = proxyOn ? proxyUrl : ''
       const [proxyVia, setProxyVia] = useState('')
+      const [proxyOpen, setProxyOpen] = useState(false)
+      const [proxyTest, setProxyTest] = useState(null)
       const [customW, setCustomW] = useState('')
       const [customH, setCustomH] = useState('')
       const [sizeMode, setSizeMode] = useState('preset')
@@ -13992,6 +13994,68 @@ window.__ModuleLoader__.load({
         reader.onerror = () => setError('读取参考图失败')
         reader.readAsDataURL(file)
       }
+      const readSystemProxy = async () => {
+        setProxyTest({ busy: true, text: '读取中…' })
+        try {
+          const res = await fetch('/plugin/comfy-canvas/system-proxy')
+          const data = await res.json().catch(() => null)
+          if (!data || !data.ok) throw new Error((data && data.error) || '读取失败')
+          if (!data.url) {
+            setProxyTest({ ok: false, text: '系统代理未启用（或读取到空值）' })
+            return
+          }
+          setProxyUrl(data.url)
+          setProxyOn(true)
+          setProxyTest({ ok: true, text: '已读取系统代理：' + data.url })
+        } catch (error) {
+          setProxyTest({ ok: false, text: String((error && error.message) || error) })
+        }
+      }
+      const testProxy = async () => {
+        if (!String(endpoint).trim()) {
+          setProxyTest({ ok: false, text: '先填端点' })
+          return
+        }
+        setProxyTest({ busy: true, text: '测试中…' })
+        try {
+          const res = await fetch('/plugin/comfy-canvas/proxy-test', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ endpoint, key: apiKey, proxy: proxySpec }),
+          })
+          const data = await res.json().catch(() => null)
+          if (!data) throw new Error('没有响应')
+          if (!data.ok) throw new Error(data.error || '测试失败')
+          setProxyTest({
+            ok: Boolean(data.reachable),
+            text:
+              (data.via === 'proxy' ? '经代理' : '直连') +
+              ' · HTTP ' +
+              data.status +
+              ' · ' +
+              data.ms +
+              'ms' +
+              (data.reachable ? '' : '（端点可达但返回非 2xx，多半是 key 问题）'),
+          })
+        } catch (error) {
+          setProxyTest({ ok: false, text: String((error && error.message) || error) })
+        }
+      }
+      // 舞台数据源：保存目录里已落盘的图（和本地文生图一样带缩略图），
+      // 没保存时退回刚生成的那几张 base64。
+      const stageImages =
+        savedFiles.length > 0
+          ? savedFiles.map((file) => ({
+              url: file.thumb || file.url,
+              full: file.url,
+              filename: file.name,
+            }))
+          : images.map((b64, index) => ({
+              url: 'data:image/png;base64,' + b64,
+              full: 'data:image/png;base64,' + b64,
+              filename: 'remote-' + (index + 1) + '.png',
+            }))
+
       const fetchModels = async () => {
         if (modelsBusy) return
         if (!String(endpoint).trim()) {
@@ -14584,49 +14648,43 @@ window.__ModuleLoader__.load({
                 onChange: (event) => setApiKey(event.target.value),
               }),
             ),
-            // 境外端点：勾上才经本机代理转发，关掉就是直连（本机 ComfyUI 永远直连）。
+            // 代理：收起成一行状态 + 按钮，细节在弹窗里（含系统代理读取与连通测试）。
             h(
               'div',
-              { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
+              { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+              h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '代理'),
               h(
-                'div',
-                { style: { display: 'flex', alignItems: 'center', gap: 8 } },
-                h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '代理'),
-                h('span', { style: { flex: 1 } }),
-                proxyVia
-                  ? h(
-                      'span',
-                      { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } },
-                      '上次' + proxyVia,
-                    )
-                  : null,
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    onClick: () => setProxyOn(!proxyOn),
-                    title: '境外端点常需要代理；宿主进程不会自动读系统代理，所以要在这里显式打开',
-                    style: {
-                      padding: '2px 8px',
-                      borderRadius: 6,
-                      border: '1px solid ' + (proxyOn ? '#3b82f6' : 'var(--dsw-alias-border-l2)'),
-                      background: proxyOn ? '#3b82f6' : 'var(--dsw-alias-bg-layer-2)',
-                      color: proxyOn ? '#ffffff' : 'var(--dsw-alias-label-secondary)',
-                      fontSize: 9.5,
-                      fontFamily: 'inherit',
-                      cursor: 'pointer',
-                    },
+                'span',
+                {
+                  style: {
+                    flex: 1,
+                    fontSize: 9.5,
+                    color: 'var(--dsw-alias-label-secondary)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
                   },
-                  proxyOn ? '开' : '关',
-                ),
+                },
+                (proxyOn ? '开' : '关') + ' · ' + proxyUrl + (proxyVia ? ' · 上次' + proxyVia : ''),
               ),
-              h('input', {
-                value: proxyUrl,
-                placeholder: 'http://127.0.0.1:7897',
-                disabled: !proxyOn,
-                style: Object.assign({}, field, proxyOn ? null : { opacity: 0.55 }),
-                onChange: (event) => setProxyUrl(event.target.value),
-              }),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  onClick: () => setProxyOpen(true),
+                  style: {
+                    padding: '2px 8px',
+                    borderRadius: 6,
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                    background: 'var(--dsw-alias-bg-layer-2)',
+                    color: 'var(--dsw-alias-label-secondary)',
+                    fontSize: 9.5,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                  },
+                },
+                '设置',
+              ),
             ),
             h(
               'div',
@@ -14815,6 +14873,176 @@ window.__ModuleLoader__.load({
                 )
               : null,
           ),
+          proxyOpen
+            ? h(
+                'div',
+                {
+                  style: {
+                    position: 'fixed',
+                    inset: 0,
+                    zIndex: 1300,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'rgba(0, 0, 0, 0.55)',
+                    backdropFilter: 'blur(2px)',
+                    animation: 'dshComfyOverlayIn 160ms ease-out both',
+                  },
+                  onClick: (event) => {
+                    if (event.target === event.currentTarget) setProxyOpen(false)
+                  },
+                },
+                h(
+                  'div',
+                  {
+                    style: {
+                      width: 380,
+                      maxWidth: 'calc(100vw - 40px)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      borderRadius: 14,
+                      border: '1px solid var(--dsw-alias-border-l2)',
+                      background: 'var(--dsw-alias-bg-base)',
+                      color: 'var(--dsw-alias-label-primary)',
+                      boxShadow: '0 24px 70px rgba(0, 0, 0, 0.42)',
+                      overflow: 'hidden',
+                      animation: 'dshComfyPanelIn 180ms cubic-bezier(.23, 1, .32, 1) both',
+                    },
+                  },
+                  h(
+                    'div',
+                    {
+                      style: {
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '10px 14px',
+                        borderBottom: '1px solid var(--dsw-alias-border-l2)',
+                      },
+                    },
+                    h('span', { style: { fontSize: 12.5, fontWeight: 600 } }, '代理'),
+                    h('span', { style: { flex: 1 } }),
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        onClick: () => setProxyOpen(false),
+                        style: {
+                          padding: '4px 10px',
+                          borderRadius: 7,
+                          border: '1px solid var(--dsw-alias-border-l2)',
+                          background: 'transparent',
+                          color: 'var(--dsw-alias-label-secondary)',
+                          fontSize: 10.5,
+                          fontFamily: 'inherit',
+                          cursor: 'pointer',
+                        },
+                      },
+                      '完成',
+                    ),
+                  ),
+                  h(
+                    'div',
+                    { style: { display: 'flex', flexDirection: 'column', gap: 9, padding: '12px 14px' } },
+                    h(
+                      'div',
+                      { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+                      h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '走代理'),
+                      h('span', { style: { flex: 1 } }),
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          onClick: () => setProxyOn(!proxyOn),
+                          style: {
+                            padding: '3px 12px',
+                            borderRadius: 7,
+                            border: '1px solid ' + (proxyOn ? '#3b82f6' : 'var(--dsw-alias-border-l2)'),
+                            background: proxyOn ? '#3b82f6' : 'var(--dsw-alias-bg-layer-2)',
+                            color: proxyOn ? '#ffffff' : 'var(--dsw-alias-label-secondary)',
+                            fontSize: 10.5,
+                            fontFamily: 'inherit',
+                            cursor: 'pointer',
+                          },
+                        },
+                        proxyOn ? '开' : '关',
+                      ),
+                    ),
+                    h('input', {
+                      value: proxyUrl,
+                      placeholder: 'http://127.0.0.1:7989',
+                      disabled: !proxyOn,
+                      style: Object.assign({}, field, proxyOn ? null : { opacity: 0.55 }),
+                      onChange: (event) => setProxyUrl(event.target.value),
+                    }),
+                    h(
+                      'div',
+                      { style: { display: 'flex', gap: 6 } },
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          onClick: readSystemProxy,
+                          style: {
+                            flex: 1,
+                            padding: '5px 8px',
+                            borderRadius: 7,
+                            border: '1px solid var(--dsw-alias-border-l2)',
+                            background: 'var(--dsw-alias-bg-layer-1)',
+                            color: 'var(--dsw-alias-label-primary)',
+                            fontSize: 10.5,
+                            fontFamily: 'inherit',
+                            cursor: 'pointer',
+                          },
+                        },
+                        '读取系统代理',
+                      ),
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          onClick: testProxy,
+                          style: {
+                            flex: 1,
+                            padding: '5px 8px',
+                            borderRadius: 7,
+                            border: '1px solid var(--dsw-alias-border-l2)',
+                            background: 'var(--dsw-alias-bg-layer-1)',
+                            color: 'var(--dsw-alias-label-primary)',
+                            fontSize: 10.5,
+                            fontFamily: 'inherit',
+                            cursor: 'pointer',
+                          },
+                        },
+                        '测试连通',
+                      ),
+                    ),
+                    proxyTest
+                      ? h(
+                          'div',
+                          {
+                            style: {
+                              fontSize: 10,
+                              lineHeight: 1.5,
+                              color: proxyTest.busy
+                                ? 'var(--dsw-alias-label-secondary)'
+                                : proxyTest.ok
+                                  ? '#22c55e'
+                                  : 'var(--dsw-alias-state-error-primary)',
+                            },
+                          },
+                          proxyTest.text,
+                        )
+                      : null,
+                    h(
+                      'div',
+                      { style: { fontSize: 9.5, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' } },
+                      '宿主进程的 fetch 不读系统代理，所以境外端点要在这里显式打开；本机 ComfyUI 的请求始终直连。',
+                    ),
+                  ),
+                ),
+              )
+            : null,
           h(DirectoryPicker, {
             open: pickerOpen,
             title: '选择保存目录',
@@ -14857,50 +15085,30 @@ window.__ModuleLoader__.load({
               overflow: 'auto',
             },
           },
-          images.length > 0
+          stageImages.length > 0
             ? h(
-                React.Fragment,
-                null,
-                h(
-                  'div',
-                  { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12, width: '100%' } },
-                  images.map((b64, index) =>
-                    h(
-                      'button',
-                      {
-                        key: index,
-                        type: 'button',
-                        onClick: () => {
-                          setViewerIndex(index)
-                          setViewerOpen(true)
-                        },
-                        style: {
-                          padding: 0,
-                          border: '1px solid var(--dsw-alias-border-l2)',
-                          borderRadius: 12,
-                          overflow: 'hidden',
-                          background: 'transparent',
-                          cursor: 'pointer',
-                          boxShadow: '0 12px 40px rgba(0, 0, 0, 0.18)',
-                        },
-                      },
-                      h('img', {
-                        src: 'data:image/png;base64,' + b64,
-                        alt: '',
-                        style: { width: '100%', display: 'block' },
-                      }),
-                    ),
-                  ),
-                ),
-                h(
-                  'a',
-                  {
-                    href: 'data:image/png;base64,' + images[0],
-                    download: 'remote-image.png',
-                    style: { fontSize: 11, color: 'var(--dsw-alias-brand-primary)' },
+                'div',
+                {
+                  style: {
+                    flex: 1,
+                    minWidth: 0,
+                    position: 'relative',
+                    display: 'flex',
+                    borderRadius: 14,
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                    overflow: 'hidden',
                   },
-                  '下载第一张',
-                ),
+                },
+                h(ImageViewer, {
+                  // 和本地文生图同一套嵌入式查看器：选中的大图 + 未选中的缩略图条。
+                  key: 'remote-' + stageImages.length,
+                  embedded: true,
+                  theme: props.night ? 'dark' : 'light',
+                  images: stageImages,
+                  startIndex: 0,
+                  filename: stageImages[0] ? stageImages[0].filename : '',
+                  onClose: () => {},
+                }),
               )
             : h(
                 'div',
@@ -14915,7 +15123,7 @@ window.__ModuleLoader__.load({
                 },
                 h(Icon, { name: 'images', size: 34 }),
                 h('div', { style: { fontSize: 11.5 } }, busy ? '正在生成…' : '结果会显示在这里'),
-              ),
+              )
         ),
         viewerOpen && images.length > 0
           ? h(ImageViewer, {

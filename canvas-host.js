@@ -10,6 +10,7 @@
 import { isAbsolute, dirname, join, extname, resolve } from 'node:path'
 import { readFile, writeFile, readdir, stat, copyFile, mkdir } from 'node:fs/promises'
 import https from 'node:https'
+import { execFile } from 'node:child_process'
 import net from 'node:net'
 import tls from 'node:tls'
 import { fileURLToPath } from 'node:url'
@@ -1327,6 +1328,81 @@ export function apply(ctx, config = {}) {
           ? json.data.map((item) => (item && (item.id || item.model)) || '').filter(Boolean)
           : []
         return send(200, { ok: true, via, models: list })
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
+    }
+
+    // 读 Windows 的「系统代理」设置：Clash / v2ray 之类改端口很勤，手填容易错。
+    if (pathname === `${PREFIX}/system-proxy`) {
+      if (req.method !== 'GET') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const key = 'HKCU\\Software\\Microsoft\\Windows\\Internet Settings'
+        const read = (name) =>
+          new Promise((resolve) => {
+            execFile('reg', ['query', key, '/v', name], { windowsHide: true }, (error, stdout) => {
+              if (error) return resolve('')
+              const line = String(stdout)
+                .split(/\r?\n/)
+                .find((row) => row.includes(name))
+              if (!line) return resolve('')
+              const parts = line.trim().split(/\s{2,}/)
+              resolve(parts.length >= 3 ? parts[parts.length - 1].trim() : '')
+            })
+          })
+        const [enabledRaw, serverRaw] = await Promise.all([read('ProxyEnable'), read('ProxyServer')])
+        const enabled = String(enabledRaw).trim() === '1'
+        // ProxyServer 可能是 "127.0.0.1:7989" 或 "http=127.0.0.1:7989;https=..." 两种写法
+        let host = ''
+        const server = String(serverRaw || '').trim()
+        if (server) {
+          if (server.includes('=')) {
+            const map = {}
+            for (const part of server.split(';')) {
+              const at = part.indexOf('=')
+              if (at > 0) map[part.slice(0, at).trim().toLowerCase()] = part.slice(at + 1).trim()
+            }
+            host = map.https || map.http || map.socks || ''
+          } else {
+            host = server
+          }
+        }
+        const url = host ? (/^[a-z]+:\/\//i.test(host) ? host : 'http://' + host) : ''
+        return send(200, { ok: true, enabled, server: host, url })
+      } catch (error) {
+        return send(502, { ok: false, error: String((error && error.message) || error) })
+      }
+    }
+
+    // 连通测试：拿当前端点和代理试一次，把阶段性的失败原因直接返回给面板。
+    if (pathname === `${PREFIX}/proxy-test`) {
+      if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
+      try {
+        const body = JSON.parse((await readBody(req)) || '{}')
+        const endpoint = typeof body.endpoint === 'string' ? body.endpoint.trim() : ''
+        const key = typeof body.key === 'string' ? body.key.trim() : ''
+        if (!endpoint) return send(400, { ok: false, error: '先填端点' })
+        const url = /\/models$/.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/models'
+        const started = Date.now()
+        const res = await remoteFetch(
+          url,
+          {
+            method: 'GET',
+            headers: key ? { authorization: 'Bearer ' + key } : {},
+            timeoutMs: 12000,
+          },
+          body.proxy,
+        )
+        const ms = Date.now() - started
+        const okStatus = res.status >= 200 && res.status < 300
+        return send(200, {
+          ok: true,
+          via: body.proxy ? 'proxy' : 'direct',
+          status: res.status,
+          ms,
+          reachable: okStatus,
+          sample: String(res.text || '').slice(0, 160),
+        })
       } catch (error) {
         return send(502, { ok: false, error: String((error && error.message) || error) })
       }
