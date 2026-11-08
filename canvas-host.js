@@ -663,6 +663,17 @@ function proxiedRequest(urlString, options, proxy) {
  * 在线 API 的实际出口：proxy 给了地址就走隧道，否则直连。
  * 统一返回 { status, text }，multipart 之类的非字符串 body 先在这里序列化。
  */
+/** fetch 抛 "fetch failed" 时，真正的错因在 cause 里。 */
+function describeFetchError(error) {
+  const cause = error && error.cause
+  const code = cause && (cause.code || cause.errno)
+  const detail = cause && (cause.message || (cause.hostname ? 'host=' + cause.hostname : ''))
+  const parts = [String((error && error.message) || error)]
+  if (code) parts.push(String(code))
+  if (detail && String(detail) !== String(code)) parts.push(String(detail))
+  return parts.join(' · ')
+}
+
 async function remoteFetch(urlString, init, proxySpec) {
   const proxy = parseProxyUrl(proxySpec)
   const method = (init && init.method) || 'GET'
@@ -679,14 +690,23 @@ async function remoteFetch(urlString, init, proxySpec) {
   const timeoutMs = (init && init.timeoutMs) || 30000
 
   if (proxy) {
-    return proxiedRequest(urlString, { method, headers, body, timeoutMs }, proxy)
+    try {
+      return await proxiedRequest(urlString, { method, headers, body, timeoutMs }, proxy)
+    } catch (error) {
+      throw new Error('经代理失败 · ' + describeFetchError(error))
+    }
   }
-  const res = await fetch(urlString, {
-    method,
-    headers,
-    body: body || undefined,
-    signal: AbortSignal.timeout(timeoutMs),
-  })
+  let res
+  try {
+    res = await fetch(urlString, {
+      method,
+      headers,
+      body: body || undefined,
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+  } catch (error) {
+    throw new Error(describeFetchError(error))
+  }
   const text = await res.text()
   return { status: res.status, headers: {}, text }
 }
