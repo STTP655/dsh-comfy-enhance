@@ -14608,6 +14608,42 @@ window.__ModuleLoader__.load({
           alive = false
         }
       }, [saveDir, savedTick])
+      // 一次性迁移：拆分前 model 列表与代理是全局共用的（remoteModelCache /
+      // remoteProxyOn / remoteProxyUrl），现在按 provider 分表，把它们并入 openai。
+      useEffect(() => {
+        const prefs = pluginPrefs.get()
+        if (prefs.remotePrefsMigrated) return
+        const nextModelMap =
+          prefs.remoteModelMap && typeof prefs.remoteModelMap === 'object'
+            ? Object.assign({}, prefs.remoteModelMap)
+            : {}
+        const legacyCache = prefs.remoteModelCache
+        if (
+          !nextModelMap.openai &&
+          legacyCache &&
+          Array.isArray(legacyCache.models) &&
+          legacyCache.models.length > 0
+        ) {
+          nextModelMap.openai = legacyCache
+          setModelCacheMap(nextModelMap)
+        }
+        const nextProxyMap =
+          prefs.remoteProxyMap && typeof prefs.remoteProxyMap === 'object'
+            ? Object.assign({}, prefs.remoteProxyMap)
+            : {}
+        if (!nextProxyMap.openai && (prefs.remoteProxyUrl || prefs.remoteProxyOn !== undefined)) {
+          nextProxyMap.openai = {
+            on: prefs.remoteProxyOn !== false,
+            url:
+              typeof prefs.remoteProxyUrl === 'string' && prefs.remoteProxyUrl.trim()
+                ? prefs.remoteProxyUrl.trim()
+                : 'http://127.0.0.1:7897',
+          }
+          setProxyMap(nextProxyMap)
+        }
+        pluginPrefs.set('remotePrefsMigrated', true)
+      }, [])
+
       // 端点没变就用上次拉到的列表，省掉每次打开都要点一次「获取列表」。
       useEffect(() => {
         if (!modelCache || modelCache.endpoint !== endpoint) return
