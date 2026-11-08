@@ -16437,6 +16437,9 @@ window.__ModuleLoader__.load({
       const [saveSubdir, setSaveSubdir] = usePref('t2iSaveSubdir')
       // 文件名前缀：ComfyUI 会在它后面自动接序号，例如 角色A_00001_.png
       const [saveName, setSaveName] = usePref('t2iSaveName')
+      // 舞台相册的过滤：默认列全部，开启后只列保存目录
+      const [onlySaveDirRaw, setOnlySaveDir] = usePref('t2iGalleryOnlySaveDir')
+      const onlySaveDir = Boolean(onlySaveDirRaw) && Boolean(String(saveSubdir || '').trim())
       const [selected, setSelected] = useState('')
       const [jobId, setJobId] = useState('')
       // The same SSE tracker the album and the canvas use: ComfyUI's progress and
@@ -16480,7 +16483,7 @@ window.__ModuleLoader__.load({
         })
       }
       const refreshGallery = () => {
-        const sub = String(saveSubdir || '').trim()
+        const sub = onlySaveDir ? String(saveSubdir || '').trim() : ''
         const url = '/plugin/comfy-status/outputs' + (sub ? '?sub=' + encodeURIComponent(sub) : '')
         fetch(url, { cache: 'no-store' })
           .then((res) => res.json())
@@ -16490,9 +16493,9 @@ window.__ModuleLoader__.load({
           .catch(() => {})
       }
       useEffect(() => {
-        // 换保存位置后要重新列目录，否则相册还是旧文件夹里的图
+        // 换保存位置或切换过滤后都要重新列，否则相册还是旧的内容
         refreshGallery()
-      }, [saveSubdir])
+      }, [saveSubdir, onlySaveDir])
       // Read the embedded ComfyUI parameters for the selected file (the same
       // endpoint the album viewer uses).
       useEffect(() => {
@@ -17220,7 +17223,7 @@ window.__ModuleLoader__.load({
           // other full-page modules put theirs, instead of in the control column.
           h(
             'div',
-            { style: { position: 'absolute', left: 12, top: 12, zIndex: 6 } },
+            { style: { position: 'absolute', left: 12, top: 12, zIndex: 6, display: 'flex', alignItems: 'center', gap: 8 } },
             h(
               'button',
               {
@@ -17231,6 +17234,37 @@ window.__ModuleLoader__.load({
               },
               h(Icon, { name: 'chevron-left', size: 14 }),
               '返回',
+            ),
+            // 相册范围：列全部输出，或只看上面设置的保存目录
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dshComfyBackChip',
+                title: String(saveSubdir || '').trim()
+                  ? onlySaveDir
+                    ? '当前只显示保存目录，点击改为显示全部输出'
+                    : '当前显示全部输出，点击只显示保存目录'
+                  : '先在右侧设置保存位置，才能只看该目录',
+                disabled: !String(saveSubdir || '').trim(),
+                style: Object.assign(
+                  null,
+                  String(saveSubdir || '').trim()
+                    ? onlySaveDir
+                      ? {
+                          background: 'var(--dsw-alias-brand-primary)',
+                          color: '#ffffff',
+                          borderColor: 'var(--dsw-alias-brand-primary)',
+                        }
+                      : null
+                    : { opacity: 0.45, cursor: 'not-allowed' },
+                ),
+                onClick: () => {
+                  if (!String(saveSubdir || '').trim()) return
+                  setOnlySaveDir(!onlySaveDirRaw)
+                },
+              },
+              onlySaveDir ? '仅：' + String(saveSubdir).trim() : '全部图片',
             ),
           ),
           h(ImageViewer, {
