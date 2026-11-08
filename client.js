@@ -14109,8 +14109,8 @@ window.__ModuleLoader__.load({
         // 画笔尺寸是原图像素，换算成屏幕像素才是准星直径
         const displayPerNatural = viewRect.width / paint.width
         const diameter = Math.max(4, (overrideSize || size) * displayPerNatural)
-        cursor.style.width = diameter + 'px'
-        cursor.style.height = diameter + 'px'
+        cursor.setAttribute('width', String(diameter))
+        cursor.setAttribute('height', String(diameter))
         cursor.style.left = point.x - stageRect.left + 'px'
         cursor.style.top = point.y - stageRect.top + 'px'
         cursor.style.opacity = '1'
@@ -14372,26 +14372,45 @@ window.__ModuleLoader__.load({
                 overflow: 'hidden',
               },
             },
-            h('div', {
-              ref: cursorRef,
-              'aria-hidden': true,
-              style: {
-                position: 'absolute',
-                left: 0,
-                top: 0,
+            // 准星用 SVG 画：viewBox 固定 100×100，缩放时永远是正圆，
+            // 不受 DSH 外层 zoom/缩放、边框和子像素取整的影响。
+            h(
+              'svg',
+              {
+                ref: cursorRef,
+                'aria-hidden': true,
+                viewBox: '0 0 100 100',
                 width: 0,
                 height: 0,
-                borderRadius: '50%',
-                border: '1.5px solid rgba(255, 255, 255, 0.92)',
-                boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.55)',
-                background: 'rgba(239, 68, 68, 0.28)',
-                transform: 'translate(-50%, -50%)',
-                pointerEvents: 'none',
-                opacity: 0,
-                transition: 'opacity 120ms ease',
-                zIndex: 5,
+                style: {
+                  position: 'absolute',
+                  left: 0,
+                  top: 0,
+                  transform: 'translate(-50%, -50%)',
+                  pointerEvents: 'none',
+                  opacity: 0,
+                  overflow: 'visible',
+                  transition: 'opacity 120ms ease',
+                  zIndex: 5,
+                },
               },
-            }),
+              h('circle', {
+                cx: 50,
+                cy: 50,
+                r: 47,
+                fill: 'rgba(239, 68, 68, 0.28)',
+                stroke: 'rgba(0, 0, 0, 0.6)',
+                strokeWidth: 3,
+              }),
+              h('circle', {
+                cx: 50,
+                cy: 50,
+                r: 47,
+                fill: 'none',
+                stroke: 'rgba(255, 255, 255, 0.95)',
+                strokeWidth: 1.6,
+              }),
+            ),
             h('canvas', {
               ref: viewRef,
               onPointerDown,
