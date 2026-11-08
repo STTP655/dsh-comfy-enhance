@@ -16391,6 +16391,8 @@ window.__ModuleLoader__.load({
       const [gallery, setGallery] = useState([])
       // 保存子目录：留空就用 ComfyUI 默认输出目录；填了就落到 output/<子目录>/ 下。
       const [saveSubdir, setSaveSubdir] = usePref('t2iSaveSubdir')
+      // 文件名前缀：ComfyUI 会在它后面自动接序号，例如 角色A_00001_.png
+      const [saveName, setSaveName] = usePref('t2iSaveName')
       const [selected, setSelected] = useState('')
       const [jobId, setJobId] = useState('')
       // The same SSE tracker the album and the canvas use: ComfyUI's progress and
@@ -16654,6 +16656,7 @@ window.__ModuleLoader__.load({
               sampling: submittedSampling,
               // 自定义保存位置（ComfyUI 的 SaveImage 子目录写法），留空即默认
               saveSubdir: String(saveSubdir || '').trim(),
+              saveName: String(saveName || '').trim(),
             }),
           })
           const data = await res.json().catch(() => null)
@@ -17852,14 +17855,15 @@ window.__ModuleLoader__.load({
               { style: { display: 'flex', alignItems: 'center', gap: 8 } },
               h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '保存位置'),
               h('span', { style: { flex: 1 } }),
-              String(saveSubdir || '').trim()
+              String(saveSubdir || '').trim() || String(saveName || '').trim()
                 ? h(
                     'button',
                     {
                       type: 'button',
-                      title: '清空并回到 ComfyUI 默认输出目录',
+                      title: '清空保存位置与文件名，回到 ComfyUI 默认输出',
                       onClick: () => {
                         setSaveSubdir('')
+                        setSaveName('')
                         refreshGallery()
                       },
                       style: {
@@ -17886,9 +17890,21 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { style: { fontSize: 9, color: 'var(--dsw-alias-label-secondary)' } },
-              String(saveSubdir || '').trim()
-                ? '生成结果存到 ComfyUI 的 output/' + String(saveSubdir).trim().replace(/^\/+/, '') + '/'
-                : '生成结果存到 ComfyUI 默认输出目录',
+              '文件名前缀（可选，序号由 ComfyUI 自动添加）',
+            ),
+            h('input', {
+              value: saveName || '',
+              placeholder: '默认 text2img',
+              style: field,
+              onChange: (event) => setSaveName(event.target.value),
+            }),
+            h(
+              'div',
+              { style: { fontSize: 9, color: 'var(--dsw-alias-label-secondary)' } },
+              '生成结果：output/' +
+                (String(saveSubdir || '').trim() ? String(saveSubdir).trim().replace(/^\/+/, '') + '/' : '') +
+                (String(saveName || '').trim() || 'text2img') +
+                '_00001_.png',
             ),
           ),
           // 页脚在滚动区之外：光晕能往面板留白里散开，不会被滚动的横向裁剪切平。

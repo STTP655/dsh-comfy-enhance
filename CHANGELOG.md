@@ -15,6 +15,7 @@
 - **在线 API 支持流式进度**：直连时按 gpt-image 的 stream: true + partial_images: 2 取中间图，宿主把 SSE 转成 NDJSON 推给浏览器；生成浮卡贴在相册舞台左上角（脉动点 + 正在生成 + 秒数），有中间图就直接显示在里面，越到后面越清晰；走代理或编辑模式自动退回一次性返回
 - **代理与模型列表按 provider 分开存**：emoteProxyMap / emoteModelMap 各存 openai 与 minimax 一份，切 provider 互不影响（原来共用一套，MiniMax 改端口会污染 OpenAI 那边）
 - **修复代理自动改用后输入框没变**：writeProxy 合并的是本次渲染的快照，连续「写 url + 写开关」时第二次会用旧对象覆盖，把刚写入的地址吃掉（提示说改用了 7989、框里仍是 7897）；改成从偏好最新值合并，默认值补写也一并修正
+- **本地文生图可自定义文件名前缀**：新增「文件名」输入，提交时与子目录一起拼进 SaveImage 的 filename_prefix（最终 `<子目录>/<前缀>_00001_.png`）；留空仍是 text2img，「恢复默认」同时清空位置与名称
 - **本地文生图可自定义保存位置**：新增「保存位置」输入（相对 ComfyUI 输出目录的子目录，如 anime/t2i），提交时写进 SaveImage 的 filename_prefix；留空即回落到 ComfyUI 默认输出目录，「恢复默认」一键清空；相册列表跟着切换目录
 - **查看器信息栏不再随图片宽度收缩**：给底部信息条加上与内容无关的最小宽度（`min(460px, 100% - 16px)`）、内容居中，缩略图条 `flex: none` 不参与压缩
 - **修复刷新后新偏好全丢**：偏好读盘是一张白名单，remoteProxyMap / remoteModelMap / remotePrefsMigrated / remotePromptStyle 都没登记，每次刷新被丢掉（这才是端口被改回 7897、模型列表消失的真正原因）；现在构建完白名单后把其它键原样带回

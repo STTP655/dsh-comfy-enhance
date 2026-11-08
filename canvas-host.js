@@ -214,6 +214,20 @@ function findLatentNode(graph) {
 }
 
 /**
+ * 整理用户填的文件名前缀：允许中文与常见符号，但去掉路径分隔符、
+ * Windows 非法字符与控制字符，并清掉首尾的空格与点（Windows 不允许以点结尾）。
+ */
+export function sanitizeSaveName(raw) {
+  const text = typeof raw === 'string' ? raw.trim() : ''
+  if (!text) return ''
+  return text
+    .replace(/[\\/:*?"<>|]/g, '')
+    .replace(/[\u0000-\u001f]/g, '')
+    .replace(/^[.\s]+|[.\s]+$/g, '')
+    .slice(0, 48)
+}
+
+/**
  * 整理用户填的保存子目录：允许 a/b 这种相对层级，剥掉绝对路径、盘符、
  * 首尾斜杠与 ..，每段只留字母数字、中划线和下划线。
  */
@@ -709,17 +723,19 @@ async function submitText2Img(baseUrl, body) {
     if (typeof sampling.scheduler === 'string' && sampling.scheduler) samplerNode.inputs.scheduler = sampling.scheduler
     if (Number.isFinite(Number(sampling.seed))) samplerNode.inputs.seed = Math.max(0, Math.floor(Number(sampling.seed)))
   }
-  // 保存目录：SaveImage 的 filename_prefix 支持子目录，写 "名字/text2img" 就落到
-  // output/名字/ 下；不传则沿用模板里的 text2img。
+  // 保存位置与文件名前缀：SaveImage 的 filename_prefix 支持子目录写法，
+  // 最终文件名是 <子目录>/<前缀>_00001_.png；两者都不传时沿用模板里的 text2img。
   const saveSubdir = sanitizeSaveSubdir(body && body.saveSubdir)
-  if (saveSubdir) {
+  const saveName = sanitizeSaveName(body && body.saveName)
+  if (saveSubdir || saveName) {
     const saveNode = findNodeByType(graph, 'SaveImage')
     if (saveNode && saveNode.inputs) {
-      const base =
+      const templatePrefix =
         typeof saveNode.inputs.filename_prefix === 'string' && saveNode.inputs.filename_prefix
           ? saveNode.inputs.filename_prefix.split('/').pop()
           : 'text2img'
-      saveNode.inputs.filename_prefix = saveSubdir + '/' + base
+      const base = saveName || templatePrefix || 'text2img'
+      saveNode.inputs.filename_prefix = saveSubdir ? saveSubdir + '/' + base : base
     }
   }
   rewriteLoraChain(graph, normalizeLoras(models))
