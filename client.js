@@ -13963,6 +13963,7 @@ window.__ModuleLoader__.load({
       const [saveDir, setSaveDir] = usePref('remoteSaveDir')
       const [pickerOpen, setPickerOpen] = useState(false)
       const [savedFiles, setSavedFiles] = useState([])
+      const [savedError, setSavedError] = useState('')
       const [savedTick, setSavedTick] = useState(0)
       // Switching provider only rewrites values that still equal the other side's
       // defaults, so a custom endpoint/model survives the toggle.
@@ -13983,10 +13984,17 @@ window.__ModuleLoader__.load({
         fetch(url, { cache: 'no-store' })
           .then((res) => res.json())
           .then((data) => {
-            if (!alive || !data || !data.ok) return
+            if (!alive) return
+            if (!data || !data.ok) {
+              setSavedError((data && data.error) || '读取失败')
+              return
+            }
+            setSavedError('')
             setSavedFiles(Array.isArray(data.files) ? data.files : [])
           })
-          .catch(() => {})
+          .catch((err) => {
+            if (alive) setSavedError(String((err && err.message) || err))
+          })
         return () => {
           alive = false
         }
@@ -15116,6 +15124,13 @@ window.__ModuleLoader__.load({
                 },
                 h(Icon, { name: 'images', size: 34 }),
                 h('div', { style: { fontSize: 11.5 } }, busy ? '正在生成…' : '结果会显示在这里'),
+                savedError
+                  ? h(
+                      'div',
+                      { style: { fontSize: 10, color: 'var(--dsw-alias-state-error-primary)', maxWidth: 320, textAlign: 'center', lineHeight: 1.5 } },
+                      '相册读取失败：' + savedError + (savedError.includes('fetch failed') ? '（ComfyUI 可能没启动）' : ''),
+                    )
+                  : null,
               )
         ),
       )
