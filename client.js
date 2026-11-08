@@ -13958,8 +13958,6 @@ window.__ModuleLoader__.load({
       const [pickerOpen, setPickerOpen] = useState(false)
       const [savedFiles, setSavedFiles] = useState([])
       const [savedTick, setSavedTick] = useState(0)
-      const [viewerOpen, setViewerOpen] = useState(false)
-      const [viewerIndex, setViewerIndex] = useState(0)
       // Switching provider only rewrites values that still equal the other side's
       // defaults, so a custom endpoint/model survives the toggle.
       useEffect(() => {
@@ -14234,17 +14232,19 @@ window.__ModuleLoader__.load({
         fontSize: 10.5,
         color: 'var(--dsw-alias-label-secondary)',
       }
-      const images = result ? (Array.isArray(result.b64List) ? result.b64List : result.b64 ? [result.b64] : []) : []
-
       // 舞台数据源：保存目录里已落盘的图，没保存时退回刚生成的那几张 base64。
-      // 和本地文生图一致，统一给原图 url（缩略图条也用同一份，避免大图变成预览图）。
-      const stageImages =
-        savedFiles.length > 0
-          ? savedFiles.map((file) => ({ url: file.url, filename: file.name }))
-          : images.map((b64, index) => ({
-              url: 'data:image/png;base64,' + b64,
-              filename: 'remote-' + (index + 1) + '.png',
-            }))
+      // 用 useMemo 固定引用：base64 的 data URL 每次渲染都重建的话，图片会被反复
+      // 解码，面板一有状态更新就卡一下。
+      const stageImages = React.useMemo(() => {
+        if (savedFiles.length > 0) {
+          return savedFiles.map((file) => ({ url: file.url, filename: file.name }))
+        }
+        const list = result ? (Array.isArray(result.b64List) ? result.b64List : result.b64 ? [result.b64] : []) : []
+        return list.map((b64, index) => ({
+          url: 'data:image/png;base64,' + b64,
+          filename: 'remote-' + (index + 1) + '.png',
+        }))
+      }, [savedFiles, result])
 
       const btn = {
         padding: '5px 10px',
@@ -14853,50 +14853,6 @@ window.__ModuleLoader__.load({
                   },
                   '请先设置保存目录（生成的图会存到这里）',
                 ),
-            savedFiles.length > 0
-              ? h(
-                  'div',
-                  { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 } },
-                  savedFiles.slice(0, 6).map((file, index) =>
-                    h(
-                      'button',
-                      {
-                        key: file.name,
-                        type: 'button',
-                        onClick: () => {
-                          setViewerIndex(index)
-                          setViewerOpen(true)
-                        },
-                        title: file.name,
-                        style: {
-                          padding: 0,
-                          border: 0,
-                          background: 'transparent',
-                          borderRadius: 8,
-                          overflow: 'hidden',
-                          height: 56,
-                          cursor: 'pointer',
-                          transition: 'transform .16s ease, box-shadow .16s ease',
-                        },
-                        onMouseEnter: (event) => {
-                          event.currentTarget.style.transform = 'translateY(-1px)'
-                          event.currentTarget.style.boxShadow = '0 6px 16px rgba(0, 0, 0, 0.18)'
-                        },
-                        onMouseLeave: (event) => {
-                          event.currentTarget.style.transform = 'none'
-                          event.currentTarget.style.boxShadow = 'none'
-                        },
-                      },
-                      h('img', {
-                        src: file.thumb || file.url,
-                        alt: '',
-                        loading: 'lazy',
-                        style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
-                      }),
-                    ),
-                  ),
-                )
-              : null,
           ),
           proxyOpen
             ? h(
@@ -15080,14 +15036,6 @@ window.__ModuleLoader__.load({
           }),
         h(PromptRulesDialog, { open: rulesOpen, onClose: () => setRulesOpen(false) }),
           h(PromptHistoryDialog, { open: historyOpen, onClose: () => setHistoryOpen(false) }),
-          viewerOpen && savedFiles.length > 0
-            ? h(ImageViewer, {
-                images: savedFiles.map((file) => ({ url: file.url, filename: file.name })),
-                startIndex: Math.max(0, Math.min(viewerIndex, savedFiles.length - 1)),
-                filename: savedFiles[viewerIndex] ? savedFiles[viewerIndex].name : '',
-                onClose: () => setViewerOpen(false),
-              })
-            : null,
           error
             ? h('div', { style: { fontSize: 10.5, color: 'var(--dsw-alias-state-error-primary)', lineHeight: 1.5 } }, error)
             : null,
@@ -15150,13 +15098,6 @@ window.__ModuleLoader__.load({
                 h('div', { style: { fontSize: 11.5 } }, busy ? '正在生成…' : '结果会显示在这里'),
               )
         ),
-        viewerOpen && images.length > 0
-          ? h(ImageViewer, {
-              images: images.map((b64, index) => ({ url: 'data:image/png;base64,' + b64, filename: 'remote-' + (index + 1) + '.png' })),
-              startIndex: Math.max(0, Math.min(viewerIndex, images.length - 1)),
-              onClose: () => setViewerOpen(false),
-            })
-          : null,
       )
     }
 
