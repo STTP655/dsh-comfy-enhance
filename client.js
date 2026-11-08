@@ -2756,6 +2756,10 @@ window.__ModuleLoader__.load({
       flexWrap: 'wrap',
       gap: '6px 10px',
       maxWidth: '92%',
+      // 最小宽度跟内容无关：图片窄的时候信息栏不会缩成一条，缩略图也不会被挤掉
+      minWidth: 'min(460px, calc(100% - 16px))',
+      boxSizing: 'border-box',
+      justifyContent: 'center',
       padding: '7px 12px',
       borderRadius: 12,
       border: '1px solid rgba(255, 255, 255, 0.08)',
@@ -2958,7 +2962,7 @@ window.__ModuleLoader__.load({
       alignItems: 'center',
       justifyContent: 'center',
     }
-    const VIEWER_THUMBS = { display: 'flex', alignItems: 'center', gap: 3 }
+    const VIEWER_THUMBS = { display: 'flex', alignItems: 'center', gap: 3, flex: 'none' }
     const VIEWER_THUMB = {
       width: 28,
       height: 28,
