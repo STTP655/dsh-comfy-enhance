@@ -15,6 +15,7 @@
 - **在线 API 支持流式进度**：直连时按 gpt-image 的 stream: true + partial_images: 2 取中间图，宿主把 SSE 转成 NDJSON 推给浏览器；生成浮卡贴在相册舞台左上角（脉动点 + 正在生成 + 秒数），有中间图就直接显示在里面，越到后面越清晰；走代理或编辑模式自动退回一次性返回
 - **代理与模型列表按 provider 分开存**：emoteProxyMap / emoteModelMap 各存 openai 与 minimax 一份，切 provider 互不影响（原来共用一套，MiniMax 改端口会污染 OpenAI 那边）
 - **修复代理自动改用后输入框没变**：writeProxy 合并的是本次渲染的快照，连续「写 url + 写开关」时第二次会用旧对象覆盖，把刚写入的地址吃掉（提示说改用了 7989、框里仍是 7897）；改成从偏好最新值合并，默认值补写也一并修正
+- **修复刷新后新偏好全丢**：偏好读盘是一张白名单，remoteProxyMap / remoteModelMap / remotePrefsMigrated / remotePromptStyle 都没登记，每次刷新被丢掉（这才是端口被改回 7897、模型列表消失的真正原因）；现在构建完白名单后把其它键原样带回
 - **模型列表缓存的写入与回填加固**：setModelCache 同样改为从偏好最新值合并（两个 provider 先后写入不再互相覆盖）；端点比较忽略尾斜杠与大小写，避免「有缓存却因为字符串差一个 / 而不回填」
 - **代理地址的落盘可见化**：弹窗里多一行「已保存：…」，测试连通成功时把当前地址写回偏好并标「已保存」，刷新后能直观看出存的是哪个端口
 - **修复模型列表刷新后丢失**：上一版把缓存 key 从 emoteModelCache 改成按 provider 的 emoteModelMap，旧缓存读不到于是显得「持久化没生效」；新加一次性迁移把旧 key 并入 openai 名下，之后拉一次就能跨刷新保留

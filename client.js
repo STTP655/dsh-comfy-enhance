@@ -235,6 +235,10 @@ window.__ModuleLoader__.load({
               canvasModels: normalizeModels(parsed.canvasModels),
               workspaceCanvasModels: normalizeModels(parsed.workspaceCanvasModels),
             }
+            // 白名单之外的键原样保留：以后新增的偏好不会因为忘了登记而在刷新后丢失。
+            for (const key of Object.keys(parsed)) {
+              if (!(key in state)) state[key] = parsed[key]
+            }
           }
         }
       } catch {
