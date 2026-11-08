@@ -9,6 +9,9 @@
 
 import { isAbsolute, dirname, join, extname, resolve } from 'node:path'
 import { readFile, writeFile, readdir, stat, copyFile, mkdir } from 'node:fs/promises'
+import https from 'node:https'
+import net from 'node:net'
+import tls from 'node:tls'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
 
@@ -460,6 +463,187 @@ const TEXT2IMG_TEMPLATE_URL = new URL('./templates/moss-text2img-api.json', impo
 // 实测：EmptyFlux2LatentImage 配 qwen_image_vae 时，落盘尺寸正好是图里尺寸的一半。
 // 这个常数就是那个补偿倍数，换模板/换 VAE 后如果比例变了，只改这里。
 const LATENT_SCALE = 2
+
+// ---------------------------------------------------------------- 在线 API 代理
+//
+// 在线出图的端点在境外，而宿主进程的 fetch 既不读 HTTP(S)_PROXY，也不吃 Windows
+// 的系统代理设置——于是它直连，被 DNS 污染挡在 TLS 握手。这里提供一条可选隧道：
+// 面板上勾了「走本机代理」才用它，其它请求（本机 ComfyUI）完全不走这里。
+
+/** 把 "http://127.0.0.1:7897" 或 "127.0.0.1:7897" 解析成 { host, port }；空值返回 null。 */
+function parseProxyUrl(raw) {
+  if (typeof raw !== 'string' || !raw.trim()) return null
+  let text = raw.trim()
+  if (!/^[a-z]+:\/\//i.test(text)) text = 'http://' + text
+  let url
+  try {
+    url = new URL(text)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'http:') return null
+  const port = Number(url.port || 80)
+  if (!Number.isFinite(port) || port <= 0) return null
+  return { host: url.hostname, port }
+}
+
+/**
+ * 经 HTTP 代理发一个 https 请求：本地 CONNECT 建隧道 → 隧道上做 TLS →
+ * 交给 https.request 跑正常 HTTP（分块、重定向、头部都由它处理）。
+ */
+function proxiedRequest(urlString, options, proxy) {
+  return new Promise((resolve, reject) => {
+    let target
+    try {
+      target = new URL(urlString)
+    } catch {
+      reject(new Error('端点地址不合法：' + urlString))
+      return
+    }
+    if (target.protocol !== 'https:') {
+      reject(new Error('代理只支持 https 端点'))
+      return
+    }
+
+    const method = (options && options.method) || 'GET'
+    const headers = Object.assign({}, (options && options.headers) || {})
+    const body = options && options.body ? options.body : null
+    const timeoutMs = (options && options.timeoutMs) || 30000
+    const host = target.hostname
+    const port = Number(target.port || 443)
+
+    let settled = false
+    let socket = null
+    let secure = null
+    const timer = setTimeout(() => fail(new Error('代理请求超时（' + timeoutMs + 'ms）')), timeoutMs)
+
+    function cleanup() {
+      clearTimeout(timer)
+      for (const item of [secure, socket]) {
+        if (!item) continue
+        try {
+          item.destroy()
+        } catch {
+          // 已关闭
+        }
+      }
+    }
+    function fail(error) {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(error)
+    }
+    function done(value) {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(value)
+    }
+
+    socket = net.connect(proxy.port, proxy.host)
+    socket.setTimeout(timeoutMs, () =>
+      fail(new Error('连接代理超时：' + proxy.host + ':' + proxy.port)),
+    )
+    socket.on('error', (error) =>
+      fail(
+        new Error(
+          '连不上代理 ' + proxy.host + ':' + proxy.port + '（' + (error.code || error.message) + '）',
+        ),
+      ),
+    )
+    socket.on('connect', () => {
+      socket.write('CONNECT ' + host + ':' + port + ' HTTP/1.1\r\nHost: ' + host + ':' + port + '\r\n\r\n')
+    })
+
+    let handshake = ''
+    const onHandshake = (chunk) => {
+      handshake += chunk.toString('latin1')
+      if (!handshake.includes('\r\n\r\n')) {
+        socket.once('data', onHandshake)
+        return
+      }
+      const statusLine = handshake.split('\r\n')[0] || ''
+      if (!/^HTTP\/1\.[01] 200/.test(statusLine)) {
+        fail(new Error('代理拒绝建立隧道：' + statusLine))
+        return
+      }
+
+      secure = tls.connect({ socket, servername: host })
+      secure.on('error', (error) =>
+        fail(
+          new Error(
+            'TLS 握手失败（' + (error.code || error.message) + '）——代理通了但目标连不上',
+          ),
+        ),
+      )
+      secure.on('secureConnect', () => {
+        // agent 的 createConnection 才是 https.request 复用现成隧道 socket 的正规入口：
+        // 把 createConnection 直接写在 options 里会被默认 agent 忽略。
+        const tunnelAgent = new https.Agent({ keepAlive: false, maxSockets: 1 })
+        tunnelAgent.createConnection = () => secure
+        const req = https.request(
+          {
+            host,
+            port,
+            path: (target.pathname || '/') + (target.search || ''),
+            method,
+            headers: Object.assign({}, headers, { host, connection: 'close' }),
+            agent: tunnelAgent,
+          },
+          (res) => {
+            const chunks = []
+            res.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
+            res.on('end', () =>
+              done({
+                status: res.statusCode || 0,
+                headers: res.headers || {},
+                text: Buffer.concat(chunks).toString('utf8'),
+              }),
+            )
+            res.on('error', fail)
+          },
+        )
+        req.on('error', fail)
+        if (body) req.write(body)
+        req.end()
+      })
+    }
+    socket.once('data', onHandshake)
+  })
+}
+
+/**
+ * 在线 API 的实际出口：proxy 给了地址就走隧道，否则直连。
+ * 统一返回 { status, text }，multipart 之类的非字符串 body 先在这里序列化。
+ */
+async function remoteFetch(urlString, init, proxySpec) {
+  const proxy = parseProxyUrl(proxySpec)
+  const method = (init && init.method) || 'GET'
+  let headers = Object.assign({}, (init && init.headers) || {})
+  let body = init && init.body ? init.body : null
+
+  if (body && typeof body !== 'string' && !Buffer.isBuffer(body)) {
+    // FormData / Blob：借 Request 序列化成字节，顺带拿到正确的 content-type。
+    const probe = new Request(urlString, { method, body, headers })
+    headers = Object.fromEntries(probe.headers.entries())
+    body = Buffer.from(await probe.arrayBuffer())
+  }
+
+  const timeoutMs = (init && init.timeoutMs) || 30000
+
+  if (proxy) {
+    return proxiedRequest(urlString, { method, headers, body, timeoutMs }, proxy)
+  }
+  const res = await fetch(urlString, {
+    method,
+    headers,
+    body: body || undefined,
+    signal: AbortSignal.timeout(timeoutMs),
+  })
+  const text = await res.text()
+  return { status: res.status, headers: {}, text }
+}
 
 async function submitText2Img(baseUrl, body) {
   const template = JSON.parse(await readFile(fileURLToPath(TEXT2IMG_TEMPLATE_URL), 'utf8'))
@@ -1119,12 +1303,20 @@ export function apply(ctx, config = {}) {
         const key = typeof body.key === 'string' ? body.key.trim() : ''
         if (!endpoint) return send(400, { ok: false, error: '需要端点' })
         const url = /\/models$/.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/models'
-        const res = await fetch(url, {
-          headers: key ? { authorization: 'Bearer ' + key } : {},
-          signal: AbortSignal.timeout(20000),
-        })
-        const text = await res.text()
-        if (!res.ok) return send(502, { ok: false, error: 'HTTP ' + res.status + ' ' + text.slice(0, 200) })
+        const via = body.proxy ? 'proxy' : 'direct'
+        const res = await remoteFetch(
+          url,
+          {
+            method: 'GET',
+            headers: key ? { authorization: 'Bearer ' + key } : {},
+            timeoutMs: 20000,
+          },
+          body.proxy,
+        )
+        const text = res.text
+        if (!(res.status >= 200 && res.status < 300)) {
+          return send(502, { ok: false, via, error: 'HTTP ' + res.status + ' ' + text.slice(0, 200) })
+        }
         let json = null
         try {
           json = JSON.parse(text)
@@ -1134,7 +1326,7 @@ export function apply(ctx, config = {}) {
         const list = Array.isArray(json && json.data)
           ? json.data.map((item) => (item && (item.id || item.model)) || '').filter(Boolean)
           : []
-        return send(200, { ok: true, models: list })
+        return send(200, { ok: true, via, models: list })
       } catch (error) {
         return send(502, { ok: false, error: String((error && error.message) || error) })
       }
@@ -1176,14 +1368,18 @@ export function apply(ctx, config = {}) {
           }
           if (imageData) payload.subject_reference = [{ type: 'character', image_file: imageData }]
           const url = /\/image_generation$/.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/image_generation'
-          const upstream = await fetch(url, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
-            body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(300000),
-          })
-          const text = await upstream.text()
-          if (!upstream.ok) {
+          const upstream = await remoteFetch(
+            url,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
+              body: JSON.stringify(payload),
+              timeoutMs: 300000,
+            },
+            body.proxy,
+          )
+          const text = upstream.text
+          if (!(upstream.status >= 200 && upstream.status < 300)) {
             return send(502, { ok: false, error: 'HTTP ' + upstream.status + ' ' + text.slice(0, 300) })
           }
           let json = null
@@ -1218,32 +1414,36 @@ export function apply(ctx, config = {}) {
           form.append('prompt', prompt)
           form.append('image', new Blob([Buffer.from(match[2], 'base64')], { type: match[1] }), 'reference.png')
           const url = /\/images\/edits?$/.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/images/edits'
-          upstream = await fetch(url, {
+          upstream = await remoteFetch(url, {
             method: 'POST',
             headers: { authorization: 'Bearer ' + key },
             body: form,
-            signal: AbortSignal.timeout(300000),
-          })
+            timeoutMs: 300000,
+          }, body.proxy)
         } else {
           const url = /\/images\//.test(endpoint) ? endpoint : endpoint.replace(/\/+$/, '') + '/images/generations'
-          upstream = await fetch(url, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
-            body: JSON.stringify({
-              model,
-              prompt,
-              n: count,
-              size,
-              quality,
-              background,
-              output_format: outputFormat,
-              response_format: 'b64_json',
-            }),
-            signal: AbortSignal.timeout(300000),
-          })
+          upstream = await remoteFetch(
+            url,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
+              body: JSON.stringify({
+                model,
+                prompt,
+                n: count,
+                size,
+                quality,
+                background,
+                output_format: outputFormat,
+                response_format: 'b64_json',
+              }),
+              timeoutMs: 300000,
+            },
+            body.proxy,
+          )
         }
-        const text = await upstream.text()
-        if (!upstream.ok) {
+        const text = upstream.text
+        if (!(upstream.status >= 200 && upstream.status < 300)) {
           return send(502, { ok: false, error: 'HTTP ' + upstream.status + ' ' + text.slice(0, 300) })
         }
         let json = null

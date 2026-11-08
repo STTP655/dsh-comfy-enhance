@@ -13924,6 +13924,13 @@ window.__ModuleLoader__.load({
       const [count, setCount] = usePref('remoteCount')
       const [aspectRatio, setAspectRatio] = usePref('remoteAspect')
       const [promptOptimizer, setPromptOptimizer] = usePref('remoteOptimizer')
+      // 境外端点需要代理：宿主进程的 fetch 不吃系统代理，只有显式给了地址才走隧道。
+      const [proxyOnRaw, setProxyOn] = usePref('remoteProxyOn')
+      const [proxyUrlRaw, setProxyUrl] = usePref('remoteProxyUrl')
+      const proxyOn = proxyOnRaw !== false
+      const proxyUrl = typeof proxyUrlRaw === 'string' && proxyUrlRaw.trim() ? proxyUrlRaw.trim() : 'http://127.0.0.1:7897'
+      const proxySpec = proxyOn ? proxyUrl : ''
+      const [proxyVia, setProxyVia] = useState('')
       const [customW, setCustomW] = useState('')
       const [customH, setCustomH] = useState('')
       const [sizeMode, setSizeMode] = useState('preset')
@@ -13997,11 +14004,12 @@ window.__ModuleLoader__.load({
           const res = await fetch('/plugin/comfy-canvas/remote-models', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ endpoint, key: apiKey }),
+            body: JSON.stringify({ endpoint, key: apiKey, proxy: proxySpec }),
           })
           const data = await res.json().catch(() => null)
           if (!data || !data.ok) throw new Error((data && data.error) || '获取失败')
           setModelOptions(Array.isArray(data.models) ? data.models : [])
+          setProxyVia(data.via === 'proxy' ? '经代理' : '直连')
         } catch (err) {
           setModelsError(String((err && err.message) || err))
         } finally {
@@ -14099,6 +14107,7 @@ window.__ModuleLoader__.load({
               prompt_optimizer: promptOptimizer,
               width: Number(customW) || 0,
               height: Number(customH) || 0,
+              proxy: proxySpec,
             }),
           })
           const data = await res.json().catch(() => null)
@@ -14573,6 +14582,50 @@ window.__ModuleLoader__.load({
                 placeholder: '填写你的 key',
                 style: field,
                 onChange: (event) => setApiKey(event.target.value),
+              }),
+            ),
+            // 境外端点：勾上才经本机代理转发，关掉就是直连（本机 ComfyUI 永远直连）。
+            h(
+              'div',
+              { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
+              h(
+                'div',
+                { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+                h('span', { style: { fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, '代理'),
+                h('span', { style: { flex: 1 } }),
+                proxyVia
+                  ? h(
+                      'span',
+                      { style: { fontSize: 9.5, color: 'var(--dsw-alias-label-secondary)' } },
+                      '上次' + proxyVia,
+                    )
+                  : null,
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    onClick: () => setProxyOn(!proxyOn),
+                    title: '境外端点常需要代理；宿主进程不会自动读系统代理，所以要在这里显式打开',
+                    style: {
+                      padding: '2px 8px',
+                      borderRadius: 6,
+                      border: '1px solid ' + (proxyOn ? '#3b82f6' : 'var(--dsw-alias-border-l2)'),
+                      background: proxyOn ? '#3b82f6' : 'var(--dsw-alias-bg-layer-2)',
+                      color: proxyOn ? '#ffffff' : 'var(--dsw-alias-label-secondary)',
+                      fontSize: 9.5,
+                      fontFamily: 'inherit',
+                      cursor: 'pointer',
+                    },
+                  },
+                  proxyOn ? '开' : '关',
+                ),
+              ),
+              h('input', {
+                value: proxyUrl,
+                placeholder: 'http://127.0.0.1:7897',
+                disabled: !proxyOn,
+                style: Object.assign({}, field, proxyOn ? null : { opacity: 0.55 }),
+                onChange: (event) => setProxyUrl(event.target.value),
               }),
             ),
             h(

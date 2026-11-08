@@ -4,6 +4,8 @@
 
 > 版本号仍停在 0.18.0（未发版），此节记录工作树里已经落地、但还没进版本的功能。交接时以此判断"现在跑的和发布版差在哪"。
 
+- **在线 API 支持代理**：面板可开关并填地址（默认 `http://127.0.0.1:7897`）。宿主进程的 `fetch` 不读 `HTTP(S)_PROXY` 也不吃系统代理，境外端点直连会被 DNS 污染挡在 TLS 握手；勾上后插件自己建 CONNECT 隧道（`node:net` + `node:tls` + `https.Agent`），本机 ComfyUI 的请求仍直连
+
 - **对话内画布**：漫画模式会话里画布嵌进对话区左侧（`shell.overlay` 座位 + portal 到 `conversation.session` + grid 布局），含收起 / 展开 / 拖宽 / 紧凑切换；只在 `agentPreset === 'comic'` 且会话进入 `active` 阶段时出现，其它会话布局完全不动
 - **comic_images 工具**：按需返回页级大图与各格成图的本地绝对路径（优先直读 ComfyUI 输出目录，失败才下载到 `~/.dsh/comic/images/`），支持 `page` / `since` 过滤，供 agent 用 `read_image` 检查成图
 - **工具条视觉分层**：开关型按钮实底反白、出图按钮主色实底 + 悬停光晕、角落按钮（切换 / 收起）右对齐深灰实底；动作与状态两类按钮外观区分
