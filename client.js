@@ -14001,7 +14001,13 @@ window.__ModuleLoader__.load({
           const data = await res.json().catch(() => null)
           if (!data || !data.ok) throw new Error((data && data.error) || '读取失败')
           if (!data.url) {
-            setProxyTest({ ok: false, text: '系统代理未启用（或读取到空值）' })
+            const raw = data.raw || {}
+            const detail = data.pac
+              ? '系统用的是 PAC 脚本（' + data.pac + '），不是固定端口'
+              : !data.enabled
+                ? '系统代理当前是关闭状态（ProxyEnable=' + (raw.enabled || '空') + '）'
+                : '读到了 ProxyEnable 但 ProxyServer 为空：' + (raw.serverError || '空值')
+            setProxyTest({ ok: false, text: detail })
             return
           }
           setProxyUrl(data.url)

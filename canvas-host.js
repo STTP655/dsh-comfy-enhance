@@ -1338,23 +1338,38 @@ export function apply(ctx, config = {}) {
       if (req.method !== 'GET') return send(405, { ok: false, error: 'method not allowed' })
       try {
         const key = 'HKCU\\Software\\Microsoft\\Windows\\Internet Settings'
-        const read = (name) =>
+        // 用绝对路径：宿主进程的 PATH 里不一定有 System32。
+        const regExe = process.env.SystemRoot
+          ? process.env.SystemRoot + '\\System32\\reg.exe'
+          : 'reg.exe'
+        const readValue = (name) =>
           new Promise((resolve) => {
-            execFile('reg', ['query', key, '/v', name], { windowsHide: true }, (error, stdout) => {
-              if (error) return resolve('')
+            execFile(regExe, ['query', key, '/v', name], { windowsHide: true }, (error, stdout) => {
+              if (error) {
+                resolve({ value: '', error: String(error.message || error).slice(0, 120) })
+                return
+              }
               const line = String(stdout)
                 .split(/\r?\n/)
-                .find((row) => row.includes(name))
-              if (!line) return resolve('')
+                .find((row) => new RegExp('\\b' + name + '\\b').test(row))
+              if (!line) {
+                resolve({ value: '', error: 'not found' })
+                return
+              }
+              // 形如 "    ProxyServer    REG_SZ    127.0.0.1:7989"
               const parts = line.trim().split(/\s{2,}/)
-              resolve(parts.length >= 3 ? parts[parts.length - 1].trim() : '')
+              resolve({ value: parts.length >= 3 ? parts[parts.length - 1].trim() : '', error: '' })
             })
           })
-        const [enabledRaw, serverRaw] = await Promise.all([read('ProxyEnable'), read('ProxyServer')])
-        const enabled = String(enabledRaw).trim() === '1'
-        // ProxyServer 可能是 "127.0.0.1:7989" 或 "http=127.0.0.1:7989;https=..." 两种写法
+        const [enableRes, serverRes, pacRes] = await Promise.all([
+          readValue('ProxyEnable'),
+          readValue('ProxyServer'),
+          readValue('AutoConfigURL'),
+        ])
+        // ProxyEnable 是 DWORD，reg 输出成 0x1
+        const enabled = /^0x0*1$/i.test(enableRes.value) || enableRes.value === '1'
         let host = ''
-        const server = String(serverRaw || '').trim()
+        const server = String(serverRes.value || '').trim()
         if (server) {
           if (server.includes('=')) {
             const map = {}
@@ -1368,7 +1383,20 @@ export function apply(ctx, config = {}) {
           }
         }
         const url = host ? (/^[a-z]+:\/\//i.test(host) ? host : 'http://' + host) : ''
-        return send(200, { ok: true, enabled, server: host, url })
+        return send(200, {
+          ok: true,
+          enabled,
+          server: host,
+          url,
+          pac: String(pacRes.value || ''),
+          // 读不到时把原始值和 reg 的错误一起带回去，面板能说清是哪一步空
+          raw: {
+            enabled: enableRes.value,
+            server: serverRes.value,
+            enabledError: enableRes.error,
+            serverError: serverRes.error,
+          },
+        })
       } catch (error) {
         return send(502, { ok: false, error: String((error && error.message) || error) })
       }
