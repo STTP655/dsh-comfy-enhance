@@ -14091,9 +14091,38 @@ window.__ModuleLoader__.load({
         redraw()
       }
 
+      // 准星：一个跟着指针走的圆，直径 = 画笔在屏幕上的直径。
+      const cursorRef = useRef(null)
+      const lastPointRef = useRef(null)
+      function updateCursor(event, overrideSize) {
+        const stage = stageRef.current
+        const cursor = cursorRef.current
+        const view = viewRef.current
+        if (!stage || !cursor || !view) return
+        if (event) lastPointRef.current = { x: event.clientX, y: event.clientY }
+        const point = lastPointRef.current
+        if (!point) return
+        const stageRect = stage.getBoundingClientRect()
+        const viewRect = view.getBoundingClientRect()
+        const paint = paintRef.current
+        if (!paint || viewRect.width < 2) return
+        // 画笔尺寸是原图像素，换算成屏幕像素才是准星直径
+        const displayPerNatural = viewRect.width / paint.width
+        const diameter = Math.max(4, (overrideSize || size) * displayPerNatural)
+        cursor.style.width = diameter + 'px'
+        cursor.style.height = diameter + 'px'
+        cursor.style.left = point.x - stageRect.left + 'px'
+        cursor.style.top = point.y - stageRect.top + 'px'
+        cursor.style.opacity = '1'
+      }
+      function hideCursor() {
+        if (cursorRef.current) cursorRef.current.style.opacity = '0'
+      }
+
       const onPointerDown = (event) => {
         if (!ready) return
         event.preventDefault()
+        updateCursor(event)
         viewRef.current && viewRef.current.setPointerCapture
           ? viewRef.current.setPointerCapture(event.pointerId)
           : null
@@ -14105,6 +14134,7 @@ window.__ModuleLoader__.load({
         redraw()
       }
       const onPointerMove = (event) => {
+        updateCursor(event)
         const stroke = drawingRef.current
         if (!stroke) return
         const point = pointFromEvent(event)
@@ -14117,6 +14147,7 @@ window.__ModuleLoader__.load({
         redraw()
       }
       const onPointerUp = () => {
+        updateCursor(null)
         const stroke = drawingRef.current
         drawingRef.current = null
         if (!stroke) return
@@ -14308,7 +14339,14 @@ window.__ModuleLoader__.load({
               max: 200,
               step: 1,
               value: size,
-              onChange: (event) => setSize(Number(event.target.value) || 28),
+              onChange: (event) => {
+                const next = Number(event.target.value) || 28
+                setSize(next)
+                // 停下来调尺寸时也能看到准星变化
+                if (typeof requestAnimationFrame === 'function') {
+                  requestAnimationFrame(() => updateCursor(null, next))
+                }
+              },
               style: { width: 140 },
             }),
             h('span', { style: { fontSize: 10, width: 42, fontVariantNumeric: 'tabular-nums' } }, size + ' px'),
@@ -14325,6 +14363,7 @@ window.__ModuleLoader__.load({
               style: {
                 flex: 1,
                 minHeight: 0,
+                position: 'relative',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -14333,17 +14372,40 @@ window.__ModuleLoader__.load({
                 overflow: 'hidden',
               },
             },
+            h('div', {
+              ref: cursorRef,
+              'aria-hidden': true,
+              style: {
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                width: 0,
+                height: 0,
+                borderRadius: '50%',
+                border: '1.5px solid rgba(255, 255, 255, 0.92)',
+                boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.55)',
+                background: 'rgba(239, 68, 68, 0.28)',
+                transform: 'translate(-50%, -50%)',
+                pointerEvents: 'none',
+                opacity: 0,
+                transition: 'opacity 120ms ease',
+                zIndex: 5,
+              },
+            }),
             h('canvas', {
               ref: viewRef,
               onPointerDown,
               onPointerMove,
               onPointerUp,
               onPointerCancel: onPointerUp,
+              onPointerLeave: hideCursor,
+              onPointerEnter: (event) => updateCursor(event),
               style: {
                 display: 'block',
                 borderRadius: 8,
                 boxShadow: '0 10px 30px rgba(0, 0, 0, 0.35)',
-                cursor: mode === 'erase' ? 'cell' : 'crosshair',
+                // 系统光标隐藏，改用下面那个跟随画笔尺寸的圆
+                cursor: 'none',
                 touchAction: 'none',
               },
             }),
