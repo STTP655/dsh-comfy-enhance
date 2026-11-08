@@ -13977,10 +13977,11 @@ window.__ModuleLoader__.load({
         }
       }, [provider])
       useEffect(() => {
-        // 打开面板就先把已有的图load进来（不要求先设保存目录）：设了保存目录读那个目录，
-        // 没设就读 ComfyUI 的默认输出目录——和相册用的是同一个接口，所以看到的就是相册里的图。
+        // 读「保存目录」里的图：在线 API 的成果和 ComfyUI 无关，所以没设目录时
+        // 一个请求都不发（以前会回落到 ComfyUI 的输出目录，引擎没起就成了空白）。
+        if (!saveDir) return undefined
         let alive = true
-        const url = '/plugin/comfy-status/outputs' + (saveDir ? '?dir=' + encodeURIComponent(saveDir) : '')
+        const url = '/plugin/comfy-status/outputs?dir=' + encodeURIComponent(saveDir)
         fetch(url, { cache: 'no-store' })
           .then((res) => res.json())
           .then((data) => {
@@ -15123,7 +15124,7 @@ window.__ModuleLoader__.load({
                   },
                 },
                 h(Icon, { name: 'images', size: 34 }),
-                h('div', { style: { fontSize: 11.5 } }, busy ? '正在生成…' : '结果会显示在这里'),
+                h('div', { style: { fontSize: 11.5 } }, busy ? '正在生成…' : saveDir ? '这个目录里还没有图' : '先在下方选择保存目录'),
                 savedError
                   ? h(
                       'div',

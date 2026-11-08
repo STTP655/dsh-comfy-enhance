@@ -1067,11 +1067,17 @@ function createHandler(baseUrl) {
       try {
         const query = new URL(req.url || '/', 'http://localhost').searchParams
         const requested = (query.get('dir') || '').trim()
-        const comfyOutput = await outputDir()
+        // 显式给了目录时完全不碰 ComfyUI：在线 API 的成果目录和引擎无关，
+        // 引擎没起也该能看。只有没给目录时才去问 ComfyUI 的输出路径。
+        let comfyOutput = ''
+        if (!requested) {
+          comfyOutput = await outputDir()
+        }
         const dir = requested || comfyOutput
+        if (!dir) return send(503, { ok: false, error: 'ComfyUI 未运行，且没有指定目录' })
         // ComfyUI's own output folder can be served through /view (with webp
         // previews); any other folder is streamed as-is by /file.
-        const isComfyOutput = dir === comfyOutput
+        const isComfyOutput = Boolean(comfyOutput) && dir === comfyOutput
         const entries = await readdir(dir, { withFileTypes: true })
         const files = []
         for (const entry of entries) {
