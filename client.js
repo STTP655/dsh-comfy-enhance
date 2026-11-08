@@ -14515,6 +14515,8 @@ window.__ModuleLoader__.load({
       // 一家一个配置：端点 + 各自的 key（openai / minimax 分开存）。
       const [profileListRaw, setProfileList] = usePref('remoteProfiles')
       const [activeProfileIdRaw, setActiveProfileId] = usePref('remoteProfileId')
+      // 名称 / 端点 / key 是低频操作，默认收起，点「修改」再展开
+      const [profileEditOpen, setProfileEditOpen] = useState(false)
       const profileList = Array.isArray(profileListRaw) ? profileListRaw : []
       // 首次使用：把旧的端点与 key 收进一个默认配置，避免升级后空白
       useEffect(() => {
@@ -15907,6 +15909,25 @@ window.__ModuleLoader__.load({
                 'button',
                 {
                   type: 'button',
+                  title: profileEditOpen ? '收起详情' : '展开名称 / 端点 / API Key',
+                  onClick: () => setProfileEditOpen(!profileEditOpen),
+                  style: {
+                    padding: '2px 8px',
+                    borderRadius: 6,
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                    background: profileEditOpen ? 'var(--dsw-alias-bg-layer-2)' : 'transparent',
+                    color: 'var(--dsw-alias-label-secondary)',
+                    fontSize: 9.5,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                  },
+                },
+                profileEditOpen ? '收起' : '修改',
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
                   title: profileList.length > 1 ? '删除当前站点配置' : '至少保留一个配置',
                   disabled: profileList.length <= 1,
                   onClick: removeProfile,
@@ -15937,40 +15958,46 @@ window.__ModuleLoader__.load({
               menuMinWidth: 200,
               triggerStyle: pickerBox,
             }),
-            h(
-              'label',
-              { style: label },
-              '名称',
-              h('input', {
-                value: activeProfile ? activeProfile.name || '' : '',
-                placeholder: '例如 quickrouter',
-                style: field,
-                onChange: (event) => renameProfile(event.target.value),
-              }),
-            ),
-            h(
-              'label',
-              { style: label },
-              '端点',
-              h('input', {
-                value: endpoint,
-                placeholder: provider === 'minimax' ? 'https://api.minimax.cn/v1' : 'https://api.quickrouter.ai/v1',
-                style: field,
-                onChange: (event) => setEndpoint(event.target.value),
-              }),
-            ),
-            h(
-              'label',
-              { style: label },
-              'API Key（只存本机）',
-              h('input', {
-                type: 'password',
-                value: apiKey,
-                placeholder: '填写你的 key',
-                style: field,
-                onChange: (event) => setApiKey(event.target.value),
-              }),
-            ),
+            profileEditOpen
+              ? h(
+                  'div',
+                  { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+              h(
+                'label',
+                { style: label },
+                '名称',
+                h('input', {
+                  value: activeProfile ? activeProfile.name || '' : '',
+                  placeholder: '例如 quickrouter',
+                  style: field,
+                  onChange: (event) => renameProfile(event.target.value),
+                }),
+              ),
+              h(
+                'label',
+                { style: label },
+                '端点',
+                h('input', {
+                  value: endpoint,
+                  placeholder: provider === 'minimax' ? 'https://api.minimax.cn/v1' : 'https://api.quickrouter.ai/v1',
+                  style: field,
+                  onChange: (event) => setEndpoint(event.target.value),
+                }),
+              ),
+              h(
+                'label',
+                { style: label },
+                'API Key（只存本机）',
+                h('input', {
+                  type: 'password',
+                  value: apiKey,
+                  placeholder: '填写你的 key',
+                  style: field,
+                  onChange: (event) => setApiKey(event.target.value),
+                }),
+              ),
+                )
+              : null,
             // 代理：收起成一行状态 + 按钮，细节在弹窗里（含系统代理读取与连通测试）。
             h(
               'div',
