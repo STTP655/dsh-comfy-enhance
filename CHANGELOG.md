@@ -16,6 +16,7 @@
 - **代理与模型列表按 provider 分开存**：emoteProxyMap / emoteModelMap 各存 openai 与 minimax 一份，切 provider 互不影响（原来共用一套，MiniMax 改端口会污染 OpenAI 那边）
 - **修复代理自动改用后输入框没变**：writeProxy 合并的是本次渲染的快照，连续「写 url + 写开关」时第二次会用旧对象覆盖，把刚写入的地址吃掉（提示说改用了 7989、框里仍是 7897）；改成从偏好最新值合并，默认值补写也一并修正
 - **修复舞台过滤按钮渲染崩溃**：`Object.assign(null, …)` 会把 null 当目标对象抛 TypeError，改成直接用三元返回样式对象
+- **在线接口自动重试**：经代理的链路偶发 ECONNRESET（同一链路前一条能成、后一条被重置），`remoteFetch` 对可重试错误最多重试 3 次（400/800ms 退避），失败信息标注「已重试 3 次」
 - **fetch failed 会带上真实错因**：直连/代理失败时把 `cause` 里的 ENOTFOUND / ECONNRESET / CERT_… 一起报出来，不再只有一句 fetch failed
 - **端点自动归一**：用户直接粘 `…/v1/images/generations` 也能用——内部会剥掉尾部 `/images`、`/images/generations`、`/images/edits` 再拼对应接口，修掉「获取列表」拼成 `/images/generations/models` 的 404
 - **API Key 可核对**：标签右侧显示末 4 位，并加「显示 / 隐藏」切换，方便确认粘贴是否完整（含隐藏字符）

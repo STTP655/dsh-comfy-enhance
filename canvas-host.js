@@ -689,26 +689,34 @@ async function remoteFetch(urlString, init, proxySpec) {
 
   const timeoutMs = (init && init.timeoutMs) || 30000
 
-  if (proxy) {
+  // 经代理的链路（尤其 Clash 这类本地代理）偶发 ECONNRESET：同一条链路几秒前的
+  // 请求能成、下一条就被重置。这类抖动值得重试一次，而不是直接把失败丢给用户。
+  const attempts = 3
+  let lastError = null
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      return await proxiedRequest(urlString, { method, headers, body, timeoutMs }, proxy)
+      if (proxy) {
+        return await proxiedRequest(urlString, { method, headers, body, timeoutMs }, proxy)
+      }
+      const res = await fetch(urlString, {
+        method,
+        headers,
+        body: body || undefined,
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+      const text = await res.text()
+      return { status: res.status, headers: {}, text }
     } catch (error) {
-      throw new Error('经代理失败 · ' + describeFetchError(error))
+      lastError = error
+      const retryable = /ECONNRESET|ETIMEDOUT|EPIPE|socket hang up|UND_ERR/i.test(
+        String((error && (error.code || error.message)) || ''),
+      )
+      if (attempt === attempts - 1 || !retryable) break
+      await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)))
     }
   }
-  let res
-  try {
-    res = await fetch(urlString, {
-      method,
-      headers,
-      body: body || undefined,
-      signal: AbortSignal.timeout(timeoutMs),
-    })
-  } catch (error) {
-    throw new Error(describeFetchError(error))
-  }
-  const text = await res.text()
-  return { status: res.status, headers: {}, text }
+  const detail = describeFetchError(lastError)
+  throw new Error(proxy ? '经代理失败（已重试 ' + attempts + ' 次）· ' + detail : detail + '（已重试 ' + attempts + ' 次）')
 }
 
 async function submitText2Img(baseUrl, body) {
