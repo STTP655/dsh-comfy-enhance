@@ -14521,6 +14521,10 @@ window.__ModuleLoader__.load({
       // 一家一个配置：端点 + 各自的 key（openai / minimax 分开存）。
       const [profileListRaw, setProfileList] = usePref('remoteProfiles')
       const [activeProfileIdRaw, setActiveProfileId] = usePref('remoteProfileId')
+      // 换站点等于换模型命名空间：先清旧候选，再由缓存按新端点回填
+      useEffect(() => {
+        setModelOptions([])
+      }, [activeProfileIdRaw])
       // 名称 / 端点 / key 是低频操作，默认收起，点「修改」再展开
       const [profileEditOpen, setProfileEditOpen] = useState(false)
       // 展开时可以把 key 明文看一眼，方便核对复制是否完整
@@ -14533,6 +14537,7 @@ window.__ModuleLoader__.load({
         const legacyEndpoint = typeof prefs.remoteEndpoint === 'string' ? prefs.remoteEndpoint : ''
         const seed = {
           id: 'p' + Date.now().toString(36),
+          model: typeof prefs.remoteModel === 'string' ? prefs.remoteModel : '',
           name: legacyEndpoint ? legacyEndpoint.replace(/^https?:\/\//, '').replace(/\/.*$/, '') : '默认',
           endpoint: legacyEndpoint || 'https://api.quickrouter.ai/v1',
           keys: {
@@ -14574,6 +14579,7 @@ window.__ModuleLoader__.load({
           name: '站点 ' + (profileList.length + 1),
           endpoint: endpoint || 'https://api.quickrouter.ai/v1',
           keys: { openai: '', minimax: '' },
+          model: '',
         }
         setProfileList(profileList.concat([created]))
         setActiveProfileId(created.id)
@@ -14585,7 +14591,19 @@ window.__ModuleLoader__.load({
         setActiveProfileId(rest[0] ? rest[0].id : '')
       }
       const renameProfile = (value) => patchProfile({ name: value })
-      const [model, setModel] = usePref('remoteModel')
+      // 模型跟着站点走：同一个模型名在不同站点未必存在，切站点要换回它自己的
+      const [legacyModel, setLegacyModel] = usePref('remoteModel')
+      const DEFAULT_REMOTE_MODEL = 'gpt-image-2.5-flare-c'
+      const model =
+        activeProfile && typeof activeProfile.model === 'string' && activeProfile.model.trim()
+          ? activeProfile.model.trim()
+          : ''
+      const setModel = (next) => {
+        patchProfile({ model: next })
+        // 兼容：偏好里那份「全局模型」也同步，别处读它的地方不至于空着
+        if (typeof next === 'string' && next.trim()) setLegacyModel(next.trim())
+      }
+      const modelForRequest = model || DEFAULT_REMOTE_MODEL
       const [prompt, setPrompt] = usePref('remotePrompt')
       const [size, setSize] = usePref('remoteSize')
       const [quality, setQuality] = usePref('remoteQuality')
@@ -14707,17 +14725,8 @@ window.__ModuleLoader__.load({
       const [savedFiles, setSavedFiles] = useState([])
       const [savedError, setSavedError] = useState('')
       const [savedTick, setSavedTick] = useState(0)
-      // Switching provider only rewrites values that still equal the other side's
-      // defaults, so a custom endpoint/model survives the toggle.
+      // 端点与模型都归站点配置管；切换 provider 只清候选列表（两家命名空间不同）
       useEffect(() => {
-        if (provider === 'minimax') {
-          if (!endpoint || endpoint === 'https://api.quickrouter.ai/v1') setEndpoint('https://api.minimax.cn/v1')
-          if (!model || model === 'gpt-image-2.5-flare-c') setModel('image-01')
-        } else {
-          if (!endpoint || endpoint === 'https://api.minimax.cn/v1') setEndpoint('https://api.quickrouter.ai/v1')
-          if (!model || model === 'image-01') setModel('gpt-image-2.5-flare-c')
-        }
-        // 两家模型命名空间不同，切换后旧的候选列表没有意义
         setModelOptions([])
       }, [provider])
       useEffect(() => {
@@ -15106,7 +15115,7 @@ window.__ModuleLoader__.load({
               provider,
               endpoint,
               key: apiKey,
-              model,
+              model: modelForRequest,
               prompt,
               size: finalSize,
               mode: mode === 'edit' ? 'edits' : 'generations',
@@ -16116,7 +16125,7 @@ window.__ModuleLoader__.load({
                 ? h(Dropdown, {
                     title: '模型（' + modelOptions.length + ' 个可选）',
                     placeholder: model || (provider === 'minimax' ? 'image-01' : '选择模型'),
-                    value: model,
+                    value: model || '',
                     options: (modelOptions.indexOf(model) >= 0 ? modelOptions : [model, ...modelOptions])
                       .filter(Boolean)
                       .map((item) => ({ value: item, label: item })),
@@ -16137,7 +16146,7 @@ window.__ModuleLoader__.load({
                     },
                   })
                 : h('input', {
-                    value: model,
+                    value: model || '',
                     placeholder: provider === 'minimax' ? 'image-01' : 'gpt-image-2.5-flare-c',
                     style: field,
                     onChange: (event) => setModel(event.target.value),
