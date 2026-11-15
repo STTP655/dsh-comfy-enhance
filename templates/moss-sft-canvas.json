@@ -1,8 +1,8 @@
 {
  "id": "602a9b4a-8b28-4c64-a19e-fb35024af9c8",
  "revision": 2,
- "last_node_id": 25,
- "last_link_id": 30,
+ "last_node_id": 26,
+ "last_link_id": 31,
  "nodes": [
   {
    "id": 4,
@@ -193,7 +193,7 @@
     {
      "name": "model",
      "type": "MODEL",
-     "link": 27
+     "link": 31
     }
    ],
    "outputs": [
@@ -839,6 +839,92 @@
     "height": 1024,
     "character_boxes": "1"
    }
+  },
+  {
+   "id": 26,
+   "type": "LazyCache",
+   "pos": [
+    108.25581677741914,
+    618.5600783323451
+   ],
+   "size": [
+    350,
+    48
+   ],
+   "flags": {},
+   "order": 11,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "模型",
+     "name": "model",
+     "type": "MODEL",
+     "link": 27
+    },
+    {
+     "localized_name": "复用阈值",
+     "name": "reuse_threshold",
+     "type": "FLOAT",
+     "widget": {
+      "name": "reuse_threshold"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "开始百分比",
+     "name": "start_percent",
+     "type": "FLOAT",
+     "widget": {
+      "name": "start_percent"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "结束百分比",
+     "name": "end_percent",
+     "type": "FLOAT",
+     "widget": {
+      "name": "end_percent"
+     },
+     "link": null
+    },
+    {
+     "localized_name": "详细日志",
+     "name": "verbose",
+     "type": "BOOLEAN",
+     "widget": {
+      "name": "verbose"
+     },
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "模型",
+     "name": "MODEL",
+     "type": "MODEL",
+     "slot_index": 0,
+     "links": [
+      31
+     ]
+    }
+   ],
+   "title": "惰性缓存",
+   "properties": {
+    "Node name for S&R": "LazyCache"
+   },
+   "widgets_values": [
+    0.2,
+    0.15,
+    0.95,
+    false
+   ],
+   "widgets_values_named": {
+    "reuse_threshold": 0.2,
+    "start_percent": 0.15,
+    "end_percent": 0.95,
+    "verbose": false
+   }
   }
  ],
  "links": [
@@ -902,7 +988,7 @@
    27,
    20,
    0,
-   15,
+   26,
    0,
    "MODEL"
   ],
@@ -929,6 +1015,14 @@
    17,
    1,
    "VAE"
+  ],
+  [
+   31,
+   26,
+   0,
+   15,
+   0,
+   "MODEL"
   ]
  ],
  "groups": [],

@@ -1,8 +1,8 @@
 {
   "id": "e8f30439-267f-45de-b260-db0d114b2c85",
   "revision": 0,
-  "last_node_id": 38,
-  "last_link_id": 78,
+  "last_node_id": 39,
+  "last_link_id": 79,
   "nodes": [
     {
       "id": 9,
@@ -734,8 +734,8 @@
         "version": 1,
         "state": {
           "lastGroupId": 6,
-          "lastNodeId": 38,
-          "lastLinkId": 78,
+          "lastNodeId": 39,
+          "lastLinkId": 79,
           "lastRerouteId": 0
         },
         "revision": 0,
@@ -1211,8 +1211,7 @@
                 "type": "MODEL",
                 "slot_index": 0,
                 "links": [
-                  1,
-                  63
+                  1
                 ]
               }
             ],
@@ -1802,7 +1801,7 @@
                 "localized_name": "model",
                 "name": "model",
                 "type": "MODEL",
-                "link": 1
+                "link": 79
               }
             ],
             "outputs": [
@@ -1889,6 +1888,93 @@
             "widgets_values_named": {
               "switch": false
             }
+          },
+          {
+            "id": 39,
+            "type": "LazyCache",
+            "pos": [
+              -150,
+              172
+            ],
+            "size": [
+              350,
+              48
+            ],
+            "flags": {},
+            "order": 15,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "模型",
+                "name": "model",
+                "type": "MODEL",
+                "link": 1
+              },
+              {
+                "localized_name": "复用阈值",
+                "name": "reuse_threshold",
+                "type": "FLOAT",
+                "widget": {
+                  "name": "reuse_threshold"
+                },
+                "link": null
+              },
+              {
+                "localized_name": "开始百分比",
+                "name": "start_percent",
+                "type": "FLOAT",
+                "widget": {
+                  "name": "start_percent"
+                },
+                "link": null
+              },
+              {
+                "localized_name": "结束百分比",
+                "name": "end_percent",
+                "type": "FLOAT",
+                "widget": {
+                  "name": "end_percent"
+                },
+                "link": null
+              },
+              {
+                "localized_name": "详细日志",
+                "name": "verbose",
+                "type": "BOOLEAN",
+                "widget": {
+                  "name": "verbose"
+                },
+                "link": null
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "模型",
+                "name": "MODEL",
+                "type": "MODEL",
+                "slot_index": 0,
+                "links": [
+                  79,
+                  63
+                ]
+              }
+            ],
+            "title": "惰性缓存",
+            "properties": {
+              "Node name for S&R": "LazyCache"
+            },
+            "widgets_values": [
+              0.2,
+              0.15,
+              0.95,
+              false
+            ],
+            "widgets_values_named": {
+              "reuse_threshold": 0.2,
+              "start_percent": 0.15,
+              "end_percent": 0.95,
+              "verbose": false
+            }
           }
         ],
         "groups": [
@@ -1962,7 +2048,7 @@
             "id": 1,
             "origin_id": 1,
             "origin_slot": 0,
-            "target_id": 15,
+            "target_id": 39,
             "target_slot": 0,
             "type": "MODEL"
           },
@@ -2064,7 +2150,7 @@
           },
           {
             "id": 63,
-            "origin_id": 1,
+            "origin_id": 39,
             "origin_slot": 0,
             "target_id": 32,
             "target_slot": 0,
@@ -2221,6 +2307,14 @@
             "target_id": 11,
             "target_slot": 6,
             "type": "INT"
+          },
+          {
+            "id": 79,
+            "origin_id": 39,
+            "origin_slot": 0,
+            "target_id": 15,
+            "target_slot": 0,
+            "type": "MODEL"
           }
         ],
         "extra": {}

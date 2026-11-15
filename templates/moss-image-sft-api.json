@@ -64,7 +64,7 @@
     "inputs": {
       "shift": 5,
       "model": [
-        "28",
+        "30",
         0
       ]
     },
@@ -185,6 +185,22 @@
       "title": "LoRA加载器（仅模型）",
       "cnr_id": "comfy-core",
       "ver": "0.43.1"
+    }
+  },
+  "30": {
+    "class_type": "LazyCache",
+    "inputs": {
+      "model": [
+        "28",
+        0
+      ],
+      "reuse_threshold": 0.2,
+      "start_percent": 0.15,
+      "end_percent": 0.95,
+      "verbose": false
+    },
+    "_meta": {
+      "title": "惰性缓存"
     }
   }
 }

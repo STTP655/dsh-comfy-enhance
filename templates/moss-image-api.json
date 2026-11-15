@@ -48,11 +48,27 @@
       "batch_size": 1
     }
   },
+  "30": {
+    "class_type": "LazyCache",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "reuse_threshold": 0.2,
+      "start_percent": 0.15,
+      "end_percent": 0.95,
+      "verbose": false
+    },
+    "_meta": {
+      "title": "惰性缓存"
+    }
+  },
   "15": {
     "class_type": "SkipLayerGuidanceDiTSimple",
     "inputs": {
       "model": [
-        "1",
+        "30",
         0
       ],
       "double_layers": "",
